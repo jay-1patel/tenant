@@ -109,8 +109,11 @@ def _parse_permissions(raw, default_all: bool = False) -> dict:
 
 
 def _effective_permissions(role: str, raw) -> dict:
-    """Super admins always get everything; sub admins get exactly what is stored."""
-    if role == "super_admin":
+    """Super admins and admins always get everything; sub admins get exactly what is stored."""
+    role_lower = (role or "").lower()
+    if role_lower == "super_admin":
+        return dict(SUPER_ADMIN_PERMISSIONS)
+    if role_lower == "admin":
         return dict(SUPER_ADMIN_PERMISSIONS)
     return _parse_permissions(raw)
 
@@ -118,7 +121,10 @@ def _effective_permissions(role: str, raw) -> dict:
 def has_permission(admin: dict, perm: str) -> bool:
     if not admin:
         return False
-    if admin.get("role") == "super_admin":
+    role_lower = (admin.get("role") or "").lower()
+    if role_lower == "super_admin":
+        return True
+    if role_lower == "admin":
         return True
     return bool(admin.get("permissions", {}).get(perm))
 
@@ -213,7 +219,7 @@ def get_current_admin(
     username = payload.get("sub")
     with get_db_context() as conn:
         admin = conn.execute(
-            "SELECT id, username, role, permissions, email FROM admins WHERE username = ?", (username,)
+            "SELECT id, username, role, permissions, email, tenant_id FROM admins WHERE username = ?", (username,)
         ).fetchone()
     if not admin:
         raise HTTPException(status_code=401, detail="Admin not found")
@@ -288,25 +294,30 @@ def require_tenant_access():
             raise HTTPException(status_code=401, detail="Not authenticated")
 
         principal = get_tenant_principal(request, credentials)
-        if principal is not None:
-            if principal["tenant_id"] != target:
-                logger.warning(
-                    "Tenant token scope violation: token for %s tried to touch %s",
-                    principal["tenant_id"], target,
-                )
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Token is scoped to tenant '{principal['tenant_id']}'",
-                )
-            return {"type": "tenant", "tenant_id": target,
-                    "label": principal.get("label", "")}
-
-        admin = get_current_admin(request, credentials)
-        if not has_permission(admin, "manage_operations"):
-            raise HTTPException(
-                status_code=403, detail="You do not have permission to manage tenant profiles"
+    if principal is not None:
+        if principal["tenant_id"] != target:
+            logger.warning(
+                "Tenant token scope violation: token for %s tried to touch %s",
+                principal["tenant_id"], target,
             )
-        return {"type": "admin", "username": admin.get("username", ""), "role": admin.get("role", "")}
+            raise HTTPException(
+                status_code=403,
+                detail=f"Token is scoped to tenant '{principal['tenant_id']}'",
+            )
+        return {"type": "tenant", "tenant_id": target,
+                "label": principal.get("label", "")}
+
+    admin = get_current_admin(request, credentials)
+    admin_role = (admin.get("role") or "").lower()
+    admin_tenant = admin.get("tenant_id")
+    if admin_role != "super_admin":
+        if admin_tenant and str(admin_tenant) != str(target):
+            raise HTTPException(status_code=403, detail="You do not have access to this tenant")
+    if not has_permission(admin, "manage_operations"):
+        raise HTTPException(
+            status_code=403, detail="You do not have permission to manage tenant profiles"
+        )
+    return {"type": "admin", "username": admin.get("username", ""), "role": admin.get("role", "")}
 
     return dependency
 
@@ -332,6 +343,7 @@ class CreateAdminRequest(BaseModel):
     role: str = "sub_admin"
     permissions: dict = None
     email: str = None
+    tenant_id: str = None
 
 
 class UpdateAdminRequest(BaseModel):
@@ -408,7 +420,7 @@ async def admin_login(request: Request, body: LoginRequest):
     """Authenticate an admin and return a JWT."""
     with get_db_context() as conn:
         admin = conn.execute(
-            "SELECT id, username, password_hash, role, permissions FROM admins WHERE username = ?",
+            "SELECT id, username, password_hash, role, permissions, tenant_id FROM admins WHERE username = ?",
             (body.username,),
         ).fetchone()
 
@@ -458,8 +470,8 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
     with get_db_context() as conn:
         try:
             conn.execute(
-                "INSERT INTO admins (username, password_hash, role, permissions, email) VALUES (?, ?, ?, ?, ?)",
-                (body.username, _hash_password(body.password), role, json.dumps(permissions), email),
+                "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (body.username, _hash_password(body.password), role, json.dumps(permissions), email, body.tenant_id or None),
             )
         except Exception:
             raise HTTPException(status_code=409, detail="Username already taken")
@@ -478,6 +490,7 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
             "email": a.get("email"),
             "role": a["role"],
             "permissions": _effective_permissions(a["role"], a["permissions"]),
+            "tenant_id": a.get("tenant_id"),
             "created_at": a.get("created_at"),
         })
     return {"admins": result}

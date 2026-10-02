@@ -60,10 +60,15 @@ def _clear_handover(wa_id: str) -> None:
         return
     try:
         conn = sqlite3.connect(ROUTING_DB_PATH)
+        row = conn.execute(
+            "SELECT tenant_id FROM user_states WHERE wa_id = ?", (wa_id,)
+        ).fetchone()
+        tid = row["tenant_id"] if row and row["tenant_id"] else None
         conn.execute(
             "UPDATE user_states SET human_handover = 0, updated_at = CURRENT_TIMESTAMP, "
-            "handover_resolved_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
-            (wa_id,),
+            "handover_resolved_at = CURRENT_TIMESTAMP WHERE wa_id = ?"
+            + (" AND tenant_id = ?" if tid else ""),
+            (wa_id, tid) if tid else (wa_id,),
         )
         conn.commit()
         conn.close()

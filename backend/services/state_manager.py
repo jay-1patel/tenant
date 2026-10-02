@@ -21,6 +21,17 @@ import time
 import logging
 from database import get_db_context
 
+
+def _tid(tenant_id=None):
+    explicit = str(tenant_id or "").strip()
+    if explicit:
+        return explicit
+    from database import get_request_tenant, _resolve_tenant
+    req = get_request_tenant()
+    if req:
+        return req
+    return _resolve_tenant()
+
 logger = logging.getLogger("state_manager")
 
 B2C_CHECKOUT_STATES = [
@@ -51,12 +62,13 @@ class OptimisticLockError(Exception):
     pass
 
 
-def get_user_state(wa_id: str) -> str | None:
+def get_user_state(wa_id: str, tenant_id: str = None) -> str | None:
     """Return current state string, or None if no record."""
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                "SELECT state FROM user_states WHERE wa_id = ?", (wa_id,)
+                "SELECT state FROM user_states WHERE tenant_id = ? AND wa_id = ?",
+                (_tid(tenant_id), wa_id),
             ).fetchone()
             return row[0] if row else None
     except Exception as e:
@@ -64,13 +76,13 @@ def get_user_state(wa_id: str) -> str | None:
         return None
 
 
-def read_user_context(wa_id: str) -> tuple[dict, int]:
+def read_user_context(wa_id: str, tenant_id: str = None) -> tuple[dict, int]:
     """Return (context_dict, version). Empty dict + 0 if no record."""
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                "SELECT context_json, version FROM user_states WHERE wa_id = ?",
-                (wa_id,),
+                "SELECT context_json, version FROM user_states WHERE tenant_id = ? AND wa_id = ?",
+                (_tid(tenant_id), wa_id),
             ).fetchone()
             if not row:
                 return {}, 0
@@ -81,14 +93,14 @@ def read_user_context(wa_id: str) -> tuple[dict, int]:
         return {}, 0
 
 
-def write_user_context(wa_id: str, context: dict, expected_version: int) -> bool:
+def write_user_context(wa_id: str, context: dict, expected_version: int, tenant_id: str = None) -> bool:
     """CAS write: update only if version matches. Returns True on success."""
     try:
         with get_db_context() as conn:
             cur = conn.execute(
                 "UPDATE user_states SET context_json = ?, version = version + 1, "
-                "updated_at = CURRENT_TIMESTAMP WHERE wa_id = ? AND version = ?",
-                (json.dumps(context), wa_id, expected_version),
+                "updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND wa_id = ? AND version = ?",
+                (json.dumps(context), _tid(tenant_id), wa_id, expected_version),
             )
             return cur.rowcount > 0
     except Exception as e:
@@ -97,7 +109,7 @@ def write_user_context(wa_id: str, context: dict, expected_version: int) -> bool
 
 
 def update_context_with_retry(
-    wa_id: str, update_fn, max_retries: int = 3
+    wa_id: str, update_fn, max_retries: int = 3, tenant_id: str = None
 ) -> dict:
     """
     Read-modify-write with optimistic-lock retry.
@@ -106,9 +118,9 @@ def update_context_with_retry(
     no DB writes, no HTTP — retries re-execute it.
     """
     for attempt in range(max_retries):
-        context, version = read_user_context(wa_id)
+        context, version = read_user_context(wa_id, tenant_id)
         update_fn(context)
-        if write_user_context(wa_id, context, expected_version=version):
+        if write_user_context(wa_id, context, expected_version=version, tenant_id=tenant_id):
             return context
         if attempt < max_retries - 1:
             time.sleep(0.05 * (attempt + 1))
@@ -118,13 +130,13 @@ def update_context_with_retry(
     )
 
 
-def save_context(wa_id: str, context: dict) -> bool:
+def save_context(wa_id: str, context: dict, tenant_id: str = None) -> bool:
     """Full-context write with retry. Returns False on persistent failure."""
     try:
         def apply(ctx):
             ctx.clear()
             ctx.update(context)
-        update_context_with_retry(wa_id, apply)
+        update_context_with_retry(wa_id, apply, tenant_id=tenant_id)
         return True
     except OptimisticLockError:
         logger.error(f"save_context: lock failed after retries for {wa_id}")
@@ -194,7 +206,7 @@ def _loads_collected(raw) -> dict:
         return {}
 
 
-def ensure_conversation_row(wa_id: str) -> None:
+def ensure_conversation_row(wa_id: str, tenant_id: str = None) -> None:
     """Create the user_states row if missing, so flow state always has a home.
 
     Idempotent and cheap. Without this a brand-new number would silently fail
@@ -203,34 +215,35 @@ def ensure_conversation_row(wa_id: str) -> None:
     try:
         with get_db_context() as conn:
             conn.execute(
-                """INSERT INTO user_states (wa_id, state, context_json, collected, status)
-                   VALUES (?, 'MAIN_MENU', '{}', '{}', ?)
-                   ON CONFLICT(wa_id) DO NOTHING""",
-                (wa_id, STATUS_BOT),
+                """INSERT INTO user_states (tenant_id, wa_id, state, context_json, collected, status)
+                   VALUES (?, ?, 'MAIN_MENU', '{}', '{}', ?)
+                   ON CONFLICT(tenant_id, wa_id) DO NOTHING""",
+                (_tid(tenant_id), wa_id, STATUS_BOT),
             )
     except Exception as e:
         logger.error(f"ensure_conversation_row failed for {wa_id}: {e}")
 
 
-def read_conversation(wa_id: str) -> dict:
+def read_conversation(wa_id: str, tenant_id: str = None) -> dict:
     """Full conversation row: state, context, tenant, flow progress, status."""
+    tid = _tid(tenant_id)
     try:
         with get_db_context() as conn:
             row = conn.execute(
                 "SELECT state, context_json, version, " + FLOW_COLUMNS +
-                " FROM user_states WHERE wa_id = ?", (wa_id,)
+                " FROM user_states WHERE tenant_id = ? AND wa_id = ?", (tid, wa_id),
             ).fetchone()
     except Exception as e:
         logger.error(f"read_conversation failed for {wa_id}: {e}")
         return {}
     if not row:
-        ensure_conversation_row(wa_id)
+        ensure_conversation_row(wa_id, tid)
         return {
             "wa_id": wa_id,
             "state": "MAIN_MENU",
             "context": {},
             "version": 0,
-            "tenant_id": None,
+            "tenant_id": tid,
             "active_flow": None,
             "current_step": None,
             "collected": {},
@@ -254,12 +267,13 @@ def read_conversation(wa_id: str) -> dict:
 
 
 
-def active_flow(wa_id: str) -> str | None:
+def active_flow(wa_id: str, tenant_id: str = None) -> str | None:
     """Name of the flow currently running for this user, or None."""
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                "SELECT active_flow FROM user_states WHERE wa_id = ?", (wa_id,)
+                "SELECT active_flow FROM user_states WHERE tenant_id = ? AND wa_id = ?",
+                (_tid(tenant_id), wa_id),
             ).fetchone()
         return (row["active_flow"] if row else None) or None
     except Exception as e:
@@ -267,11 +281,12 @@ def active_flow(wa_id: str) -> str | None:
         return None
 
 
-def get_status(wa_id: str) -> str:
+def get_status(wa_id: str, tenant_id: str = None) -> str:
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                "SELECT status FROM user_states WHERE wa_id = ?", (wa_id,)
+                "SELECT status FROM user_states WHERE tenant_id = ? AND wa_id = ?",
+                (_tid(tenant_id), wa_id),
             ).fetchone()
         return (row["status"] if row else None) or STATUS_BOT
     except Exception as e:
@@ -279,14 +294,14 @@ def get_status(wa_id: str) -> str:
         return STATUS_BOT
 
 
-def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> dict:
+def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3, tenant_id: str = None) -> dict:
     """Read-modify-write the conversation row under the same optimistic lock.
 
     ``mutate`` MUST BE PURE � it receives the conversation dict and mutates it
     in place. Retries re-execute it, so no sends, no HTTP, no nested writes.
     """
     for attempt in range(max_retries):
-        convo = read_conversation(wa_id)
+        convo = read_conversation(wa_id, tenant_id)
         if not convo:
             logger.warning(f"update_conversation_with_retry: no user_states row for {wa_id}")
             return {}
@@ -296,9 +311,9 @@ def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> 
                 cur = conn.execute(
                     "UPDATE user_states SET tenant_id = ?, active_flow = ?, current_step = ?, "
                     "collected = ?, status = ?, version = version + 1, "
-                    "updated_at = CURRENT_TIMESTAMP WHERE wa_id = ? AND version = ?",
+                    "updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND wa_id = ? AND version = ?",
                     (
-                        convo.get("tenant_id"),
+                        _tid(tenant_id) or convo.get("tenant_id"),
                         convo.get("active_flow"),
                         convo.get("current_step"),
                         json.dumps(convo.get("collected") or {}),
@@ -321,7 +336,7 @@ def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> 
 def set_tenant(wa_id: str, tenant_id: str) -> bool:
     def mutate(c):
         c["tenant_id"] = str(tenant_id)
-    return bool(update_conversation_with_retry(wa_id, mutate))
+    return bool(update_conversation_with_retry(wa_id, mutate, tenant_id=tenant_id))
 
 
 def start_flow(wa_id: str, flow_name: str, step_id: str = "") -> bool:

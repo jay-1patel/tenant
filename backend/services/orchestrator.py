@@ -40,9 +40,11 @@ async def process_incoming_message(wa_id: str, message: str) -> dict:
 
     with get_db_context() as db:
         # 1. Check Human Handover first (Global rule)
+        from database import get_request_tenant, _resolve_tenant
+        tid = get_request_tenant() or _resolve_tenant()
         user_state = db.execute(
-            "SELECT state, context_json, human_handover FROM user_states WHERE wa_id=?",
-            (wa_id,),
+            "SELECT state, context_json, human_handover FROM user_states WHERE tenant_id=? AND wa_id=?",
+            (tid, wa_id),
         ).fetchone()
         if user_state and user_state[2] == 1:  # human_handover is True
             # Admin is handling it in the React UI; do nothing.
@@ -91,14 +93,14 @@ async def process_incoming_message(wa_id: str, message: str) -> dict:
                 # Update only state/context; preserve human_handover and lang.
                 db.execute(
                     "UPDATE user_states SET state=?, context_json=?, updated_at=CURRENT_TIMESTAMP "
-                    "WHERE wa_id=?",
-                    (new_state, json.dumps(updated_context), wa_id),
+                    "WHERE tenant_id=? AND wa_id=?",
+                    (new_state, json.dumps(updated_context), tid, wa_id),
                 )
             else:
                 db.execute(
-                    "INSERT INTO user_states (wa_id, state, context_json, lang, updated_at) "
-                    "VALUES (?, ?, ?, 'en', CURRENT_TIMESTAMP)",
-                    (wa_id, new_state, json.dumps(updated_context)),
+                    "INSERT INTO user_states (tenant_id, wa_id, state, context_json, lang, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'en', CURRENT_TIMESTAMP)",
+                    (tid, wa_id, new_state, json.dumps(updated_context)),
                 )
 
     messages = drain_captured()

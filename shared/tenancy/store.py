@@ -148,7 +148,9 @@ def tenant_id_for_user(wa_id: str) -> Optional[str]:
         return None
     with _db().get_db_context() as conn:
         row = conn.execute(
-            "SELECT tenant_id FROM user_states WHERE wa_id = ?", (wa_id,)
+            "SELECT tenant_id FROM user_states WHERE wa_id = ? "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (wa_id,),
         ).fetchone()
     if not row:
         return None

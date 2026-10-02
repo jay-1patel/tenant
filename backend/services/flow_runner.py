@@ -238,6 +238,83 @@ def is_running(wa_id: str) -> bool:
     return bool(_state().active_flow(wa_id))
 
 
+def _save_integration_step(tenant_id: str, wa_id: str, flow_name: str,
+                           collected: dict) -> int | None:
+    """Persist a delivery/payment onboarding submission as a pending request.
+
+    The chatbot collected the user's provider choices and API details; this
+    writes one `integration_requests` row for a super admin to approve. On
+    approval the config is merged into the tenant's published profile.
+    """
+    try:
+        from shared.tenancy import integrations as integ
+        from database import save_integration_request
+    except Exception as exc:
+        logger.error("INTEGRATION_SAVE_FAIL | tenant=%s | %s", tenant_id, exc)
+        return None
+
+    delivery_provider = str(collected.get("delivery_provider") or "").strip().lower()
+    payment_provider = str(collected.get("payment_provider") or "").strip().lower()
+    if not delivery_provider and not payment_provider:
+        logger.error("INTEGRATION_SAVE_FAIL | tenant=%s | no providers given", tenant_id)
+        return None
+
+    # Map any free-text choice onto the registry; unknown providers are kept
+    # as-is so a super admin can still review them.
+    def _canon(kind: str, value: str) -> str:
+        value = (value or "").strip().lower()
+        for known in integ.known_providers(kind):
+            if value == known or value == integ.provider_label(kind, known).lower():
+                return known
+        return value
+
+    delivery_provider = _canon("delivery", delivery_provider)
+    payment_provider = _canon("payment", payment_provider)
+
+    delivery_config = {}
+    for field in integ.config_fields("delivery", delivery_provider):
+        key = "delivery_" + field["key"]
+        if collected.get(key):
+            delivery_config[field["key"]] = str(collected.get(key))
+    payment_config = {}
+    for field in integ.config_fields("payment", payment_provider):
+        key = "payment_" + field["key"]
+        if collected.get(key):
+            payment_config[field["key"]] = str(collected.get(key))
+
+    # Anything else the user shared for a provider that is not in the registry
+    # still travels through, keyed by its ask step.
+    for k, v in collected.items():
+        if k.startswith("delivery_") and k[len("delivery_"):] not in delivery_config:
+            delivery_config.setdefault(k[len("delivery_"):], str(v))
+        if k.startswith("payment_") and k[len("payment_"):] not in payment_config:
+            payment_config.setdefault(k[len("payment_"):], str(v))
+
+    req_id = save_integration_request(
+        tenant_id, wa_id,
+        delivery_provider, delivery_config,
+        payment_provider, payment_config,
+    )
+
+    # Alert the admin surface the way handoffs do: a pending request nobody
+    # sees is an integration that never goes live.
+    try:
+        from services.alerts import send_alert
+        send_alert(
+            "New delivery/payment integration request (id %s) from %s on tenant "
+            "'%s' — delivery: %s, payment: %s. Approve it in the admin panel." % (
+                req_id, wa_id, tenant_id,
+                integ.provider_label("delivery", delivery_provider),
+                integ.provider_label("payment", payment_provider),
+            ),
+            severity="warning",
+        )
+    except Exception:
+        pass
+
+    return req_id
+
+
 def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
     """The flow a profile menu button starts, or None.
 
@@ -467,6 +544,8 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
 
         elif step.type == "notify":
             _notify_step(profile.tenant_id, wa_id, flow.name, step, collected, lead_id)
+        elif step.type == "save_integration":
+            _save_integration_step(profile.tenant_id, wa_id, flow.name, collected)
 
         elif step.type == "handoff":
             handoff_id = _handoff(profile.tenant_id, wa_id, flow.name, step, collected)

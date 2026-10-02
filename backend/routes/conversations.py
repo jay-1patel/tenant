@@ -107,8 +107,8 @@ def list_conversations(
                 (wa_id,),
             ).fetchone()
             state = conn.execute(
-                "SELECT human_handover, state, handover_resolved_at FROM user_states WHERE wa_id = ?",
-                (wa_id,),
+                "SELECT human_handover, state, handover_resolved_at FROM user_states WHERE tenant_id = ? AND wa_id = ?",
+                (tenant_id, wa_id),
             ).fetchone()
             handover = bool(state["human_handover"]) if state else False
             threads.append({
@@ -213,12 +213,12 @@ def inbox_queue(
                 us.state AS bot_state,
                 COALESCE(us.human_handover, 0) AS human_handover
             FROM chat_history ch
-            LEFT JOIN user_states us ON us.wa_id = ch.wa_id
+            LEFT JOIN user_states us ON us.wa_id = ch.wa_id AND us.tenant_id = ?
             WHERE {_TENANT_SCOPE} {where}
             GROUP BY ch.wa_id
             ORDER BY human_handover DESC, last_message_at DESC
             """,
-            (tenant_id, tenant_id),
+            (tenant_id, tenant_id, tenant_id),
         ).fetchall()
 
         queue = []
@@ -261,7 +261,7 @@ def set_handover(
 ):
     if body.mode not in ("bot", "human"):
         raise HTTPException(status_code=400, detail="mode must be 'bot' or 'human'")
-    set_human_handover(wa_id, active=(body.mode == "human"))
+    set_human_handover(wa_id, active=(body.mode == "human"), tenant_id=tenant_id)
     logger.info(f"INBOX_HANDOVER | tenant={tenant_id} | wa={wa_id} | mode={body.mode}")
     return {"status": "ok", "wa_id": wa_id, "mode": body.mode}
 
@@ -296,7 +296,7 @@ def resolve_handoff(
     reply: bool = True,
     principal: dict = Depends(_require("view_inbox")),
 ):
-    set_human_handover(wa_id, active=False)
+    set_human_handover(wa_id, active=False, tenant_id=tenant_id)
     sent = False
     if reply:
         try:
@@ -367,7 +367,7 @@ def reply_to_customer(
     except Exception as exc:
         logger.warning(f"inbox reply: could not save chat history: {exc}")
 
-    set_human_handover(wa_id, active=True)
+    set_human_handover(wa_id, active=True, tenant_id=tenant_id)
     logger.info(f"INBOX_REPLIED | tenant={tenant_id} | wa={wa_id} | by={principal.get('username')}")
     return {"status": "ok", "wa_id": wa_id, "sent": sent}
 
@@ -561,9 +561,9 @@ def reply_complaint(
             )
 
     if body.status in ("awaiting_info", "in_progress"):
-        set_human_handover(wa_id, True)
+        set_human_handover(wa_id, True, tenant_id=tenant_id)
     elif body.status in ("resolved", "closed"):
-        set_human_handover(wa_id, False)
+        set_human_handover(wa_id, False, tenant_id=tenant_id)
 
     logger.info(f"COMPLAINT_REPLIED | tenant={tenant_id} | {ticket_id} | to={wa_id} | status={body.status or 'unchanged'}")
     return {"status": "ok", "ticket_id": ticket_id, "wa_id": wa_id, "sent": sent, "new_status": body.status}

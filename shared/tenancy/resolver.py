@@ -68,6 +68,18 @@ def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
             "Unbound WABA phone id(s) %s — falling back to tenant '%s'",
             _extract_phone_ids(payload or {}), fallback,
         )
+        try:
+            from services.alerts import send_alert
+            send_alert(
+                "Unbound WABA phone id(s) %s — messages are being "
+                "attributed to the default tenant '%s'. Bind the number to a "
+                "tenant to fix attribution." % (
+                    _extract_phone_ids(payload or {}), fallback,
+                ),
+                severity="warning",
+            )
+        except Exception:
+            pass
     return fallback
 
 

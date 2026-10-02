@@ -33,6 +33,23 @@ def _intents(*specs: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [dict(s) for s in specs]
 
 
+_SETUP_INTEGRATIONS = {
+    "name": "setup_integrations",
+    "examples": [
+        "I want to set up delivery",
+        "connect my payment gateway",
+        "add my shiprocket account",
+        "setup payment and delivery api",
+    ],
+    "keywords": [
+        "delivery api", "payment api", "delivery setup", "payment setup",
+        "setup delivery", "setup payment", "connect delivery", "connect payment",
+        "delivery partner", "payment gateway", "shiprocket", "delhivery",
+        "bluedart", "razorpay", "phonepe", "paytm",
+    ],
+    "flow": "setup_delivery_payment",
+}
+
 _GREETING = {
     "name": "greeting",
     "examples": ["hi", "hello", "hey there", "good morning"],
@@ -167,6 +184,7 @@ _ECOMMERCE = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         {"name": "catalogue_request", "examples": ["send me the brochure", "download the price list"],
          "keywords": ["catalogue", "catalog", "brochure", "price list"], "requires_feature": "brochure_pdf"},
         {"name": "new_arrivals", "examples": ["what is new", "latest releases"],
@@ -306,6 +324,7 @@ _IT_SOFTWARE = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         {"name": "service_enquiry", "examples": ["what services do you offer", "do you build mobile apps"],
          "keywords": ["service", "services", "what do you do", "capability", "capabilities",
                       "offerings", "solution", "expertise"], "requires_feature": "offerings"},
@@ -445,6 +464,7 @@ _TOURS_TRAVEL = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         {"name": "destination_details", "examples": ["tell me about Bali", "which places do you cover"],
          "keywords": ["destination", "destinations", "places", "city", "country", "where", "location",
                       "attraction", "attractions"], "requires_feature": "offerings"},
@@ -556,6 +576,7 @@ _BANKING = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         # Operational intents come FIRST: on keyword ties, a lost card must
         # outrank a product question. Informational intents sit last.
         {"name": "service_request", "examples": ["how do I activate my card", "net banking is not working"],
@@ -671,6 +692,7 @@ _FINANCE = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         # package_details before service_enquiry: "scope of your compliance
         # service" is a package question, and on the "service" keyword tie the
         # earlier intent wins.
@@ -784,6 +806,7 @@ _HEALTHCARE = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         {"name": "service_enquiry", "examples": ["do you treat knee pain", "what is physiotherapy"],
          "keywords": ["treat", "treatment", "do you treat", "symptom", "condition", "speciality",
                       "physiotherapy", "consultation"], "requires_feature": "offerings"},
@@ -876,6 +899,7 @@ _GENERIC = {
     },
     "intents": _intents(
         _GREETING,
+        _SETUP_INTEGRATIONS,
         {"name": "service_enquiry", "examples": ["what do you offer", "tell me about your services"],
          "keywords": ["service", "services", "offer", "offerings", "what do you do"],
          "requires_feature": "offerings"},
@@ -1083,6 +1107,46 @@ DEFAULT_FLOWS: List[Dict[str, Any]] = [
             {"id": "handoff_to_cart", "type": "handoff", "handoff_reason": "cart_checkout",
              "store_context": True, "next": "done"},
             {"id": "done", "type": "say", "prompt": "Your order is confirmed!"},
+        ],
+    },
+    {
+        "name": "setup_delivery_payment",
+        "intent": "setup_integrations",
+        "description": "Onboard the client's delivery and payment APIs for super-admin approval.",
+        "start_message": "",
+        "success_message": "",
+        "steps": [
+            _say("intro", "Let's connect your delivery and payment services. "
+                 "Once done, our team verifies them and your store goes live with both."),
+            _ask("ask_name", "name", "First, may I know your name?",
+                 validate="name:2", invalid="Could you share your name (at least 2 characters)?"),
+            {"id": "ask_delivery_provider", "type": "choice", "key": "delivery_provider",
+             "prompt": "Which delivery service do you use?",
+             "options": ["Shiprocket", "Delhivery", "Blue Dart", "Self / own delivery fleet"],
+             "invalid_message": "Please pick one of the delivery services listed."},
+            _ask("ask_delivery_creds", "delivery_api_details",
+                 "Please share your delivery account details (API key / token, account id"
+                 " — one message is fine).",
+                 validate="min_len:4",
+                 invalid="That looks too short to be API details. Please paste them again."),
+            {"id": "ask_payment_provider", "type": "choice", "key": "payment_provider",
+             "prompt": "Which payment app or gateway do you use?",
+             "options": ["Razorpay", "PhonePe", "Paytm", "Stripe", "UPI (collect / QR)",
+                         "Cash on delivery"],
+             "invalid_message": "Please pick one of the payment options listed."},
+            _ask("ask_payment_creds", "payment_api_details",
+                 "Please share your payment gateway details (key id / secret / merchant id"
+                 " — one message is fine).",
+                 validate="min_len:4",
+                 invalid="That looks too short to be API details. Please paste them again."),
+            {"id": "confirm", "type": "confirm", "key": "confirmed",
+             "prompt": "Shall I send these details for verification to our team?",
+             "yes_label": "Yes", "no_label": "No"},
+            {"id": "save", "type": "save_integration", "next": "done"},
+            {"id": "done", "type": "say",
+             "prompt": "Thank you! Your delivery and payment details have been submitted "
+                       "for verification. Our team will confirm shortly, and everything "
+                       "gets connected automatically once approved."},
         ],
     },
     {

@@ -50,6 +50,7 @@ from routes.offerings import router as offerings_router
 from routes.conversations import router as conversations_router
 from routes.tenant_files import router as tenant_files_router
 from routes.tenant_chat import router as tenant_chat_router
+from routes.integrations import router as integrations_router
 from routes.leads import router as leads_router
 from services.handoff_timeout import handoff_timeout_monitor
 
@@ -201,6 +202,7 @@ app.include_router(dynamic_config_router, tags=["dynamic-config"])
 app.include_router(orders_router, tags=["orders"])
 app.include_router(complaints_router, tags=["complaints"])
 app.include_router(tenants_router, tags=["tenants"])
+app.include_router(integrations_router, tags=["integrations"])
 app.include_router(offerings_router, tags=["offerings"])
 app.include_router(conversations_router, tags=["conversations"])
 app.include_router(tenant_files_router, tags=["tenant-files"])

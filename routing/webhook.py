@@ -71,7 +71,9 @@ def _is_handover_active(wa_id: str) -> bool:
     try:
         conn = sqlite3.connect(db_path)
         row = conn.execute(
-            "SELECT human_handover FROM user_states WHERE wa_id = ?", (wa_id,)
+            "SELECT human_handover FROM user_states "
+            "WHERE wa_id = ? ORDER BY updated_at DESC LIMIT 1",
+            (wa_id,),
         ).fetchone()
         conn.close()
         return row is not None and row[0] == 1

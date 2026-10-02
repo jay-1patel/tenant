@@ -34,6 +34,16 @@ def _gate(wa_id: str, feature: str = "cart"):
     """
     return guard_result(wa_id, feature)
 
+def _tid(tenant_id=None):
+    explicit = str(tenant_id or "").strip()
+    if explicit:
+        return explicit
+    from database import get_request_tenant, _resolve_tenant
+    req = get_request_tenant()
+    if req:
+        return req
+    return _resolve_tenant()
+
 logger = logging.getLogger("cart_service")
 
 CART_TTL_DAYS = 7
@@ -86,7 +96,8 @@ def get_cart(wa_id: str) -> list:
     try:
         with db.get_db_context() as conn:
             row = conn.execute(
-                "SELECT c.id, c.expires_at FROM carts c WHERE c.wa_id = ?", (wa_id,)
+                "SELECT c.id, c.expires_at FROM carts c WHERE c.tenant_id = ? AND c.wa_id = ?",
+                (_tid(), wa_id)
             ).fetchone()
             if not row:
                 return []
@@ -125,12 +136,13 @@ def get_or_create_active_cart(wa_id: str) -> dict:
             now = _utcnow()
             expires = _ts(now + timedelta(days=CART_TTL_DAYS))
             row = conn.execute(
-                "SELECT id, wa_id, created_at, updated_at, expires_at FROM carts WHERE wa_id = ?", (wa_id,)
+                "SELECT id, wa_id, created_at, updated_at, expires_at FROM carts WHERE tenant_id = ? AND wa_id = ?",
+                (_tid(), wa_id)
             ).fetchone()
             if not row:
                 cur = conn.execute(
-                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-                    (wa_id, _ts(now), _ts(now), expires),
+                    "INSERT INTO carts (tenant_id, wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                    (_tid(), wa_id, _ts(now), _ts(now), expires),
                 )
                 cart_id = cur.lastrowid
                 return {
@@ -144,8 +156,8 @@ def get_or_create_active_cart(wa_id: str) -> dict:
             if row["expires_at"] <= _ts(now):
                 conn.execute("DELETE FROM carts WHERE id = ?", (row["id"],))
                 cur = conn.execute(
-                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-                    (wa_id, _ts(now), _ts(now), expires),
+                    "INSERT INTO carts (tenant_id, wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                    (_tid(), wa_id, _ts(now), _ts(now), expires),
                 )
                 cart_id = cur.lastrowid
                 return {
@@ -238,7 +250,7 @@ def set_qty(wa_id: str, product_id: int, qty: int) -> dict:
     try:
         with db.get_db_context() as conn:
             row = conn.execute(
-                "SELECT id FROM carts WHERE wa_id = ?", (wa_id,)
+                "SELECT id FROM carts WHERE tenant_id = ? AND wa_id = ?", (_tid(), wa_id)
             ).fetchone()
             if not row:
                 return {"ok": True, "removed": True}
@@ -271,14 +283,14 @@ def clear_cart(wa_id: str) -> int:
     try:
         with db.get_db_context() as conn:
             row = conn.execute(
-                "SELECT id FROM carts WHERE wa_id = ?", (wa_id,)
+                "SELECT id FROM carts WHERE tenant_id = ? AND wa_id = ?", (_tid(), wa_id)
             ).fetchone()
             if not row:
                 return 0
             count = conn.execute(
                 "DELETE FROM cart_items WHERE cart_id = ?", (row["id"],)
             ).rowcount
-            conn.execute("DELETE FROM carts WHERE wa_id = ?", (wa_id,))
+            conn.execute("DELETE FROM carts WHERE tenant_id = ? AND wa_id = ?", (_tid(), wa_id))
             return count
     except Exception as e:
         logger.error(f"CART_CLEAR_FAIL | wa_id={wa_id} | {e}")
@@ -342,9 +354,9 @@ def start_checkout(wa_id: str) -> dict:
         with db.get_db_context() as conn:
             conn.execute(
                 """INSERT INTO checkout_sessions
-                       (id, wa_id, cart_snapshot_json, status, state, created_at, expires_at)
-                   VALUES (?, ?, ?, 'active', 'name', ?, ?)""",
-                (session_id, wa_id, json.dumps(items), _ts(now), expires),
+                       (id, tenant_id, wa_id, cart_snapshot_json, status, state, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, 'active', 'name', ?, ?)""",
+                (session_id, _tid(), wa_id, json.dumps(items), _ts(now), expires),
             )
         return {"ok": True, "session": {"id": session_id, "state": "name"}, "snapshot": {"items": items}}
     except Exception as e:
@@ -377,9 +389,9 @@ def get_active_checkout(wa_id: str) -> dict | None:
         with db.get_db_context() as conn:
             row = conn.execute(
                 """SELECT * FROM checkout_sessions
-                   WHERE wa_id = ? AND status = 'active'
+                   WHERE tenant_id = ? AND wa_id = ? AND status = 'active'
                    ORDER BY created_at DESC LIMIT 1""",
-                (wa_id,),
+                (_tid(), wa_id),
             ).fetchone()
             if row:
                 result = dict(row)
@@ -571,8 +583,8 @@ def revalidate_prices(wa_id: str) -> dict:
                         })
                         # Update the cart item with new price
                         conn.execute(
-                            "UPDATE cart_items SET price_at_add = ? WHERE cart_id = (SELECT id FROM carts WHERE wa_id = ?) AND product_id = ?",
-                            (current_price, wa_id, it["product_id"]),
+                            "UPDATE cart_items SET price_at_add = ? WHERE cart_id = (SELECT id FROM carts WHERE tenant_id = ? AND wa_id = ?) AND product_id = ?",
+                            (current_price, _tid(), wa_id, it["product_id"]),
                         )
         
         if changed_items:
@@ -685,7 +697,7 @@ def _upsert_cart_row(conn, wa_id: str) -> int:
     """Return the cart id for wa_id, creating/refreshing the 7-day TTL as needed."""
     now = _utcnow()
     expires = _ts(now + timedelta(days=CART_TTL_DAYS))
-    row = conn.execute("SELECT id FROM carts WHERE wa_id = ?", (wa_id,)).fetchone()
+    row = conn.execute("SELECT id FROM carts WHERE tenant_id = ? AND wa_id = ?", (_tid(), wa_id)).fetchone()
     if row:
         conn.execute(
             "UPDATE carts SET updated_at = ?, expires_at = ? WHERE id = ?",
@@ -693,16 +705,16 @@ def _upsert_cart_row(conn, wa_id: str) -> int:
         )
         return row["id"]
     cur = conn.execute(
-        "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-        (wa_id, _ts(now), _ts(now), expires),
+        "INSERT INTO carts (tenant_id, wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+        (_tid(), wa_id, _ts(now), _ts(now), expires),
     )
     return cur.lastrowid
 
 
 def _touch_cart(conn, wa_id: str) -> None:
     conn.execute(
-        "UPDATE carts SET updated_at = ?, expires_at = ? WHERE wa_id = ?",
+        "UPDATE carts SET updated_at = ?, expires_at = ? WHERE tenant_id = ? AND wa_id = ?",
         (_ts(_utcnow()),
          _ts(_utcnow() + timedelta(days=CART_TTL_DAYS)),
-         wa_id),
+         _tid(), wa_id),
     )

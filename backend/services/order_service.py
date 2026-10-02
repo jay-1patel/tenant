@@ -161,8 +161,10 @@ def create_order(wa_id: str,
                 "WHERE id = ?",
                 (order_number, session_id),
             )
+        from database import get_request_tenant, _resolve_tenant
+        tid = get_request_tenant() or _resolve_tenant()
         conn.execute(
-            "DELETE FROM carts WHERE wa_id = ?", (wa_id,)
+            "DELETE FROM carts WHERE tenant_id = ? AND wa_id = ?", (tid, wa_id)
         )
 
         conn.commit()

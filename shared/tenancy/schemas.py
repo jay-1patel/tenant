@@ -69,6 +69,8 @@ STEP_TYPES = (
     # data variants of save_lead + notify (implemented as composites)
     "book_appointment",
     "create_ticket",
+    # delivery/payment onboarding: persists a pending integration request
+    "save_integration",
 )
 
 
@@ -107,6 +109,32 @@ class Features(_Base):
 
     def is_on(self, flag: str) -> bool:
         return bool(getattr(self, flag, False)) if flag in FEATURE_FLAGS else False
+
+
+class DeliveryIntegration(_Base):
+    """Approved delivery provider config for a tenant."""
+    provider: str = ""
+    config: Dict[str, Any] = Field(default_factory=dict)
+    approved_by: str = ""
+    approved_at: str = ""
+
+class PaymentIntegration(_Base):
+    """Approved payment provider config for a tenant."""
+    provider: str = ""
+    config: Dict[str, Any] = Field(default_factory=dict)
+    approved_by: str = ""
+    approved_at: str = ""
+
+class IntegrationsSpec(_Base):
+    """Third-party integrations (delivery, payment) approved by a super admin."""
+    delivery: Optional[DeliveryIntegration] = None
+    payment: Optional[PaymentIntegration] = None
+
+    def delivery_ready(self) -> bool:
+        return bool(self.delivery and self.delivery.provider)
+
+    def payment_ready(self) -> bool:
+        return bool(self.payment and self.payment.provider)
 
 
 class Vocabulary(_Base):
@@ -437,6 +465,7 @@ class TenantProfile(_Base):
     guardrails: Guardrails = Field(default_factory=Guardrails)
     business_hours: BusinessHours = Field(default_factory=BusinessHours)
     notifications: Notifications = Field(default_factory=Notifications)
+    integrations: IntegrationsSpec = Field(default_factory=IntegrationsSpec)
 
     # Set by the loader, never by a client config file.
     version: int = 0
