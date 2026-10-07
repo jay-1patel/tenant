@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react'
-import { ArrowLeft, Blocks, ChevronDown, LayoutGrid, LogOut, PlusCircle, UserRound, Users, ShieldCheck, KeyRound } from 'lucide-react'
+import { ArrowLeft, Blocks, ChevronDown, LayoutGrid, LogOut, PlusCircle, UserRound, Users, ShieldCheck, KeyRound, ScrollText } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { useTenantFeatures, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
@@ -179,6 +179,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           {(identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && Boolean(identity.tenant_id) && can('manage_operations'))) && (
             <div className="border-t border-surface-line pt-3">
               {identity?.role === 'super_admin' ? (
+                <div>
                 <button
                   type="button"
                   onClick={() => navigate('/api-requests')}
@@ -192,6 +193,20 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                   <ShieldCheck className="h-4 w-4 shrink-0" />
                   API access review
                 </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/audit-history')}
+                  className={cn(
+                    'mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                    route.view === 'audit-history'
+                      ? 'bg-accent-100 font-medium text-accent-800'
+                      : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                  )}
+                >
+                  <ScrollText className="h-4 w-4 shrink-0" />
+                  Audit history
+                </button>
+                </div>
               ) : (
                 <button
                   type="button"

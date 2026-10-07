@@ -34,6 +34,7 @@ import { TeamScreen } from '@/components/team/team-screen'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
+import { AuditHistory } from '@/components/team/audit-history'
 
 function Router() {
   const route = parseRoute(useRoute())
@@ -63,6 +64,15 @@ function Router() {
     return (
       <AppShell route={route}>
         <ApiOnboardingReview />
+      </AppShell>
+    )
+  }
+
+  if (route.view === 'audit-history') {
+    if (!isSuperAdmin) return <NotPermitted what="view audit history" />
+    return (
+      <AppShell route={route}>
+        <AuditHistory />
       </AppShell>
     )
   }
@@ -168,6 +178,7 @@ const KNOWN_VIEWS = [
   'test',
   'api-access',
   'api-requests',
+  'audit-history',
 ]
 
 function ComingSoon({ view }: { view: string }) {
