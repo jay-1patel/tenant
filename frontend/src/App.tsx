@@ -34,11 +34,8 @@ import { TeamScreen } from '@/components/team/team-screen'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
-<<<<<<< HEAD
 import { AuditHistory } from '@/components/team/audit-history'
-=======
 import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
->>>>>>> 6121b3f (Update tenant features)
 
 function Router() {
   const route = parseRoute(useRoute())

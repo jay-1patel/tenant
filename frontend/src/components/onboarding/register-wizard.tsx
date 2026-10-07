@@ -42,6 +42,62 @@ const DAYS = [
   { value: 0, label: 'Sun' },
 ]
 
+/** Dropdown for the working-hours timezone — free text invited typos. */
+const TIMEZONES = [
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Asia/Singapore',
+  'Asia/Hong_Kong',
+  'Asia/Tokyo',
+  'Asia/Karachi',
+  'Asia/Dhaka',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Moscow',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Sao_Paulo',
+  'Australia/Sydney',
+  'Africa/Cairo',
+  'Africa/Johannesburg',
+  'UTC',
+]
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Country code (+91…) followed by a 10-digit number, spaces/dashes allowed.
+const normalizePhone = (value: string) => value.replace(/[\s\-()]/g, "")
+
+// Country calling codes. The subscriber part must be exactly 10 digits, so
+// "+91 741852544" (9 digits) is rejected while "+91 98765 43210" passes.
+const COUNTRY_CODES = [
+  '1', '7', '20', '27', '30', '31', '32', '33', '34', '36', '39', '40', '41', '43', '44', '45', '46', '47', '48', '49',
+  '51', '52', '53', '54', '55', '56', '57', '58', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86',
+  '90', '91', '92', '93', '94', '95', '98',
+  '212', '213', '216', '218', '220', '221', '222', '223', '224', '225', '226', '227', '228', '229', '230', '231',
+  '232', '233', '234', '235', '236', '237', '238', '239', '240', '241', '242', '243', '244', '245', '246', '248',
+  '249', '250', '251', '252', '253', '254', '255', '256', '257', '258', '260', '261', '262', '263', '264', '265',
+  '266', '267', '268', '269', '290', '291', '297', '298', '299', '350', '351', '352', '353', '354', '355', '356',
+  '357', '358', '359', '370', '371', '372', '373', '374', '375', '376', '377', '378', '380', '381', '382', '383',
+  '385', '386', '387', '389', '420', '421', '423', '500', '501', '502', '503', '504', '505', '506', '507', '508',
+  '509', '590', '591', '592', '593', '594', '595', '596', '597', '598', '599', '670', '672', '673', '674', '675',
+  '676', '677', '678', '679', '680', '681', '682', '683', '685', '686', '687', '688', '689', '690', '691', '692',
+  '850', '852', '853', '855', '856', '870', '880', '886', '960', '961', '962', '963', '964', '965', '966', '967',
+  '968', '970', '971', '972', '973', '974', '975', '976', '977', '992', '993', '994', '995', '996', '998',
+].sort((a, b) => b.length - a.length)
+
+const isValidPhone = (raw: string) => {
+  const digits = normalizePhone(raw)
+  if (!/^\+\d{9,15}$/.test(digits)) return false
+  const body = digits.slice(1)
+  const cc = COUNTRY_CODES.find((code) => body.startsWith(code))
+  if (!cc) return false
+  return /^\d{10}$/.test(body.slice(cc.length))
+}
+const WABA_ID_RE = /^\d{6,25}$/
+
 // The super admin only registers the company basics; an admin completes the
 // tenant from WhatsApp onwards, and that completion goes for approval.
 const SUPER_STEPS = [{ id: 'company', label: 'Company' }] as const
@@ -411,20 +467,28 @@ function WhatsAppStep({ draft, patch }: StepProps) {
       icon={<CalendarClock className="h-4 w-4" />}
     >
       <Input
-        label="WhatsApp phone number id"
+        label="WhatsApp phone number id *"
         value={draft.wabaPhoneId}
         onChange={(e) => patch({ wabaPhoneId: e.target.value })}
         placeholder="100012345678901"
-        hint="From the Meta Business account (WABA). Leave blank and bind it later — each number can only belong to one tenant."
+        inputMode="numeric"
+        hint="Digits only, from the Meta Business account (WABA). Each number belongs to exactly one tenant."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Input
-          label="Timezone"
+        <Select
+          label="Timezone *"
           value={draft.timezone}
           onChange={(e) => patch({ timezone: e.target.value })}
-          placeholder="Asia/Kolkata"
-        />
+          hint="Used by out-of-hours and callback logic."
+        >
+          <option value="">Select…</option>
+          {(TIMEZONES.includes(draft.timezone) || !draft.timezone ? TIMEZONES : [draft.timezone, ...TIMEZONES]).map((tz) => (
+            <option key={tz} value={tz}>
+              {tz}
+            </option>
+          ))}
+        </Select>
         <Input
           label="Opens"
           type="time"
@@ -493,7 +557,7 @@ function BrandStep({ draft, patch }: StepProps) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Bot name"
+        label="Bot name *"
           value={draft.botName}
           onChange={(e) => patch({ botName: e.target.value })}
           placeholder="Asha"
@@ -524,17 +588,19 @@ function BrandStep({ draft, patch }: StepProps) {
           placeholder="— Team Leeway"
         />
         <Input
-          label="Support email"
+          label="Support email *"
           type="email"
           value={draft.supportEmail}
           onChange={(e) => patch({ supportEmail: e.target.value })}
           placeholder="support@example.com"
         />
         <Input
-          label="Support phone"
+          label="Support phone *"
           value={draft.supportPhone}
           onChange={(e) => patch({ supportPhone: e.target.value })}
           placeholder="+91 98765 43210"
+          inputMode="tel"
+          hint="Country code followed by a 10-digit number, e.g. +91 98765 43210."
         />
       </div>
 
@@ -565,7 +631,7 @@ function CapabilitiesStep({ draft, patch }: StepProps) {
   return (
     <StepShell
       title="What should the bot be able to do?"
-      description={`Pre-selected for ${v.short}. Switch off anything you do not want — menus, intents and services all follow these flags.`}
+      description={`For ${draft.displayName || draft.companyName || "this tenant"} (${v.short}). The switches start from what the field recommends${draft.tenantId ? " — or what the tenant already uses" : ""}; menus, intents and services all follow these flags.`}
       icon={<Sparkles className="h-4 w-4" />}
     >
       <div className="rounded-lg bg-accent-50 p-4 ring-1 ring-inset ring-accent-200">
@@ -585,7 +651,7 @@ function CapabilitiesStep({ draft, patch }: StepProps) {
           <div key={group.id}>
             <SectionTitle hint={group.description}>{group.label}</SectionTitle>
             <div className="grid gap-2 sm:grid-cols-2">
-              {group.flags.map((flag) => {
+              {group.flags.filter((flag) => flag !== 'handoff').map((flag) => {
                 const meta = FEATURE_LABELS[flag]
                 return (
                   <div key={flag} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
@@ -676,10 +742,6 @@ function DomainStep({ draft, patch }: StepProps) {
 }
 
 function NotificationsStep({ draft, patch }: StepProps) {
-  const channels = draft.channels
-  const setChannel = (index: number, values: Partial<WizardDraft['channels'][number]>) =>
-    patch({ channels: channels.map((c, i) => (i === index ? { ...c, ...values } : c)) })
-
   return (
     <StepShell
       title="Where do enquiries go?"
@@ -688,7 +750,7 @@ function NotificationsStep({ draft, patch }: StepProps) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Sales / enquiries email"
+          label="Sales / enquiries email *"
           type="email"
           value={draft.salesEmail}
           onChange={(e) => patch({ salesEmail: e.target.value })}
@@ -702,55 +764,8 @@ function NotificationsStep({ draft, patch }: StepProps) {
           placeholder="support@example.com"
         />
       </div>
-      <Input
-        label="Brochure URL"
-        value={draft.brochureUrl}
-        onChange={(e) => patch({ brochureUrl: e.target.value })}
-        placeholder="https://example.com/brochure.pdf"
-        hint="Sent when a customer asks for the brochure. Leave blank to disable it."
-      />
 
-      <div>
-        <SectionTitle hint="Webhooks are signed with X-Signature-256 — the tenant's HMAC secret.">
-          Extra channels
-        </SectionTitle>
-        <div className="space-y-2.5">
-          {channels.map((channel, index) => (
-            <div key={index} className="grid items-end gap-2.5 rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line sm:grid-cols-[130px_1fr_1fr_auto]">
-              <Select
-                label="Type"
-                value={channel.type}
-                onChange={(e) => setChannel(index, { type: e.target.value as 'email' | 'webhook' })}
-              >
-                <option value="email">Email</option>
-                <option value="webhook">Webhook</option>
-              </Select>
-              <Input
-                label="Destination"
-                value={channel.to}
-                onChange={(e) => setChannel(index, { to: e.target.value })}
-                placeholder={channel.type === 'email' ? 'team@example.com' : 'https://crm.example.com/hook'}
-              />
-              <Input
-                label="Label"
-                value={channel.label}
-                onChange={(e) => setChannel(index, { label: e.target.value })}
-                placeholder="CRM"
-              />
-              <Button variant="ghost" size="sm" onClick={() => patch({ channels: channels.filter((_, i) => i !== index) })}>
-                Remove
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => patch({ channels: [...channels, { type: 'webhook', to: '', label: '' }] })}
-          >
-            Add channel
-          </Button>
-        </div>
-      </div>
+
     </StepShell>
   )
 }
@@ -848,7 +863,7 @@ function ReviewStep({
       value: (
         <span className="flex flex-wrap gap-1.5">
           {FEATURE_GROUPS.flatMap((g) => g.flags)
-            .filter((f) => on.has(f))
+            .filter((f) => on.has(f) && f !== 'handoff')
             .map((f) => (
               <span key={f} className="rounded bg-surface-panel px-1.5 py-0.5 text-xs text-slate-300">
                 {FEATURE_LABELS[f].label}
@@ -877,7 +892,7 @@ function ReviewStep({
     {
       label: 'Notifications',
       value:
-        [draft.salesEmail, draft.notificationsSupportEmail, draft.brochureUrl].filter(Boolean).join(' · ') ||
+        [draft.salesEmail, draft.notificationsSupportEmail].filter(Boolean).join(' · ') ||
         'none configured',
       step: 5,
     },
@@ -954,13 +969,24 @@ function validationError(
     case 'tenant':
       if (!tenantSelected) return 'Pick the tenant you are completing.'
       return null
-    case 'whatsapp':
+    case 'whatsapp': {
+      if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number id is required.'
+      if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()))
+        return 'The WhatsApp phone number id must contain digits only.'
+      if (!draft.timezone.trim()) return 'Select a timezone.'
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null
-    case 'brand':
-      if (!draft.botName.trim() && !draft.companyName.trim())
-        return 'Give the bot a name or a company name.'
+    }
+    case 'brand': {
+      if (!draft.botName.trim()) return 'Give the bot a name.'
+      if (!draft.supportEmail.trim()) return 'A support email is required.'
+      if (!EMAIL_RE.test(draft.supportEmail.trim()))
+        return 'The support email does not look valid.'
+      if (!draft.supportPhone.trim()) return 'A support phone number is required.'
+      if (!isValidPhone(draft.supportPhone))
+        return 'The support phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210.'
       return null
+    }
     case 'domain': {
       const v = getVertical(draft.vertical)
       const missing = v.questions.filter((q) => q.required && !answerValue(draft, q.key))
@@ -968,8 +994,11 @@ function validationError(
       return null
     }
     case 'notifications': {
-      const bad = draft.channels.find((c) => c.to.trim() && !c.to.includes('@') && !c.to.startsWith('http'))
-      if (bad) return `Channel destination looks wrong: ${bad.to}`
+      if (!draft.salesEmail.trim()) return 'A sales / enquiries email is required — leads need a destination.'
+      if (!EMAIL_RE.test(draft.salesEmail.trim()))
+        return 'The sales / enquiries email does not look valid.'
+      if (draft.notificationsSupportEmail.trim() && !EMAIL_RE.test(draft.notificationsSupportEmail.trim()))
+        return 'The notifications support email does not look valid.'
       return null
     }
     case 'guardrails':
