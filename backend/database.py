@@ -724,6 +724,7 @@ def init_db():
 
         _init_tenancy_tables(conn)
         _init_api_onboarding_tables(conn)
+        _init_integration_tables(conn)
         _init_offerings_migration(conn)
         _init_record_columns_table(conn)
         _init_conversation_state_columns(conn)
@@ -931,6 +932,72 @@ def _init_api_onboarding_tables(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_api_onboarding_events_request "
         "ON api_onboarding_request_events(request_id, id)"
+    )
+
+
+def _init_integration_tables(conn):
+    """Real connected API credentials, payment transactions, and shipping trackings."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tenant_integrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            api_type TEXT NOT NULL CHECK (api_type IN ('payment_api', 'order_api')),
+            environment TEXT NOT NULL DEFAULT 'sandbox' CHECK (environment IN ('sandbox', 'production')),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            credentials_json TEXT NOT NULL DEFAULT '{}',
+            webhook_secret TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'configured' CHECK (status IN ('configured', 'verified', 'error')),
+            last_tested_at TEXT,
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(tenant_id, provider)
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tenant_integrations_tenant ON tenant_integrations(tenant_id)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tenant_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            order_id TEXT,
+            provider TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'INR',
+            payment_id TEXT,
+            session_id TEXT,
+            payment_url TEXT,
+            status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'pending', 'paid', 'failed', 'refunded')),
+            raw_response TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tenant_payments_tenant ON tenant_payments(tenant_id, created_at DESC)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tenant_shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            order_id TEXT,
+            provider TEXT NOT NULL,
+            awb_number TEXT NOT NULL,
+            tracking_url TEXT,
+            status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'in_transit', 'out_for_delivery', 'delivered', 'returned', 'failed')),
+            origin_pincode TEXT,
+            destination_pincode TEXT,
+            customer_name TEXT,
+            customer_phone TEXT,
+            raw_response TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tenant_shipments_tenant ON tenant_shipments(tenant_id, awb_number)"
     )
 
 
