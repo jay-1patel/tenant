@@ -724,6 +724,7 @@ def init_db():
 
         _init_tenancy_tables(conn)
         _init_api_onboarding_tables(conn)
+        _init_tenant_change_tables(conn)
         _init_integration_tables(conn)
         _init_offerings_migration(conn)
         _init_record_columns_table(conn)
@@ -932,6 +933,64 @@ def _init_api_onboarding_tables(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_api_onboarding_events_request "
         "ON api_onboarding_request_events(request_id, id)"
+    )
+
+
+def _init_tenant_change_tables(conn):
+    """Tenant registrations and profile publishes queued for superadmin approval.
+
+    Admins and sub admins can prepare tenant data, but nothing goes live until
+    a super admin approves the request. The payload holds exactly what the
+    requester submitted so approval applies what was reviewed, not what the
+    draft looks like by the time the request is decided.
+    """
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tenant_change_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_type TEXT NOT NULL
+                CHECK (request_type IN ('create_tenant', 'publish_profile')),
+            tenant_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            summary TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'approved', 'rejected')),
+            requester_id INTEGER,
+            requester_username TEXT NOT NULL DEFAULT '',
+            reviewer_id INTEGER,
+            reviewer_username TEXT,
+            decision_note TEXT NOT NULL DEFAULT '',
+            decided_at TEXT,
+            applied INTEGER NOT NULL DEFAULT 0,
+            applied_version INTEGER,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_tenant_change_pending
+           ON tenant_change_requests(request_type, tenant_id) WHERE status = 'pending'"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS ix_tenant_change_tenant
+           ON tenant_change_requests(tenant_id, created_at DESC)"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tenant_change_request_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL REFERENCES tenant_change_requests(id),
+            actor_id INTEGER,
+            actor_username TEXT NOT NULL DEFAULT '',
+            actor_role TEXT NOT NULL DEFAULT '',
+            event_type TEXT NOT NULL CHECK (event_type IN ('submitted', 'decision')),
+            old_status TEXT,
+            new_status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS ix_tenant_change_events_request
+           ON tenant_change_request_events(request_id, id)"""
     )
 
 

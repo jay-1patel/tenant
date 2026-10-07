@@ -18,6 +18,8 @@ import {
   type Notifications,
   type ProfileSnapshot,
   type PromptSpec,
+  type ResolvedProfile,
+  type Tenant,
 } from './types'
 import { getVertical } from './verticals'
 
@@ -150,6 +152,58 @@ function keywordsFromAnswers(answers: WizardDraft['answers']): string[] {
     else if (typeof value === 'string') out.push(value)
   }
   return Array.from(new Set(out.map((s) => s.trim()).filter(Boolean)))
+}
+
+// ── resolved profile → wizard draft ─────────────────────────────────────────
+
+/**
+ * Prefill the registration wizard from a tenant's resolved profile, so an
+ * admin completing a super admin's registration starts from what is already
+ * there instead of the vertical defaults.
+ */
+export function draftFromProfile(profile: ResolvedProfile, tenant: Tenant): WizardDraft {
+  const brand: Partial<Brand> = profile.brand ?? {}
+  const hours: Partial<BusinessHours> = profile.business_hours ?? {}
+  const notes: Partial<Notifications> = profile.notifications ?? {}
+  const rails: Partial<Guardrails> = profile.guardrails ?? {}
+  const v = getVertical(String(profile.vertical ?? tenant.vertical ?? 'generic'))
+
+  return {
+    ...emptyDraft(),
+    companyName: brand.name || tenant.display_name || tenant.id,
+    tenantId: tenant.id,
+    displayName: tenant.display_name || brand.name || tenant.id,
+    vertical: String(profile.vertical ?? tenant.vertical ?? 'generic'),
+    website: brand.website ?? '',
+    wabaPhoneId: tenant.waba_phone_id ?? '',
+    timezone: hours.timezone ?? 'Asia/Kolkata',
+    alwaysOpen: hours.always_open ?? true,
+    openTime: hours.open ?? '09:00',
+    closeTime: hours.close ?? '21:00',
+    openDays: Array.isArray(hours.open_days) ? hours.open_days : [0, 1, 2, 3, 4, 5, 6],
+    outOfHoursMessage: hours.out_of_hours_message ?? '',
+    botName: brand.bot_name ?? '',
+    tagline: brand.tagline ?? '',
+    signature: brand.signature ?? '',
+    tone: v.tone,
+    supportEmail: brand.support_email ?? '',
+    supportPhone: brand.support_phone ?? '',
+    greeting: (profile.menu as { body?: string } | null)?.body ?? '',
+    features: FEATURE_FLAGS.filter((f) => Boolean(profile.features?.[f])),
+    salesEmail: notes.sales_email ?? '',
+    notificationsSupportEmail: notes.support_email ?? '',
+    brochureUrl: notes.brochure_url ?? '',
+    channels: (notes.channels ?? []).map((c) => ({
+      type: c.type === 'email' ? 'email' : 'webhook',
+      to: c.to ?? '',
+      label: c.label ?? '',
+    })),
+    neverState: (rails.never_state ?? []).join('\n'),
+    escalateKeywords: rails.escalate_keywords ?? [],
+    forbiddenTerms: rails.forbidden_terms ?? [],
+    handoffKeywords: rails.handoff_keywords?.length ? rails.handoff_keywords : ['human', 'agent'],
+    escalationMessage: rails.escalation_message ?? '',
+  }
 }
 
 // ── wizard → snapshot ──────────────────────────────────────────────────────

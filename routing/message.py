@@ -419,6 +419,30 @@ def get_greeting_response(text: str) -> str:
 
 
 async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None):
+    # A tenant that switched the FAQ or KB substrate off gets the profile's
+    # polite refusal instead of an answer from a pipeline it disabled. The
+    # refusal is returned as a normal answer so callers send it unchanged;
+    # no fallback to the other pipeline is attempted for a disabled feature.
+    if wa_id:
+        try:
+            from shared.tenancy.gating import guard_result
+            feature = "faq" if query_type == "faq" else "kb"
+            blocked = guard_result(wa_id, feature)
+        except Exception as exc:
+            logger.debug(f"{query_type} gate unavailable: {exc}")
+            blocked = None
+        if blocked:
+            logger.info(f"{feature.upper()}_BLOCKED | {wa_id} | {feature} off for tenant")
+            return {
+                "answer": blocked["message"],
+                "media_url": None,
+                "media_type": None,
+                "whatsapp_sent": False,
+                "interactive": None,
+                "query_type": query_type,
+                "disabled": feature,
+            }
+
     if query_type == "faq":
         from backend.faq.service import handle_faq_query
         data = await handle_faq_query({"message": user_text, "wa_id": wa_id})

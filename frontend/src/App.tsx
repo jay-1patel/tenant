@@ -34,7 +34,11 @@ import { TeamScreen } from '@/components/team/team-screen'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
+<<<<<<< HEAD
 import { AuditHistory } from '@/components/team/audit-history'
+=======
+import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
+>>>>>>> 6121b3f (Update tenant features)
 
 function Router() {
   const route = parseRoute(useRoute())
@@ -42,12 +46,32 @@ function Router() {
   const { identity } = useAuth()
 
   if (route.view === 'register') {
-    if (!canManageTenants) return <NotPermitted what="register tenants" />
+    // Admins can view and edit the registration panel; their submission goes
+    // to the super admin approval queue instead of publishing directly.
+    if (!canManageTenants && identity?.role !== 'admin') return <NotPermitted what="register tenants" />
     return (
       <AppShell route={route}>
         <RegisterWizard />
       </AppShell>
     )
+  }
+
+  if (route.view === 'tenant-requests') {
+    if (isSuperAdmin) {
+      return (
+        <AppShell route={route}>
+          <TenantChangeReview />
+        </AppShell>
+      )
+    }
+    if (identity && (identity.role === 'admin' || identity.role === 'sub_admin') && canManageTenants) {
+      return (
+        <AppShell route={route}>
+          <MyTenantChangeRequests />
+        </AppShell>
+      )
+    }
+    return <NotPermitted what="view tenant change requests" />
   }
 
   if (route.view === 'team') {
@@ -177,6 +201,7 @@ const KNOWN_VIEWS = [
   'tokens',
   'test',
   'api-access',
+  'tenant-requests',
   'api-requests',
   'audit-history',
 ]

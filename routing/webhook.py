@@ -149,12 +149,33 @@ def _find_doc_by_source(source_stem: str):
     return None
 
 
+def _handover_blocked(wa_id: str):
+    """Refusal payload when this user's tenant has human_handover switched off.
+
+    Returns None when the feature is on (or tenancy is unavailable), so the
+    legacy single-tenant behaviour is untouched.
+    """
+    try:
+        from shared.tenancy.gating import guard_result
+        return guard_result(wa_id, "human_handover")
+    except Exception as exc:
+        logger.debug(f"handover gate unavailable: {exc}")
+        return None
+
+
 async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, start_time: float) -> bool:
     """Execute a registry button action directly. Returns True if handled."""
     kind = action.get("kind")
     payload = action.get("payload", "")
 
     if kind == "handover":
+        blocked = _handover_blocked(wa_id)
+        if blocked:
+            save_chat(wa_id, sender_name, action["title"], blocked["message"], "refusal")
+            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                send_whatsapp_message(wa_id, blocked["message"])
+            logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
+            return True
         _set_human_handover(wa_id, enabled=True)
         save_chat(wa_id, sender_name, action["title"], HANDOVER_CONFIRMATION, "human_handover")
         if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -245,6 +266,15 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
 
         # ── CHECK IF USER WANTS A HUMAN AGENT ───────────────────────────
         if _wants_human_agent(user_text):
+            blocked = _handover_blocked(wa_id)
+            if blocked:
+                # The tenant switched human handover off: refuse politely and
+                # let the bot keep the conversation.
+                save_chat(wa_id, sender_name, user_text, blocked["message"], "refusal")
+                if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    send_whatsapp_message(wa_id, blocked["message"])
+                logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
+                return
             _set_human_handover(wa_id, enabled=True)
             save_chat(wa_id, sender_name, user_text, HANDOVER_CONFIRMATION, "human_handover")
             if config.SEND2_USERNAME and config.SEND2_PASSWORD:

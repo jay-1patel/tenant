@@ -12,13 +12,16 @@ import {
   Sparkles,
   Webhook,
 } from 'lucide-react'
-import { applyVertical, draftToSnapshot, emptyDraft, slugify, type WizardDraft } from '@/lib/profile'
+import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, type WizardDraft } from '@/lib/profile'
 import { useAction } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
+import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
 import { FEATURE_GROUPS, FEATURE_LABELS, VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
-import type { FeatureFlag } from '@/lib/types'
+import type { FeatureFlag, Tenant } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
 import { Input, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -39,8 +42,12 @@ const DAYS = [
   { value: 0, label: 'Sun' },
 ]
 
-const STEPS = [
-  { id: 'company', label: 'Company' },
+// The super admin only registers the company basics; an admin completes the
+// tenant from WhatsApp onwards, and that completion goes for approval.
+const SUPER_STEPS = [{ id: 'company', label: 'Company' }] as const
+
+const ADMIN_STEPS = [
+  { id: 'tenant', label: 'Tenant' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'brand', label: 'Brand & voice' },
   { id: 'capabilities', label: 'Capabilities' },
@@ -50,58 +57,99 @@ const STEPS = [
   { id: 'review', label: 'Review' },
 ] as const
 
+type StepId = (typeof SUPER_STEPS | typeof ADMIN_STEPS)[number]['id']
+
 export function RegisterWizard() {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<WizardDraft>(emptyDraft)
   const { reload, tenants } = useTenants()
+  const { identity } = useAuth()
   const action = useAction()
   const toast = useToast()
+
+  const isSuperAdmin = identity?.role === 'super_admin'
+  const steps = isSuperAdmin ? SUPER_STEPS : ADMIN_STEPS
+  const stepId = steps[step].id as StepId
 
   const patch = (values: Partial<WizardDraft>) => setDraft((d) => ({ ...d, ...values }))
 
   const tenantIdTaken = tenants.some((t) => t.id === draft.tenantId.trim())
+  const error = useMemo(
+    () => validationError(stepId, draft, tenantIdTaken, Boolean(draft.tenantId.trim())),
+    [stepId, draft, tenantIdTaken],
+  )
 
-  const error = useMemo(() => validationError(step, draft, tenantIdTaken), [step, draft, tenantIdTaken])
+  /** Load the selected tenant's resolved profile into the wizard draft. */
+  const pickTenant = async (tenantId: string) => {
+    const tenant = tenants.find((t) => t.id === tenantId)
+    if (!tenant) return
+    const profile = await action.run(() => tenantsApi.resolved(tenantId))
+    if (profile) {
+      setDraft(draftFromProfile(profile, tenant))
+    } else {
+      // A tenant the resolver cannot build yet still keeps its basics.
+      setDraft({ ...emptyDraft(), companyName: tenant.display_name || tenant.id, tenantId: tenant.id, displayName: tenant.display_name, vertical: tenant.vertical })
+    }
+  }
 
   const submit = async () => {
-    const created = await action.run(() =>
-      tenantsApi.create({
-        tenant_id: draft.tenantId.trim(),
-        slug: draft.tenantId.trim(),
-        vertical: draft.vertical,
-        display_name: draft.displayName || draft.companyName,
-        waba_phone_id: draft.wabaPhoneId.trim(),
-        status: 'active',
-      }),
-    )
-    if (!created) return
+    if (isSuperAdmin) {
+      // The super admin registers the company only. No publish: an admin
+      // completes the tenant, and that completion needs approval.
+      const created = await action.run(() =>
+        tenantsApi.create({
+          tenant_id: draft.tenantId.trim(),
+          slug: draft.tenantId.trim(),
+          vertical: draft.vertical,
+          display_name: draft.displayName || draft.companyName,
+          status: 'active',
+        }),
+      )
+      if (!created) return
 
-    const id = created.tenant.id
-    const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
-    if (!saved) return
+      const id = created.tenant.id
+      const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
+      if (!saved) return
 
-    const published = await action.run(() => tenantsApi.publish(id))
-    if (!published) {
-      toast.push('Draft saved but publishing failed — open the tenant and fix the profile.', 'error')
+      toast.push(`${draft.companyName} registered. An admin can now complete it from WhatsApp onwards.`)
       reload()
-      navigate(`/tenants/${encodeURIComponent(id)}/profile`)
+      navigate(`/tenants/${encodeURIComponent(id)}/overview`)
       return
     }
 
-    toast.push(`${draft.companyName} is live on version ${published.version}`)
+    // Admin: bind the WhatsApp number, save the completed data as the
+    // tenant's draft, then queue the publish for super admin approval.
+    const id = draft.tenantId.trim()
+    if (draft.wabaPhoneId.trim()) {
+      const bound = await action.run(() => tenantsApi.bindPhone(id, draft.wabaPhoneId.trim()))
+      if (!bound) return
+    }
+    const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
+    if (!saved) return
+    if ((saved.validation ?? []).length) {
+      toast.push('Draft has validation warnings — review them before submitting.', 'error')
+      return
+    }
+    const submitted = await action.run(() => tenantApprovalsApi.submitPublish(id))
+    if (!submitted) return
+    toast.push(`${draft.companyName} submitted — a super admin must approve it before it goes live.`)
     reload()
-    navigate(`/tenants/${encodeURIComponent(id)}/overview`)
+    navigate('/tenant-requests')
   }
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Register a tenant"
-        description="Answer these and the console builds the tenant's profile: its menu, intents, flows, vocabulary and guardrails. Nothing here is hardcoded afterwards — publish a new version any time."
+        description={
+          isSuperAdmin
+            ? 'Register the company basics — name, id and business field. An admin then completes the tenant from WhatsApp onwards, and their submission goes for your approval before anything goes live.'
+            : 'Pick a tenant the super admin registered, then complete it from WhatsApp onwards. Your submission goes to a super admin for approval before anything goes live.'
+        }
       />
 
       <ol className="mb-7 flex flex-wrap gap-1.5">
-        {STEPS.map((s, index) => {
+        {steps.map((s, index) => {
           const state = index === step ? 'current' : index < step ? 'done' : 'todo'
           return (
             <li key={s.id} className="flex items-center gap-1.5">
@@ -120,21 +168,29 @@ export function RegisterWizard() {
                 {state === 'done' ? <Check className="h-3 w-3" /> : <span>{index + 1}</span>}
                 {s.label}
               </button>
-              {index < STEPS.length - 1 && <span className="text-slate-600">/</span>}
+              {index < steps.length - 1 && <span className="text-slate-600">/</span>}
             </li>
           )
         })}
       </ol>
 
       <Card>
-        {step === 0 && <CompanyStep draft={draft} patch={patch} />}
-        {step === 1 && <WhatsAppStep draft={draft} patch={patch} />}
-        {step === 2 && <BrandStep draft={draft} patch={patch} />}
-        {step === 3 && <CapabilitiesStep draft={draft} patch={patch} />}
-        {step === 4 && <DomainStep draft={draft} patch={patch} />}
-        {step === 5 && <NotificationsStep draft={draft} patch={patch} />}
-        {step === 6 && <GuardrailsStep draft={draft} patch={patch} />}
-        {step === 7 && <ReviewStep draft={draft} onEdit={setStep} />}
+        {stepId === 'tenant' && <TenantStep draft={draft} tenants={tenants} onPick={pickTenant} />}
+        {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
+        {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
+        {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
+        {stepId === 'capabilities' && <CapabilitiesStep draft={draft} patch={patch} />}
+        {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
+        {stepId === 'notifications' && <NotificationsStep draft={draft} patch={patch} />}
+        {stepId === 'guardrails' && <GuardrailsStep draft={draft} patch={patch} />}
+        {stepId === 'review' && (
+          <ReviewStep
+            draft={draft}
+            onEdit={setStep}
+            approvalMode={!isSuperAdmin}
+            companyEditable={isSuperAdmin}
+          />
+        )}
 
         {action.error && (
           <div className="px-5 pb-4">
@@ -154,7 +210,7 @@ export function RegisterWizard() {
             Back
           </Button>
 
-          {step < STEPS.length - 1 ? (
+          {step < steps.length - 1 ? (
             <Button
               variant="primary"
               disabled={Boolean(error)}
@@ -170,16 +226,16 @@ export function RegisterWizard() {
               onClick={submit}
               icon={<Rocket className="h-4 w-4" />}
             >
-              Create and publish
+              {isSuperAdmin ? 'Create tenant' : 'Submit for approval'}
             </Button>
           )}
         </div>
       </Card>
 
-      {error && step < STEPS.length - 1 && (
+      {error && step < steps.length - 1 && (
         <p className="mt-3 text-xs text-amber-700/80">{error}</p>
       )}
-      {tenantIdTaken && step === 0 && (
+      {isSuperAdmin && tenantIdTaken && stepId === 'company' && (
         <Alert tone="warning" className="mt-4">
           A tenant with this id already exists. Pick another id, or cancel and edit the existing tenant instead.
         </Alert>
@@ -189,6 +245,66 @@ export function RegisterWizard() {
 }
 
 // ── steps ──────────────────────────────────────────────────────────────────
+
+/**
+ * Admin-only first step: pick one of the tenants the super admin registered.
+ * The company basics were entered by the super admin and are read-only here.
+ */
+function TenantStep({
+  draft,
+  tenants,
+  onPick,
+}: {
+  draft: WizardDraft
+  tenants: Tenant[]
+  onPick: (tenantId: string) => void
+}) {
+  return (
+    <StepShell
+      title="Which tenant are you completing?"
+      description="The super admin registered the company basics. Pick the tenant, then complete it from WhatsApp onwards — your data goes to a super admin for approval."
+      icon={<Building2 className="h-4 w-4" />}
+    >
+      <div className="space-y-2.5">
+        {tenants.length === 0 && (
+          <p className="text-sm text-slate-400">
+            No tenants yet. A super admin registers the company first from this same panel.
+          </p>
+        )}
+        {tenants.map((tenant) => {
+          const vertical = getVertical(tenant.vertical)
+          const active = draft.tenantId === tenant.id
+          return (
+            <button
+              key={tenant.id}
+              type="button"
+              onClick={() => onPick(tenant.id)}
+              className={`flex w-full items-center gap-3 rounded-lg p-3.5 text-left ring-1 ring-inset transition ${
+                active ? 'bg-accent-100 ring-accent-400' : 'bg-surface-panel ring-surface-line hover:bg-accent-50'
+              }`}
+            >
+              <VerticalGlyph
+                name={vertical.icon}
+                className={`h-5 w-5 shrink-0 ${active ? 'text-accent-700' : 'text-slate-500'}`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-slate-100">
+                  {tenant.display_name || tenant.id}
+                </span>
+                <span className="mt-0.5 block font-mono text-xs text-slate-500">
+                  {tenant.id} · {vertical.short}
+                </span>
+              </span>
+              <Badge tone={tenant.current_version ? 'success' : 'warning'}>
+                {tenant.current_version ? `live v${tenant.current_version}` : 'awaiting completion'}
+              </Badge>
+            </button>
+          )
+        })}
+      </div>
+    </StepShell>
+  )
+}
 
 function StepShell({
   title,
@@ -693,7 +809,17 @@ function GuardrailsStep({ draft, patch }: StepProps) {
   )
 }
 
-function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: number) => void }) {
+function ReviewStep({
+  draft,
+  onEdit,
+  approvalMode,
+  companyEditable,
+}: {
+  draft: WizardDraft
+  onEdit: (step: number) => void
+  approvalMode: boolean
+  companyEditable: boolean
+}) {
   const v = getVertical(draft.vertical)
   const on = new Set(draft.features)
   const answers = Object.entries(draft.answers).filter(([, value]) =>
@@ -764,8 +890,12 @@ function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: numb
 
   return (
     <StepShell
-      title="Review and publish"
-      description="Creating the tenant registers it, saves this as the draft, then publishes version 1. If validation fails, nothing is published and you can fix it in the profile editor."
+      title={approvalMode ? 'Review and submit' : 'Review and publish'}
+      description={
+        approvalMode
+          ? 'Submitting sends everything you added to a super admin for approval. The company basics were set by the super admin and stay read-only. Nothing goes live until they accept it.'
+          : 'Creating the tenant registers it, saves this as the draft, then publishes version 1. If validation fails, nothing is published and you can fix it in the profile editor.'
+      }
       icon={<BadgeCheck className="h-4 w-4" />}
     >
       <div className="divide-y divide-surface-line rounded-lg ring-1 ring-inset ring-surface-line">
@@ -775,20 +905,22 @@ function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: numb
             <span className="min-w-0 flex-1 text-xs text-slate-200">
               {typeof row.value === 'string' ? row.value : row.value}
             </span>
-            <button
-              type="button"
-              onClick={() => onEdit(row.step)}
-              className="shrink-0 text-xs text-accent-700 hover:text-accent-700"
-            >
-              Edit
-            </button>
+            {(companyEditable || row.step > 0) && (
+              <button
+                type="button"
+                onClick={() => onEdit(row.step)}
+                className="shrink-0 text-xs text-accent-700 hover:text-accent-700"
+              >
+                Edit
+              </button>
+            )}
           </div>
         ))}
       </div>
 
-      <Alert tone="info" title="What publishing does">
-        The snapshot is merged over the {v.short} defaults, validated, stored as an immutable version, and the
-        runtime cache is purged — so the next message is answered by the profile above.
+      <Alert tone="info" title="What approval does">
+        On approval the snapshot is merged over the {v.short} defaults, validated, stored as an immutable
+        version, and the runtime cache is purged — so the next message is answered by the profile above.
       </Alert>
     </StepShell>
   )
@@ -807,32 +939,40 @@ function answerValue(draft: WizardDraft, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-function validationError(step: number, draft: WizardDraft, idTaken: boolean): string | null {
-  switch (step) {
-    case 0:
+function validationError(
+  stepId: StepId,
+  draft: WizardDraft,
+  idTaken: boolean,
+  tenantSelected: boolean,
+): string | null {
+  switch (stepId) {
+    case 'company':
       if (!draft.companyName.trim()) return 'A company name is required.'
       if (!draft.tenantId.trim()) return 'A tenant id is required.'
       if (idTaken) return 'That tenant id is already registered.'
       return null
-    case 1:
+    case 'tenant':
+      if (!tenantSelected) return 'Pick the tenant you are completing.'
+      return null
+    case 'whatsapp':
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null
-    case 2:
+    case 'brand':
       if (!draft.botName.trim() && !draft.companyName.trim())
         return 'Give the bot a name or a company name.'
       return null
-    case 4: {
+    case 'domain': {
       const v = getVertical(draft.vertical)
       const missing = v.questions.filter((q) => q.required && !answerValue(draft, q.key))
       if (missing.length) return `Still needed: ${missing.map((q) => q.label).join(', ')}.`
       return null
     }
-    case 5: {
+    case 'notifications': {
       const bad = draft.channels.find((c) => c.to.trim() && !c.to.includes('@') && !c.to.startsWith('http'))
       if (bad) return `Channel destination looks wrong: ${bad.to}`
       return null
     }
-    case 6:
+    case 'guardrails':
       if (draft.forbiddenTerms.some((t) => draft.neverState.toLowerCase().includes(t.toLowerCase())))
         return 'A forbidden term also appears in your "never state" list.'
       return null

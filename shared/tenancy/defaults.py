@@ -45,6 +45,7 @@ _CONTACT_HUMAN = {
     # No bare "someone" — it matched "someone used my card" (fraud!) and any
     # sentence containing the word. Phrases only.
     "keywords": ["human", "agent", "person", "executive", "manager", "speak to someone"],
+    "requires_feature": "human_handover",
     "flow": "book_callback",
 }
 
@@ -162,7 +163,7 @@ _ECOMMERCE = {
             {"id": "menu_view_cart", "title": "View Cart", "description": "See items in your cart",
              "section": "🆘 Support", "icon": "🛒", "sort_order": 8, "requires_feature": "cart"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our support team",
-             "section": "🆘 Support", "icon": "🙋", "sort_order": 9, "flow": "book_callback"},
+             "section": "🆘 Support", "icon": "🙋", "sort_order": 9, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -304,7 +305,7 @@ _IT_SOFTWARE = {
             {"id": "menu_support", "title": "Support", "description": "Existing client support",
              "section": "📞 Talk To Us", "icon": "🆘", "sort_order": 8, "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 9, "flow": "book_callback"},
+             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 9, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -473,7 +474,7 @@ _TOURS_TRAVEL = {
             {"id": "menu_support", "title": "Support", "description": "Existing booking support",
              "section": "📞 Talk To Us", "icon": "🆘", "sort_order": 7, "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 8, "flow": "book_callback"},
+             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 8, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -584,7 +585,7 @@ _BANKING = {
             {"id": "menu_branch", "title": "Branch & Support", "description": "Find us / contact support",
              "section": "🆘 Support", "icon": "📍", "sort_order": 6},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "🆘 Support", "icon": "🙋", "sort_order": 7, "flow": "book_callback"},
+             "section": "🆘 Support", "icon": "🙋", "sort_order": 7, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -699,7 +700,7 @@ _FINANCE = {
             {"id": "menu_support", "title": "Support", "description": "Existing client support",
              "section": "📞 Talk To Us", "icon": "🆘", "sort_order": 5, "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 6, "flow": "book_callback"},
+             "section": "📞 Talk To Us", "icon": "🙋", "sort_order": 6, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -812,7 +813,7 @@ _HEALTHCARE = {
              "section": "🆘 Support", "icon": "📝", "sort_order": 4, "requires_feature": "complaints",
              "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "🆘 Support", "icon": "🙋", "sort_order": 5, "flow": "book_callback"},
+             "section": "🆘 Support", "icon": "🙋", "sort_order": 5, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -904,7 +905,7 @@ _GENERIC = {
              "section": "Support", "icon": "📝", "sort_order": 3, "requires_feature": "complaints",
              "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "Support", "icon": "🙋", "sort_order": 4, "flow": "book_callback"},
+             "section": "Support", "icon": "🙋", "sort_order": 4, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(

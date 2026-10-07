@@ -4,6 +4,7 @@ import secrets
 import uuid
 import hashlib
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import bcrypt
 import jwt
@@ -347,7 +348,7 @@ def require_tenant_access():
 class FirstAdminRequest(BaseModel):
     username: str
     password: str
-    email: str = None
+    email: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -359,16 +360,16 @@ class CreateAdminRequest(BaseModel):
     username: str
     password: str
     role: str = "sub_admin"
-    permissions: dict = None
-    email: str = None
-    tenant_id: str = None
+    permissions: Optional[dict] = None
+    email: Optional[str] = None
+    tenant_id: Optional[str] = None
 
 
 class UpdateAdminRequest(BaseModel):
-    role: str = None
-    permissions: dict = None
-    email: str = None
-    tenant_id: str = None
+    role: Optional[str] = None
+    permissions: Optional[dict] = None
+    email: Optional[str] = None
+    tenant_id: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):

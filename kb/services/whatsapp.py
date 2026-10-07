@@ -1424,7 +1424,7 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     import re
 
     # New button-based menu IDs
-    if selected_id in ("menu_catalogue", "menu_catalog"):
+    if selected_id in ("menu_catalogue", "menu_catalog", "menu_brochure"):
         return send_catalogue_pdf(wa_id)
     if selected_id == "menu_browse":
         return send_products_by_category(wa_id)

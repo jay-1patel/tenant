@@ -117,6 +117,16 @@ def create_tenant(
     body: TenantCreate,
     current_admin: dict = Depends(require_permission("manage_operations")),
 ):
+    if current_admin.get("role") != "super_admin":
+        # Admins and sub admins register tenants through the approval queue;
+        # only a super admin's approval creates the tenant.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Tenant registration by an admin needs super admin approval — "
+                "submit it via POST /api/tenant-change-requests"
+            ),
+        )
     tid = str(body.tenant_id or "").strip()
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_id is required")
@@ -376,7 +386,12 @@ def publish_profile(
     tenant_id: str,
     principal: dict = Depends(require_tenant_access()),
 ):
-    """Validate the merged profile, append a version, go live, purge the cache."""
+    """Validate the merged profile, append a version, go live, purge the cache.
+
+    Publishing is direct for every admin with access — the super admin
+    approval queue is only for registrations/completions submitted through
+    the Register a tenant panel (POST /api/tenant-change-requests).
+    """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
