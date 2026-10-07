@@ -23,6 +23,40 @@ import {
 } from './types'
 import { getVertical } from './verticals'
 
+// ── shared wizard/editor data ───────────────────────────────────────────────
+
+/**
+ * The timezone dropdown shared by the registration wizard and the profile
+ * editor — free text invited typos that broke the out-of-hours logic.
+ */
+export const TIMEZONES = [
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Asia/Singapore',
+  'Asia/Hong_Kong',
+  'Asia/Tokyo',
+  'Asia/Karachi',
+  'Asia/Dhaka',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Moscow',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Sao_Paulo',
+  'Australia/Sydney',
+  'Africa/Cairo',
+  'Africa/Johannesburg',
+  'UTC',
+]
+
+/** The dropdown's option list, keeping a stored value that is not in the list. */
+export function timezoneOptions(current: string): string[] {
+  return TIMEZONES.includes(current) || !current ? TIMEZONES : [current, ...TIMEZONES]
+}
+
 // ── wizard form state ──────────────────────────────────────────────────────
 
 export interface ChannelDraft {

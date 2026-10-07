@@ -12,14 +12,14 @@ import {
   Sparkles,
   Webhook,
 } from 'lucide-react'
-import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, type WizardDraft } from '@/lib/profile'
+import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, timezoneOptions, type WizardDraft } from '@/lib/profile'
 import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
 import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
-import { FEATURE_GROUPS, FEATURE_LABELS, VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
-import type { FeatureFlag, Tenant } from '@/lib/types'
+import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
+import type { Tenant } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -43,28 +43,6 @@ const DAYS = [
 ]
 
 /** Dropdown for the working-hours timezone — free text invited typos. */
-const TIMEZONES = [
-  'Asia/Kolkata',
-  'Asia/Dubai',
-  'Asia/Singapore',
-  'Asia/Hong_Kong',
-  'Asia/Tokyo',
-  'Asia/Karachi',
-  'Asia/Dhaka',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'Europe/Moscow',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Sao_Paulo',
-  'Australia/Sydney',
-  'Africa/Cairo',
-  'Africa/Johannesburg',
-  'UTC',
-]
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // Country code (+91…) followed by a 10-digit number, spaces/dashes allowed.
@@ -106,7 +84,6 @@ const ADMIN_STEPS = [
   { id: 'tenant', label: 'Tenant' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'brand', label: 'Brand & voice' },
-  { id: 'capabilities', label: 'Capabilities' },
   { id: 'domain', label: 'Your business' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'guardrails', label: 'Guardrails' },
@@ -235,7 +212,6 @@ export function RegisterWizard() {
         {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
         {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
         {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
-        {stepId === 'capabilities' && <CapabilitiesStep draft={draft} patch={patch} />}
         {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
         {stepId === 'notifications' && <NotificationsStep draft={draft} patch={patch} />}
         {stepId === 'guardrails' && <GuardrailsStep draft={draft} patch={patch} />}
@@ -483,7 +459,7 @@ function WhatsAppStep({ draft, patch }: StepProps) {
           hint="Used by out-of-hours and callback logic."
         >
           <option value="">Select…</option>
-          {(TIMEZONES.includes(draft.timezone) || !draft.timezone ? TIMEZONES : [draft.timezone, ...TIMEZONES]).map((tz) => (
+          {timezoneOptions(draft.timezone).map((tz) => (
             <option key={tz} value={tz}>
               {tz}
             </option>
@@ -616,59 +592,6 @@ function BrandStep({ draft, patch }: StepProps) {
         The bot will call your offerings <strong>{v.nouns.item}</strong> and your enquiries{' '}
         <strong>{v.nouns.lead}</strong>. You can override every one of these later in the profile editor.
       </Alert>
-    </StepShell>
-  )
-}
-
-function CapabilitiesStep({ draft, patch }: StepProps) {
-  const v = getVertical(draft.vertical)
-  const on = new Set(draft.features)
-  const toggle = (flag: FeatureFlag, next: boolean) =>
-    patch({
-      features: next ? [...draft.features, flag] : draft.features.filter((f) => f !== flag),
-    })
-
-  return (
-    <StepShell
-      title="What should the bot be able to do?"
-      description={`For ${draft.displayName || draft.companyName || "this tenant"} (${v.short}). The switches start from what the field recommends${draft.tenantId ? " — or what the tenant already uses" : ""}; menus, intents and services all follow these flags.`}
-      icon={<Sparkles className="h-4 w-4" />}
-    >
-      <div className="rounded-lg bg-accent-50 p-4 ring-1 ring-inset ring-accent-200">
-        <p className="text-xs font-medium text-accent-700">With these capabilities your bot will:</p>
-        <ul className="mt-2 space-y-1.5">
-          {v.capabilities.map((line) => (
-            <li key={line} className="flex gap-2 text-xs leading-relaxed text-slate-300">
-              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              {line}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="space-y-5">
-        {FEATURE_GROUPS.filter((g) => !v.hiddenGroups.includes(g.id)).map((group) => (
-          <div key={group.id}>
-            <SectionTitle hint={group.description}>{group.label}</SectionTitle>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {group.flags.filter((flag) => flag !== 'handoff').map((flag) => {
-                const meta = FEATURE_LABELS[flag]
-                return (
-                  <div key={flag} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
-                    <Switch
-                      checked={on.has(flag)}
-                      onChange={(next) => toggle(flag, next)}
-                      label={meta.label}
-                      description={meta.help}
-                      size="sm"
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
     </StepShell>
   )
 }
@@ -836,7 +759,6 @@ function ReviewStep({
   companyEditable: boolean
 }) {
   const v = getVertical(draft.vertical)
-  const on = new Set(draft.features)
   const answers = Object.entries(draft.answers).filter(([, value]) =>
     Array.isArray(value) ? value.length : Boolean(value),
   )
@@ -859,21 +781,6 @@ function ReviewStep({
     { label: 'Support', value: [draft.supportEmail, draft.supportPhone].filter(Boolean).join(' · ') || '—', step: 2 },
     { label: 'Calls it', value: v.nouns.item, step: 2 },
     {
-      label: 'Capabilities',
-      value: (
-        <span className="flex flex-wrap gap-1.5">
-          {FEATURE_GROUPS.flatMap((g) => g.flags)
-            .filter((f) => on.has(f) && f !== 'handoff')
-            .map((f) => (
-              <span key={f} className="rounded bg-surface-panel px-1.5 py-0.5 text-xs text-slate-300">
-                {FEATURE_LABELS[f].label}
-              </span>
-            ))}
-        </span>
-      ),
-      step: 3,
-    },
-    {
       label: 'Business answers',
       value: answers.length ? (
         <ul className="space-y-1">
@@ -887,19 +794,19 @@ function ReviewStep({
       ) : (
         '—'
       ),
-      step: 4,
+      step: 3,
     },
     {
       label: 'Notifications',
       value:
         [draft.salesEmail, draft.notificationsSupportEmail].filter(Boolean).join(' · ') ||
         'none configured',
-      step: 5,
+      step: 4,
     },
     {
       label: 'Never state',
       value: draft.neverState ? draft.neverState.split('\n').filter(Boolean).length + ' rule(s)' : '—',
-      step: 6,
+      step: 5,
     },
   ]
 
