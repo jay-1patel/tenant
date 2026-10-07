@@ -30,7 +30,8 @@ logger = logging.getLogger("faq_bot")
 # Constants
 # ─────────────────────────────────────────────
 EMBEDDING_MODEL     = EMBEDDING_MODEL_PATH
-CROSS_ENCODER_MODEL = os.path.join(os.path.dirname(__file__), "..", "models", "ettin-reranker-68m-v1")
+_local_ce_path      = os.path.join(os.path.dirname(__file__), "..", "models", "ettin-reranker-68m-v1")
+CROSS_ENCODER_MODEL = _local_ce_path if os.path.exists(_local_ce_path) else "BAAI/bge-reranker-base"
 
 _model_cfg_path = os.path.join(EMBEDDING_MODEL, "config.json")
 if os.path.exists(_model_cfg_path):
@@ -158,6 +159,10 @@ def simple_tokenize(text: str) -> list[str]:
 # Models
 # ─────────────────────────────────────────────
 embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+if hasattr(embedding_model, "get_sentence_embedding_dimension"):
+    EMBEDDING_DIM = embedding_model.get_sentence_embedding_dimension()
+elif hasattr(embedding_model, "get_embedding_dimension"):
+    EMBEDDING_DIM = embedding_model.get_embedding_dimension()
 cross_encoder   = CrossEncoder(CROSS_ENCODER_MODEL)
 
 

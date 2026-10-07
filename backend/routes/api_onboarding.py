@@ -139,11 +139,11 @@ def _create_request(body: OnboardingRequestCreate, current_admin: dict):
             raise HTTPException(status_code=403, detail="Your account is not assigned to an active tenant")
         duplicate = conn.execute(
             """SELECT id FROM api_onboarding_requests
-               WHERE tenant_id = ? AND api_type = ? AND status IN ('pending', 'approved')""",
-            (tenant_id, body.api_type),
+               WHERE tenant_id = ? AND api_type = ? AND LOWER(provider) = LOWER(?) AND status IN ('pending', 'approved')""",
+            (tenant_id, body.api_type, body.provider),
         ).fetchone()
         if duplicate:
-            raise HTTPException(status_code=409, detail="A pending or approved request already exists for this API")
+            raise HTTPException(status_code=409, detail=f"A pending or approved request already exists for {body.provider}")
         try:
             cursor = conn.execute(
                 """INSERT INTO api_onboarding_requests
@@ -161,8 +161,9 @@ def _create_request(body: OnboardingRequestCreate, current_admin: dict):
                 ),
             )
         except sqlite3.IntegrityError as exc:
-            if "api_onboarding_requests.tenant_id, api_onboarding_requests.api_type" in str(exc):
-                raise HTTPException(status_code=409, detail="A pending or approved request already exists for this API") from exc
+            # Fallback if DB constraint fires
+            if "api_onboarding_requests" in str(exc):
+                raise HTTPException(status_code=409, detail=f"A request already exists for {body.provider}") from exc
             raise
         request_id = cursor.lastrowid
         _add_event(

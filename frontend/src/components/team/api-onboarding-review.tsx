@@ -12,7 +12,7 @@ import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
 
-const LABELS = { payment_api: 'Payment API', order_api: 'Order API' } as const
+const LABELS = { payment_api: 'Payment Gateway API', order_api: 'Order & Shipping API' } as const
 const TONES: Record<ApiOnboardingStatus, 'warning' | 'success' | 'danger'> = {
   pending: 'warning',
   approved: 'success',
@@ -64,12 +64,12 @@ export function ApiOnboardingReview() {
       )}
       {state.data && state.data.length > 0 && (
         <div className="space-y-3">
-          {state.data.map((request) => (
+          {state.data.map((request: ApiOnboardingRequest) => (
             <Card key={request.id}>
               <CardHeader
-                title={`${LABELS[request.api_type]} · ${request.tenant_id}`}
+                title={`${LABELS[request.api_type as keyof typeof LABELS]} · ${request.tenant_id}`}
                 description={`Submitted by ${request.requester_username} on ${formatDate(request.created_at)}${request.provider ? ` · ${request.provider}` : ''} · ${request.environment}`}
-                actions={<Badge tone={TONES[request.status]}>{request.status}</Badge>}
+                actions={<Badge tone={TONES[request.status as ApiOnboardingStatus]}>{request.status}</Badge>}
               />
               <CardBody className="space-y-4">
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{request.purpose}</p>

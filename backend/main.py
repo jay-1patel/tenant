@@ -256,7 +256,9 @@ async def forward(request: Request):
 
 
 if os.path.isdir(ADMIN_BUILD_DIR):
-    app.mount("/assets", StaticFiles(directory=os.path.join(ADMIN_BUILD_DIR, "assets")), name="admin-assets")
+    admin_assets_dir = os.path.join(ADMIN_BUILD_DIR, "assets")
+    if os.path.isdir(admin_assets_dir):
+        app.mount("/assets", StaticFiles(directory=admin_assets_dir), name="admin-assets")
 
     @app.get("/admin")
     @app.get("/admin/{full_path:path}")
