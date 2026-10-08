@@ -179,11 +179,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           {(identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && can('manage_operations'))) && (
             <div className="border-t border-surface-line pt-3">
               {identity?.role === 'super_admin' ? (
-<<<<<<< HEAD
                 <div>
-=======
-                <>
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                   <button
                     type="button"
                     onClick={() => navigate('/tenant-requests')}
@@ -197,7 +193,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                     <ClipboardCheck className="h-4 w-4 shrink-0" />
                     Tenant change review
                   </button>
-<<<<<<< HEAD
                 <button
                   type="button"
                   onClick={() => navigate('/api-requests')}
@@ -242,52 +237,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                       API access
                     </button>
                   )}
-=======
-                  <button
-                    type="button"
-                    onClick={() => navigate('/api-requests')}
-                    className={cn(
-                      'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                      route.view === 'api-requests'
-                        ? 'bg-accent-100 font-medium text-accent-800'
-                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
-                    )}
-                  >
-                    <ShieldCheck className="h-4 w-4 shrink-0" />
-                    API access review
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/audit-history')}
-                    className={cn(
-                      'mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                      route.view === 'audit-history'
-                        ? 'bg-accent-100 font-medium text-accent-800'
-                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
-                    )}
-                  >
-                    <ScrollText className="h-4 w-4 shrink-0" />
-                    Audit history
-                  </button>
-                </>
-              ) : (
-                <>
-                  {identity?.tenant_id && (
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/tenants/${encodeURIComponent(identity.tenant_id!)}/api-access`)}
-                      className={cn(
-                        'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                        route.view === 'api-access'
-                          ? 'bg-accent-100 font-medium text-accent-800'
-                          : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
-                      )}
-                    >
-                      <KeyRound className="h-4 w-4 shrink-0" />
-                      API access
-                    </button>
-                  )}
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                   <button
                     type="button"
                     onClick={() => navigate('/tenant-requests')}

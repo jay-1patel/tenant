@@ -20,11 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-<<<<<<< HEAD
 import { Alert, EmptyState, LoadingBlock, Toast } from '@/components/ui/feedback'
-=======
-import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 import { PageHeader } from '@/components/layout/page-header'
 import { Switch } from '@/components/ui/switch' 
 
@@ -248,11 +244,7 @@ const ExportMenu = ({
             <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2">
               {allColumns.map(column => {
                 const isSelected = selectedColumns.includes(column)
-<<<<<<< HEAD
                 const columnLabel = LABELS[column] || column.replace(/_/g, ' ')
-=======
-                const columnLabel = (LABELS[column as keyof typeof LABELS] || column).toString().replace(/_/g, ' ')
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                 return (
                   <label key={column} className="flex items-center gap-2 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer">
                     <input 
@@ -382,11 +374,7 @@ const StatisticsDashboard = ({
               {topActions.map(([action, count]) => (
                 <div key={action} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50">
                   <div className="flex items-center gap-3">
-<<<<<<< HEAD
                     <span className="text-slate-300">{LABELS[action] || action}</span>
-=======
-                    <span className="text-slate-300">{(LABELS[action as keyof typeof LABELS] || action).toString()}</span>
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400">{count.toLocaleString()}</span>
@@ -441,13 +429,8 @@ const TableView = ({
           bValue = new Date(b.created_at).getTime()
           break
         case 'action':
-<<<<<<< HEAD
           aValue = LABELS[a.action] || a.action
           bValue = LABELS[b.action] || b.action
-=======
-            aValue = (LABELS[a.action as keyof typeof LABELS] || a.action).toString()
-            bValue = (LABELS[b.action as keyof typeof LABELS] || b.action).toString()
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
           break
         case 'actor_username':
           aValue = a.actor_username || ''
@@ -534,11 +517,7 @@ const TableView = ({
                   <span className={`px-2 py-1 rounded text-xs ${getCategoryColorClass(event.category || '')}`}>
                     {event.category ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'}
                   </span>
-<<<<<<< HEAD
                   {LABELS[event.action] || event.action}
-=======
-                  {(LABELS[event.action as keyof typeof LABELS] || event.action).toString()}
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                 </div>
               </td>
               <td className="py-3 pr-4 text-slate-300">{event.actor_username || '—'}</td>
@@ -559,7 +538,6 @@ const TableView = ({
 
 //Timeline View Component
 const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
-<<<<<<< HEAD
   // Group events by date
   const eventsByDate = useMemo(() => {
     const grouped: Record<string, AuditEventExtended[]> = {}
@@ -740,57 +718,6 @@ const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
                 )
               })}
             </div>
-=======
-  return (
-    <div className="relative">
-      <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-600" />
-      <div className="space-y-6 ml-8">
-        {events.map((event, index) => (
-          <div key={event.id} className="relative">
-            <div className="absolute -left-8 top-2 w-4 h-4 bg-slate-600 rounded-full border-2 border-white dark:border-slate-800" />
-            {index === 0 && (
-              <div className="absolute -left-8 top-6 text-xs text-slate-400">Latest</div>
-            )}
-            <Card>
-              <CardHeader
-                title={(LABELS[event.action as keyof typeof LABELS] || event.action).toString()}
-                description={
-                  <div className="flex items-center gap-4 text-xs text-slate-400">
-                    <span>{formatDate(event.created_at)}</span>
-                    <span className={`px-2 py-1 rounded ${getOutcomeColorClass(event.outcome)}`}>
-                      {event.outcome}
-                    </span>
-                    <span className={`px-2 py-1 rounded text-xs ${getCategoryColorClass(event.category || '')}`}>
-                      {event.category ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'}
-                    </span>
-                  </div>
-                }
-              />
-              <CardBody className="space-y-2">
-                <div>
-                  <span className="font-medium text-slate-300">Actor:</span> 
-                  <span className="text-slate-200">{event.actor_username || 'Unknown'}</span>
-                </div>
-                {event.target_username && event.target_username !== event.actor_username && (
-                  <div>
-                    <span className="font-medium text-slate-300">Target:</span> 
-                    <span className="text-slate-200">{event.target_username}</span>
-                  </div>
-                )}
-                {event.tenant_id && (
-                  <div>
-                    <span className="font-medium text-slate-300">Tenant:</span> 
-                    <span className="text-slate-200">{event.tenant_id}</span>
-                  </div>
-                )}
-                {describeDetails(event.details || {}) && (
-                  <div className="text-xs text-slate-400 mt-2">
-                    {describeDetails(event.details || {})}
-                  </div>
-                )}
-              </CardBody>
-            </Card>
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
           </div>
         ))}
       </div>
@@ -1070,11 +997,7 @@ export function AuditHistory() {
             >
               <option value="">All actions</option>
               {Object.entries(LABELS).map(([value, label]) => (
-<<<<<<< HEAD
                 <option key={value} value={value}>{label}</option>
-=======
-                <option key={value} value={value}>{String(label)}</option>
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
               ))}
             </Select>
             <Select 
@@ -1126,11 +1049,7 @@ export function AuditHistory() {
           <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
             <span>Showing {start}–{end} of {page.total.toLocaleString()} events</span>
             <div className="flex items-center gap-4">
-<<<<<<< HEAD
               <span>Sort: {filters.sort_by ? LABELS[filters.sort_by] || filters.sort_by : 'Date'} ({filters.sort_order})</span>
-=======
-              <span>Sort: {filters.sort_by ? (LABELS[filters.sort_by as keyof typeof LABELS] || filters.sort_by) : 'Date'} ({filters.sort_order})</span>
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
             </div>
           </div>
 
@@ -1151,11 +1070,7 @@ export function AuditHistory() {
               {formattedEvents.map((event) => (
                 <Card key={event.id}>
                   <CardHeader
-<<<<<<< HEAD
                     title={LABELS[event.action] ?? event.action.replace(/_/g, ' ')}
-=======
-                    title={(LABELS[event.action as keyof typeof LABELS] ?? event.action).toString().replace(/_/g, ' ')}
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                     description={`${event.actor_username || event.target_username || 'Unknown account'}${event.actor_role ? ` · ${event.actor_role.replace(/_/g, ' ')}` : ''} · ${formatDate(event.created_at)}`}
                     actions={
                       <div className="flex gap-2">

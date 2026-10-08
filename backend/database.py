@@ -773,10 +773,7 @@ def init_db():
         _init_tenancy_tables(conn)
         _init_api_onboarding_tables(conn)
         _init_tenant_change_tables(conn)
-<<<<<<< HEAD
-=======
         _init_admin_audit_tables(conn)
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
         _init_integration_tables(conn)
         _init_offerings_migration(conn)
         _init_record_columns_table(conn)
@@ -989,7 +986,6 @@ def _init_api_onboarding_tables(conn):
 
 
 def _init_tenant_change_tables(conn):
-<<<<<<< HEAD
     """Tenant registrations and profile publishes queued for superadmin approval.
 
     Admins and sub admins can prepare tenant data, but nothing goes live until
@@ -1007,17 +1003,6 @@ def _init_tenant_change_tables(conn):
             summary TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'approved', 'rejected')),
-=======
-    """Tenant registration/publish approval queue and append-only request events."""
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS tenant_change_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            request_type TEXT NOT NULL CHECK (request_type IN ('create_tenant', 'publish_profile')),
-            tenant_id TEXT NOT NULL,
-            payload_json TEXT NOT NULL DEFAULT '{}',
-            summary TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
             requester_id INTEGER,
             requester_username TEXT NOT NULL DEFAULT '',
             reviewer_id INTEGER,
@@ -1031,20 +1016,16 @@ def _init_tenant_change_tables(conn):
         )"""
     )
     conn.execute(
-<<<<<<< HEAD
-=======
         "CREATE INDEX IF NOT EXISTS ix_tenant_change_requests_status ON tenant_change_requests(status, created_at DESC, id DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_tenant_change_requests_requester ON tenant_change_requests(requester_id, created_at DESC, id DESC)"
     )
     conn.execute(
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
         """CREATE UNIQUE INDEX IF NOT EXISTS ux_tenant_change_pending
            ON tenant_change_requests(request_type, tenant_id) WHERE status = 'pending'"""
     )
     conn.execute(
-<<<<<<< HEAD
         """CREATE INDEX IF NOT EXISTS ix_tenant_change_tenant
            ON tenant_change_requests(tenant_id, created_at DESC)"""
     )
@@ -1052,11 +1033,6 @@ def _init_tenant_change_tables(conn):
         """CREATE TABLE IF NOT EXISTS tenant_change_request_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             request_id INTEGER NOT NULL REFERENCES tenant_change_requests(id),
-=======
-        """CREATE TABLE IF NOT EXISTS tenant_change_request_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            request_id INTEGER NOT NULL REFERENCES tenant_change_requests(id) ON DELETE CASCADE,
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
             actor_id INTEGER,
             actor_username TEXT NOT NULL DEFAULT '',
             actor_role TEXT NOT NULL DEFAULT '',
@@ -1068,12 +1044,6 @@ def _init_tenant_change_tables(conn):
         )"""
     )
     conn.execute(
-<<<<<<< HEAD
-        """CREATE INDEX IF NOT EXISTS ix_tenant_change_events_request
-           ON tenant_change_request_events(request_id, id)"""
-    )
-=======
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
         "CREATE INDEX IF NOT EXISTS ix_tenant_change_events_request ON tenant_change_request_events(request_id, id)"
     )
 
@@ -1103,12 +1073,9 @@ def _init_admin_audit_tables(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_action ON admin_audit_events(action, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_tenant ON admin_audit_events(tenant_id, created_at DESC)")
     conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
-<<<<<<< HEAD
     
     # Initialize new audit_logs table
     _init_audit_logs_table(conn)
-=======
->>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 
 
 _AUDIT_SENSITIVE_KEY_PARTS = (
