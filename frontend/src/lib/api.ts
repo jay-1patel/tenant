@@ -124,8 +124,33 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+/** Multipart upload: the browser sets the boundary Content-Type. */
+export async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let res: Response
+  try {
+    res = await fetch(path, { method: 'POST', headers, body: form, signal })
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw err
+    throw new ApiError(0, 'Cannot reach the backend. Is it running on port 9000?')
+  }
+  if (res.status === 401) {
+    onUnauthorized()
+    throw new ApiError(401, await readDetail(res))
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, await readDetail(res))
+  }
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
 export const api = {
   get: <T,>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
+  postForm,
   post: <T,>(path: string, body?: unknown, options: RequestOptions = {}) =>
     request<T>(path, { ...options, method: 'POST', body }),
   put: <T,>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),

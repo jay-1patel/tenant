@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import {
   type Campaign,
   type CampaignInput,
-  type CampaignSegmentOption,
+  type CampaignSegment,
   type CampaignTemplate,
   operationsApi,
 } from '@/lib/operations'
@@ -35,7 +35,7 @@ const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'success' | 'warning' |
 const CAMPAIGN_TYPES = ['promotional', 'transactional', 'informational'] as const
 
 /** Statuses an admin may set; the rest belong to the broadcast engine. */
-const ADMIN_STATUSES = ['draft', 'scheduled', 'cancelled'] as const
+const ADMIN_STATUSES = ['draft', 'scheduled', 'paused', 'cancelled'] as const
 
 const AUDIENCES = [
   { value: 'distributors', label: 'Distributors' },
@@ -60,8 +60,9 @@ interface CampaignFormShape {
   campaign_type: string
   whatsapp_template: string
   audience_type: 'distributors' | 'customers' | 'segments'
-  segment_id: string
+  segment_id: number | null
   var_map: VarMap
+  var_fallbacks: Record<string, string>
   schedule_mode: 'now' | 'scheduled'
   scheduled_date: string
   scheduled_time: string
@@ -114,8 +115,9 @@ function toShape(campaign?: Campaign | null): CampaignFormShape {
       campaign?.audience_type === 'customers' || campaign?.audience_type === 'segments'
         ? campaign.audience_type
         : 'distributors',
-    segment_id: '',
+    segment_id: campaign?.segment_id ?? null,
     var_map: varMap,
+    var_fallbacks: (campaign?.variable_fallbacks ?? {}) as Record<string, string>,
     schedule_mode: campaign?.schedule_mode === 'scheduled' ? 'scheduled' : 'now',
     scheduled_date: scheduledDate,
     scheduled_time: scheduledTime,
@@ -141,6 +143,7 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
   const [creating, setCreating] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [managingTemplates, setManagingTemplates] = useState(false)
+  const [managingSegments, setManagingSegments] = useState(false)
 
   const state = useAsync((signal) => operationsApi.campaigns(tenantId, signal), [tenantId])
   const templatesState = useAsync((signal) => operationsApi.campaignTemplates(tenantId, signal), [tenantId])
@@ -186,6 +189,12 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
     }
   }
 
+  const testSend = async (waId: string) => {
+    if (!editing) return
+    const result = await action.run(() => operationsApi.testSendCampaign(tenantId, editing.id, waId))
+    if (result) toast.push(`Test sent to ${result.sent_to}`)
+  }
+
   return (
     <div>
       <PageHeader
@@ -196,6 +205,9 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
             <>
               <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setManagingTemplates((v) => !v)}>
                 {managingTemplates ? 'Hide templates' : 'Manage templates'}
+              </Button>
+              <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setManagingSegments((v) => !v)}>
+                {managingSegments ? 'Hide segments' : 'Manage segments'}
               </Button>
               <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
                 New campaign
@@ -228,8 +240,20 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
         />
       )}
 
+      {managingSegments && canManage && (
+        <SegmentsManager
+          tenantId={tenantId}
+          segments={segments}
+          onChanged={() => {
+            segmentsState.reload()
+            state.reload()
+          }}
+        />
+      )}
+
       {(creating || editing) && (
         <CampaignForm
+          tenantId={tenantId}
           initial={editing}
           busy={action.busy}
           error={action.error}
@@ -240,6 +264,7 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
             setEditing(null)
           }}
           onSubmit={submit}
+          onTestSend={testSend}
         />
       )}
 
@@ -361,9 +386,14 @@ function TemplatesManager({
   const action = useAction()
   const toast = useToast()
   const [name, setName] = useState('')
-  const [category, setCategory] = useState('promotional')
+  const [category, setCategory] = useState('MARKETING')
   const [body, setBody] = useState('')
+  const [language, setLanguage] = useState('en')
+  const [header, setHeader] = useState('')
+  const [footer, setFooter] = useState('')
+  const [params, setParams] = useState('')
   const [touched, setTouched] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
 
   const nameMissing = touched && !name.trim()
   const bodyMissing = touched && !body.trim()
@@ -376,12 +406,19 @@ function TemplatesManager({
         name: name.trim(),
         category,
         body: body.trim(),
+        language,
+        header: header.trim(),
+        footer: footer.trim(),
+        params: params.split(',').map((v) => v.trim()).filter(Boolean),
       }),
     )
     if (result) {
       toast.push('Template added')
       setName('')
       setBody('')
+      setHeader('')
+      setFooter('')
+      setParams('')
       setTouched(false)
       onChanged()
     }
@@ -397,11 +434,20 @@ function TemplatesManager({
     }
   }
 
+  const remove = async (template: CampaignTemplate) => {
+    const result = await action.run(() => operationsApi.deleteCampaignTemplate(tenantId, template.id))
+    if (result) {
+      toast.push('Template deleted')
+      setConfirmDelete(null)
+      onChanged()
+    }
+  }
+
   return (
     <Card className="mb-4">
       <CardHeader
         title="WhatsApp templates"
-        description="Approved templates are what campaigns broadcast. Adding a template here registers it as approved."
+        description="Approved templates are what campaigns broadcast. Each carries the Meta category and language the campaign type must match."
       />
       <CardBody className="space-y-4">
         {templates.length > 0 ? (
@@ -411,11 +457,22 @@ function TemplatesManager({
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-100">
                     {template.name}{' '}
-                    <span className="text-xs font-normal text-slate-500">({template.category})</span>
+                    <span className="text-xs font-normal text-slate-500">
+                      ({template.category} · {template.language})
+                    </span>
                   </p>
+                  {template.header && (
+                    <p className="mt-0.5 text-xs font-medium text-slate-300">{template.header}</p>
+                  )}
                   <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-400">{template.body}</p>
+                  {template.footer && (
+                    <p className="mt-0.5 text-xs italic text-slate-500">{template.footer}</p>
+                  )}
+                  {template.provider_response && template.status !== 'registered' && (
+                    <p className="mt-1 text-xs text-rose-400">Provider: {template.provider_response.slice(0, 160)}</p>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Badge
                     tone={
                       template.status === 'registered' || template.status === 'already_exists'
@@ -442,6 +499,25 @@ function TemplatesManager({
                       Reject
                     </Button>
                   )}
+                  {confirmDelete === template.id ? (
+                    <>
+                      <Button size="sm" variant="danger" loading={action.busy} onClick={() => remove(template)}>
+                        Delete forever
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-rose-400 hover:text-rose-300"
+                      onClick={() => setConfirmDelete(template.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -460,13 +536,23 @@ function TemplatesManager({
             onChange={(e) => setName(e.target.value)}
             placeholder="diwali_restock_offer"
           />
-          <Select label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <Select label="Category *" value={category} onChange={(e) => setCategory(e.target.value)}>
             {['MARKETING', 'UTILITY', 'AUTHENTICATION'].map((type) => (
               <option key={type} value={type}>
                 {type}
               </option>
             ))}
           </Select>
+          <Input label="Language" value={language} onChange={(e) => setLanguage(e.target.value)} hint="Meta requires one locale per template (e.g. en, hi, gu)." />
+          <Input label="Header (optional)" value={header} onChange={(e) => setHeader(e.target.value)} placeholder="🎉 Diwali Restock Offer" />
+          <Input label="Footer (optional)" value={footer} onChange={(e) => setFooter(e.target.value)} placeholder="Reply STOP to unsubscribe" />
+          <Input
+            label="Sample values (optional)"
+            value={params}
+            onChange={(e) => setParams(e.target.value)}
+            hint="Comma separated, one per placeholder — Meta asks for these during approval."
+            placeholder="Rajesh, 20%"
+          />
         </div>
         <Textarea
           label="Template body *"
@@ -475,12 +561,417 @@ function TemplatesManager({
           error={bodyMissing ? 'A template body is required' : undefined}
           onChange={(e) => setBody(e.target.value)}
           hint="Use {{name}} style placeholders; campaigns map them to each recipient's details."
-          placeholder="Hi {{name}}, get 20% off on your Diwali restock."
+          placeholder="Hi {{name}}, get {{discount}} off on your Diwali restock."
         />
         <Button variant="primary" loading={action.busy} onClick={add}>
           Add template
         </Button>
         {action.error && <Alert tone="danger" title="Could not save template">{action.error}</Alert>}
+      </CardBody>
+    </Card>
+  )
+}
+
+/** Human-readable criteria for a saved segment. */
+function criteriaSummary(segment: CampaignSegment): string {
+  const c = segment.criteria
+  const parts: string[] = []
+
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : [])
+  const num = (v: unknown): string | null =>
+    typeof v === 'number' ? String(v) : typeof v === 'string' && v.trim() ? v : null
+
+  if (list(c.regions).length) parts.push(`State = ${list(c.regions).join(' / ')}`)
+  if (typeof c.city === 'string' && c.city.trim()) parts.push(`City = ${c.city}`)
+  if (list(c.tiers).length) parts.push(`Tier: ${list(c.tiers).join(', ')}`)
+  if (list(c.product_interests).length) parts.push(`Interests: ${list(c.product_interests).join(', ')}`)
+  if (num(c.min_sales_volume)) parts.push(`Sales volume ≥ ₹${Number(c.min_sales_volume).toLocaleString('en-IN')}`)
+  if (c.credit_status === 'outstanding') parts.push('Credit: outstanding')
+  if (c.credit_status === 'clear') parts.push('Credit: clear')
+  if (num(c.min_total_purchases)) parts.push(`Total purchases > ₹${Number(c.min_total_purchases).toLocaleString('en-IN')}`)
+  if (num(c.max_total_purchases)) parts.push(`Total purchases < ₹${Number(c.max_total_purchases).toLocaleString('en-IN')}`)
+  if (num(c.order_count_min)) parts.push(`Orders ≥ ${c.order_count_min}`)
+  if (num(c.order_count_max)) parts.push(`Orders ≤ ${c.order_count_max}`)
+  if (num(c.last_order_within_days)) parts.push(`Last order within ${c.last_order_within_days} days`)
+  if (num(c.inactive_for_days)) parts.push(`Inactive for ${c.inactive_for_days}+ days`)
+  if (num(c.registered_within_days)) parts.push(`Registered in last ${c.registered_within_days} days`)
+
+  const exclusions: string[] = []
+  if (list(c.exclude_regions).length) exclusions.push(`State ≠ ${list(c.exclude_regions).join('/')}`)
+  if (list(c.exclude_tiers).length) exclusions.push(`Tier ≠ ${list(c.exclude_tiers).join('/')}`)
+  if (typeof c.exclude_city === 'string' && c.exclude_city.trim()) exclusions.push(`City ≠ ${c.exclude_city}`)
+  if (exclusions.length) parts.push(`excluding ${exclusions.join(', ')}`)
+  if (c.match === 'any') parts.push('matching ANY criterion')
+
+  return parts.length ? parts.join(' · ') : 'All opted-in contacts'
+}
+
+/** Saved segments: a name, an audience type and the criteria that define it. */
+function SegmentsManager({
+  tenantId,
+  segments,
+  onChanged,
+}: {
+  tenantId: string
+  segments: CampaignSegment[]
+  onChanged: () => void
+}) {
+  const action = useAction()
+  const toast = useToast()
+  const [editing, setEditing] = useState<CampaignSegment | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [touched, setTouched] = useState(false)
+
+  const [name, setName] = useState('')
+  const [audienceType, setAudienceType] = useState<'distributors' | 'customers'>('distributors')
+  const [match, setMatch] = useState<'all' | 'any'>('all')
+  const [regions, setRegions] = useState('')
+  const [tiers, setTiers] = useState('')
+  const [city, setCity] = useState('')
+  const [interests, setInterests] = useState('')
+  const [minSalesVolume, setMinSalesVolume] = useState('')
+  const [creditStatus, setCreditStatus] = useState<'any' | 'outstanding' | 'clear'>('any')
+  const [registeredWithin, setRegisteredWithin] = useState('')
+  const [excludeRegions, setExcludeRegions] = useState('')
+  const [excludeTiers, setExcludeTiers] = useState('')
+  const [excludeCity, setExcludeCity] = useState('')
+  const [minPurchases, setMinPurchases] = useState('')
+  const [maxPurchases, setMaxPurchases] = useState('')
+  const [orderCountMin, setOrderCountMin] = useState('')
+  const [orderCountMax, setOrderCountMax] = useState('')
+  const [lastOrderWithin, setLastOrderWithin] = useState('')
+  const [inactiveFor, setInactiveFor] = useState('')
+
+  const startEdit = (segment: CampaignSegment) => {
+    setEditing(segment)
+    setTouched(false)
+    setName(segment.name)
+    setAudienceType(segment.audience_type)
+    const c = segment.criteria
+    setMatch(c.match === 'any' ? 'any' : 'all')
+    setRegions(Array.isArray(c.regions) ? (c.regions as string[]).join(', ') : '')
+    setTiers(Array.isArray(c.tiers) ? (c.tiers as string[]).join(', ') : '')
+    setCity(typeof c.city === 'string' ? c.city : '')
+    setInterests(Array.isArray(c.product_interests) ? (c.product_interests as string[]).join(', ') : '')
+    setMinSalesVolume(c.min_sales_volume != null ? String(c.min_sales_volume) : '')
+    setCreditStatus(c.credit_status === 'outstanding' || c.credit_status === 'clear' ? c.credit_status : 'any')
+    setRegisteredWithin(c.registered_within_days != null ? String(c.registered_within_days) : '')
+    setExcludeRegions(Array.isArray(c.exclude_regions) ? (c.exclude_regions as string[]).join(', ') : '')
+    setExcludeTiers(Array.isArray(c.exclude_tiers) ? (c.exclude_tiers as string[]).join(', ') : '')
+    setExcludeCity(typeof c.exclude_city === 'string' ? c.exclude_city : '')
+    setMinPurchases(c.min_total_purchases != null ? String(c.min_total_purchases) : '')
+    setMaxPurchases(c.max_total_purchases != null ? String(c.max_total_purchases) : '')
+    setOrderCountMin(c.order_count_min != null ? String(c.order_count_min) : '')
+    setOrderCountMax(c.order_count_max != null ? String(c.order_count_max) : '')
+    setLastOrderWithin(c.last_order_within_days != null ? String(c.last_order_within_days) : '')
+    setInactiveFor(c.inactive_for_days != null ? String(c.inactive_for_days) : '')
+  }
+
+  const reset = () => {
+    setEditing(null)
+    setTouched(false)
+    setName('')
+    setAudienceType('distributors')
+    setMatch('all')
+    setRegions('')
+    setTiers('')
+    setCity('')
+    setInterests('')
+    setMinSalesVolume('')
+    setCreditStatus('any')
+    setRegisteredWithin('')
+    setExcludeRegions('')
+    setExcludeTiers('')
+    setExcludeCity('')
+    setMinPurchases('')
+    setMaxPurchases('')
+    setOrderCountMin('')
+    setOrderCountMax('')
+    setLastOrderWithin('')
+    setInactiveFor('')
+  }
+
+  const nameMissing = touched && !name.trim()
+
+  const criteria = (): Record<string, unknown> => {
+    const list = (value: string) => value.split(',').map((v) => v.trim()).filter(Boolean)
+    const num = (value: string) => (value.trim() === '' ? undefined : Number(value))
+
+    if (audienceType === 'customers') {
+      const out: Record<string, unknown> = {}
+      if (num(minPurchases) !== undefined) out.min_total_purchases = num(minPurchases)
+      if (num(maxPurchases) !== undefined) out.max_total_purchases = num(maxPurchases)
+      if (num(orderCountMin) !== undefined) out.order_count_min = num(orderCountMin)
+      if (num(orderCountMax) !== undefined) out.order_count_max = num(orderCountMax)
+      if (num(lastOrderWithin) !== undefined) out.last_order_within_days = num(lastOrderWithin)
+      if (num(inactiveFor) !== undefined) out.inactive_for_days = num(inactiveFor)
+      if (num(registeredWithin) !== undefined) out.registered_within_days = num(registeredWithin)
+      return out
+    }
+
+    const out: Record<string, unknown> = {}
+    if (list(regions).length) out.regions = list(regions)
+    if (list(tiers).length) out.tiers = list(tiers)
+    if (city.trim()) out.city = city.trim()
+    if (list(interests).length) out.product_interests = list(interests)
+    if (num(minSalesVolume) !== undefined) out.min_sales_volume = num(minSalesVolume)
+    if (creditStatus !== 'any') out.credit_status = creditStatus
+    if (num(registeredWithin) !== undefined) out.registered_within_days = num(registeredWithin)
+    if (list(excludeRegions).length) out.exclude_regions = list(excludeRegions)
+    if (list(excludeTiers).length) out.exclude_tiers = list(excludeTiers)
+    if (excludeCity.trim()) out.exclude_city = excludeCity.trim()
+    if (match === 'any') out.match = 'any'
+    return out
+  }
+
+  const save = async () => {
+    setTouched(true)
+    if (!name.trim()) return
+    const body = { name: name.trim(), audience_type: audienceType, criteria: criteria() }
+    const result = editing
+      ? await action.run(() => operationsApi.updateCampaignSegment(tenantId, editing.id, body))
+      : await action.run(() => operationsApi.createCampaignSegment(tenantId, body))
+    if (result) {
+      toast.push(editing ? 'Segment updated' : 'Segment added')
+      reset()
+      onChanged()
+    }
+  }
+
+  const remove = async (segment: CampaignSegment) => {
+    const result = await action.run(() => operationsApi.deleteCampaignSegment(tenantId, segment.id))
+    if (result) {
+      toast.push('Segment deleted')
+      setConfirmDelete(null)
+      if (editing?.id === segment.id) reset()
+      onChanged()
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title="Segments"
+        description="Named, reusable audiences. Criteria combine as AND by default (or ANY); contacts who replied STOP are always excluded, and every saved segment shows its live contact count."
+      />
+      <CardBody className="space-y-4">
+        {segments.length > 0 ? (
+          <div className="divide-y divide-surface-line rounded-lg ring-1 ring-inset ring-surface-line">
+            {segments.map((segment) => (
+              <div key={segment.id} className="flex flex-wrap items-start gap-3 px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-100">{segment.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Audience Type: {segment.audience_type === 'customers' ? 'Customer' : 'Distributor'} ·{' '}
+                    Criteria: {criteriaSummary(segment)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Badge tone="muted">{segment.target_count} contacts</Badge>
+                  <Button size="sm" variant="ghost" onClick={() => startEdit(segment)}>
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </Button>
+                  {confirmDelete === segment.id ? (
+                    <>
+                      <Button size="sm" variant="danger" loading={action.busy} onClick={() => remove(segment)}>
+                        Delete forever
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-rose-400 hover:text-rose-300"
+                      onClick={() => setConfirmDelete(segment.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            No segments yet — create one below, then campaigns can target it.
+          </p>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Segment Name *"
+            value={name}
+            error={nameMissing ? 'A segment name is required' : undefined}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={audienceType === 'customers' ? 'High-Value Customers' : 'Gujarat Distributors'}
+          />
+          <Select
+            label="Audience Type *"
+            value={audienceType}
+            onChange={(e) => setAudienceType(e.target.value as 'distributors' | 'customers')}
+          >
+            <option value="distributors">Distributor</option>
+            <option value="customers">Customer</option>
+          </Select>
+        </div>
+
+        {audienceType === 'distributors' ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="State / Region"
+                value={regions}
+                onChange={(e) => setRegions(e.target.value)}
+                hint="Comma separated, e.g. Gujarat, Maharashtra"
+              />
+              <Input label="City" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ahmedabad" />
+              <Input
+                label="Tier(s)"
+                value={tiers}
+                onChange={(e) => setTiers(e.target.value)}
+                hint="Comma separated, e.g. Gold, Platinum"
+              />
+              <Input
+                label="Product interests"
+                value={interests}
+                onChange={(e) => setInterests(e.target.value)}
+                hint="Comma separated"
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Sales volume ≥ (₹)"
+                type="number"
+                value={minSalesVolume}
+                onChange={(e) => setMinSalesVolume(e.target.value)}
+                placeholder="100000"
+              />
+              <Select
+                label="Credit status"
+                value={creditStatus}
+                onChange={(e) => setCreditStatus(e.target.value as 'any' | 'outstanding' | 'clear')}
+              >
+                <option value="any">Any</option>
+                <option value="outstanding">Has outstanding payments</option>
+                <option value="clear">No outstanding payments</option>
+              </Select>
+              <Input
+                label="Registered within (days)"
+                type="number"
+                value={registeredWithin}
+                onChange={(e) => setRegisteredWithin(e.target.value)}
+                placeholder="30"
+              />
+              <Select
+                label="Criteria combination"
+                value={match}
+                onChange={(e) => setMatch(e.target.value as 'all' | 'any')}
+                hint="AND = must satisfy every criterion; OR = any one is enough."
+              >
+                <option value="all">Match ALL (AND)</option>
+                <option value="any">Match ANY (OR)</option>
+              </Select>
+            </div>
+            <div>
+              <p className="field-label mb-1.5">Exclusions</p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Input
+                  label="Except state(s)"
+                  value={excludeRegions}
+                  onChange={(e) => setExcludeRegions(e.target.value)}
+                  hint="Comma separated"
+                  placeholder="Maharashtra"
+                />
+                <Input
+                  label="Except tier(s)"
+                  value={excludeTiers}
+                  onChange={(e) => setExcludeTiers(e.target.value)}
+                  hint="Comma separated"
+                  placeholder="Bronze"
+                />
+                <Input
+                  label="Except city"
+                  value={excludeCity}
+                  onChange={(e) => setExcludeCity(e.target.value)}
+                  placeholder="Surat"
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Total purchases > (₹)"
+                type="number"
+                value={minPurchases}
+                onChange={(e) => setMinPurchases(e.target.value)}
+                placeholder="10000"
+              />
+              <Input
+                label="Total purchases < (₹)"
+                type="number"
+                value={maxPurchases}
+                onChange={(e) => setMaxPurchases(e.target.value)}
+                placeholder="50000"
+              />
+              <Input
+                label="Order count ≥"
+                type="number"
+                value={orderCountMin}
+                onChange={(e) => setOrderCountMin(e.target.value)}
+                placeholder="3"
+              />
+              <Input
+                label="Order count ≤"
+                type="number"
+                value={orderCountMax}
+                onChange={(e) => setOrderCountMax(e.target.value)}
+                placeholder="20"
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Input
+                label="Last order within (days)"
+                type="number"
+                value={lastOrderWithin}
+                onChange={(e) => setLastOrderWithin(e.target.value)}
+                placeholder="30"
+              />
+              <Input
+                label="Inactive for (days+)"
+                type="number"
+                value={inactiveFor}
+                onChange={(e) => setInactiveFor(e.target.value)}
+                hint="No order in at least this many days."
+                placeholder="90"
+              />
+              <Input
+                label="Registered within (days)"
+                type="number"
+                value={registeredWithin}
+                onChange={(e) => setRegisteredWithin(e.target.value)}
+                hint="First chatted in the last N days."
+                placeholder="30"
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button variant="primary" loading={action.busy} onClick={save}>
+            {editing ? 'Save segment' : 'Add segment'}
+          </Button>
+          {editing && (
+            <Button variant="ghost" onClick={reset}>
+              Cancel
+            </Button>
+          )}
+        </div>
+        {action.error && <Alert tone="danger" title="Could not save segment">{action.error}</Alert>}
       </CardBody>
     </Card>
   )
@@ -492,28 +983,26 @@ function CampaignForm({
   error,
   templates,
   segments,
+  tenantId,
   onSubmit,
   onCancel,
+  onTestSend,
 }: {
   initial: Campaign | null
   busy: boolean
   error: string | null
+  tenantId: string
   templates: CampaignTemplate[]
-  segments: CampaignSegmentOption[]
+  segments: CampaignSegment[]
   onSubmit: (input: CampaignInput) => void
   onCancel: () => void
+  onTestSend: (waId: string) => Promise<void>
 }) {
   const [form, setForm] = useState<CampaignFormShape>(() => toShape(initial))
   const [touched, setTouched] = useState(false)
-
-  // When editing, re-attach the stored segment to its option once segments load.
-  useEffect(() => {
-    if (!initial?.segment || form.segment_id) return
-    const match = segments.find(
-      (s) => JSON.stringify(s.segment) === JSON.stringify(initial.segment),
-    )
-    if (match) setForm((f) => ({ ...f, segment_id: match.id }))
-  }, [segments, initial, form.segment_id])
+  const [testWaId, setTestWaId] = useState('')
+  const [mediaUploading, setMediaUploading] = useState(false)
+  const [mediaError, setMediaError] = useState('')
 
   const set = <K extends keyof CampaignFormShape>(key: K, value: CampaignFormShape[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -558,6 +1047,22 @@ function CampaignForm({
       },
     }))
 
+  const handleMediaFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setMediaError('')
+    setMediaUploading(true)
+    try {
+      const uploaded = await operationsApi.uploadCampaignMedia(tenantId, file)
+      set('media_filename', uploaded.filename)
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setMediaUploading(false)
+    }
+  }
+
   const submit = () => {
     setTouched(true)
     if (!form.name.trim()) return
@@ -589,14 +1094,12 @@ function CampaignForm({
       status: initial ? form.status : 'scheduled',
       campaign_type: form.campaign_type,
       audience_type: form.audience_type,
-      segment:
-        form.audience_type === 'segments'
-          ? segments.find((s) => s.id === form.segment_id)?.segment ?? null
-          : null,
+      segment_id: form.audience_type === 'segments' ? form.segment_id : null,
       whatsapp_template: form.whatsapp_template,
       template_type: 'whatsapp_template',
       message_template: selectedTemplate?.body ?? '',
       template_variables: templateVariableValues,
+      variable_fallbacks: form.var_fallbacks,
       buttons,
       media_filename: form.media_filename.trim() || null,
       schedule_mode: form.schedule_mode,
@@ -689,14 +1192,20 @@ function CampaignForm({
         {form.audience_type === 'segments' && (
           <Select
             label="Select Segment *"
-            value={form.segment_id}
+            value={form.segment_id ?? ''}
             error={segmentMissing ? 'A segment is required' : undefined}
-            onChange={(e) => set('segment_id', e.target.value)}
+            onChange={(e) => set('segment_id', e.target.value ? Number(e.target.value) : null)}
+            hint={
+              segments.length
+                ? 'Each segment carries its own audience type and criteria.'
+                : 'No segments yet — create one via Manage segments.'
+            }
           >
             <option value="">Select segment</option>
             {segments.map((segment) => (
               <option key={segment.id} value={segment.id}>
-                {segment.label}
+                {segment.name} — {segment.audience_type === 'customers' ? 'Customer' : 'Distributor'} ·{' '}
+                {segment.target_count} contacts
               </option>
             ))}
           </Select>
@@ -747,6 +1256,17 @@ function CampaignForm({
                       placeholder={`Value for {{${variable}}}`}
                     />
                   )}
+                  <Input
+                    label="Fallback (optional)"
+                    value={form.var_fallbacks[variable] ?? ''}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        var_fallbacks: { ...f.var_fallbacks, [variable]: e.target.value },
+                      }))
+                    }
+                    hint={`Used when the recipient has no ${variable}`}
+                  />
                 </div>
               )
             })}
@@ -802,16 +1322,39 @@ function CampaignForm({
           )}
         </div>
 
-        {/* Media + CTA */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="Media (optional)"
-            value={form.media_filename}
-            error={!mediaValid ? 'Media must be a JPG, PNG or MP4 file' : undefined}
-            onChange={(e) => set('media_filename', e.target.value)}
-            placeholder="image.jpg or video.mp4"
-            hint="Media file name/path if attached. Supported: JPG, PNG, MP4."
-          />
+        {/* Media upload + CTA */}
+        <div>
+          <p className="field-label mb-1.5">Media (optional)</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-surface-panel px-3 py-2 text-sm text-slate-200 ring-1 ring-inset ring-surface-line transition hover:bg-surface ${
+                mediaUploading ? 'pointer-events-none opacity-60' : ''
+              }`}
+            >
+              <input
+                type="file"
+                className="hidden"
+                accept=".jpg,.jpeg,.png,.mp4"
+                disabled={mediaUploading}
+                onChange={handleMediaFile}
+              />
+              {mediaUploading ? 'Uploading…' : 'Upload image / video'}
+            </label>
+            {form.media_filename && (
+              <>
+                <span className="max-w-full truncate rounded bg-surface-panel px-2 py-1 text-xs text-slate-300">
+                  {form.media_filename}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => set('media_filename', '')}>
+                  Remove
+                </Button>
+              </>
+            )}
+          </div>
+          {mediaError && <p className="mt-1 text-xs text-rose-400">{mediaError}</p>}
+          <p className="mt-1 text-xs text-slate-500">
+            Supported: JPG, PNG, MP4 — up to 16 MB. The file uploads immediately and attaches to the campaign.
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
@@ -828,6 +1371,27 @@ function CampaignForm({
             placeholder="https://example.com"
           />
         </div>
+
+        {initial && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Send a test to"
+              value={testWaId}
+              onChange={(e) => setTestWaId(e.target.value)}
+              placeholder="WhatsApp id, e.g. 919876543210"
+              hint="Sends the rendered message (with fallbacks) to one number before the broadcast."
+            />
+            <div className="flex items-end">
+              <Button
+                variant="secondary"
+                disabled={!testWaId.trim()}
+                onClick={() => onTestSend(testWaId.trim())}
+              >
+                Send test
+              </Button>
+            </div>
+          </div>
+        )}
 
         {error && <Alert tone="danger" title="Could not save">{error}</Alert>}
 

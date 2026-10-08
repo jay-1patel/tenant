@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import routing.config as config
-from routing.database import log_webhook, save_chat, set_request_tenant
+from routing.database import get_db_context, log_webhook, save_chat, set_request_tenant
 from routing.whatsapp import send_whatsapp_message, send_whatsapp_interactive, send_whatsapp_list_menu, _resolve_media_url, _normalize_msg_type
 from routing.message import (
     process_message, DOCUMENT_BUTTON_ID, is_direct_media_query,
@@ -20,6 +20,17 @@ router = APIRouter()
 _processed_ids = set()
 
 # Phrases that trigger human handover
+# Campaign consent (WhatsApp policy): STOP unsubscribes from broadcasts,
+# START resubscribes. Every audience count excludes opted-out contacts.
+OPT_OUT_PHRASES = {"stop", "unsubscribe", "opt out", "optout", "stop messages"}
+OPT_IN_PHRASES = {"start", "subscribe", "resubscribe"}
+OPT_OUT_CONFIRMATION = (
+    "You have been unsubscribed from campaign messages. "
+    "You will not receive any more broadcasts.\n\n"
+    "Type *start* anytime to subscribe again."
+)
+OPT_IN_CONFIRMATION = "Welcome back! You will receive campaign messages again. \U0001f64f"
+
 HUMAN_HANDOVER_PHRASES = [
     "human", "agent", "real person", "talk to a human", "speak to a human",
     "customer support", "representative", "talk to agent", "speak to agent",
@@ -33,6 +44,57 @@ HANDOVER_BOT_RESUME = "You're back with the bot. How can I help you? 🙏"
 
 _PENDING_DOC_EXPIRY_SECONDS = 30 * 60
 _pending_docs = {}
+
+
+def _handle_campaign_opt_out(user_text: str, wa_id: str, sender_name: str, tenant_id) -> bool:
+    """STOP/START handling for campaign broadcasts (WhatsApp opt-in policy).
+
+    Returns True when the message was consumed, so the bot does not also reply.
+    Opt-outs live in campaign_opt_outs; every audience count excludes them.
+    """
+    text = (user_text or "").strip().lower()
+    if text not in OPT_OUT_PHRASES and text not in OPT_IN_PHRASES:
+        return False
+
+    tid = tenant_id or "default"
+    try:
+        with get_db_context() as conn:
+            # Safe on a routing-only deployment where the backend schema has
+            # not been created yet.
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS campaign_opt_outs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL,
+                    wa_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )"""
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_opt_outs "
+                "ON campaign_opt_outs(tenant_id, wa_id)"
+            )
+            if text in OPT_OUT_PHRASES:
+                conn.execute(
+                    "INSERT OR IGNORE INTO campaign_opt_outs (tenant_id, wa_id) VALUES (?, ?)",
+                    (tid, wa_id),
+                )
+                reply = OPT_OUT_CONFIRMATION
+                event = "stop"
+            else:
+                conn.execute(
+                    "DELETE FROM campaign_opt_outs WHERE tenant_id = ? AND wa_id = ?",
+                    (tid, wa_id),
+                )
+                reply = OPT_IN_CONFIRMATION
+                event = "start"
+    except Exception as exc:
+        logger.error(f"Campaign opt-out handling failed for {wa_id}: {exc}")
+        return False
+
+    save_chat(wa_id, sender_name, user_text, reply, "campaign_opt_out")
+    send_whatsapp_message(wa_id, reply)
+    logger.info(f"CAMPAIGN_CONSENT | {event} | tenant={tid} | wa_id={wa_id}")
+    return True
 
 
 def _is_doc_button_reply(message) -> bool:
@@ -613,6 +675,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     except Exception as exc:
         logger.warning(f"Tenant resolution failed, using default: {exc}")
         tenant_id = None
+
+    # Campaign consent wins over everything else: a STOP must unsubscribe even
+    # mid-flow, and the contact must not get a marketing reply afterwards.
+    if _handle_campaign_opt_out(user_text, wa_id, sender_name, tenant_id):
+        return {"status": "ok", "type": "campaign_consent"}
 
     background_tasks.add_task(
         _process_and_reply, wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id

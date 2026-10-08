@@ -433,6 +433,37 @@ def init_db():
             )"""
         )
 
+        # ── Campaign opt-outs — consent required by WhatsApp policy ──────────────
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS campaign_opt_outs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id   TEXT NOT NULL,
+                wa_id       TEXT NOT NULL,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_opt_outs "
+            "ON campaign_opt_outs(tenant_id, wa_id)"
+        )
+
+        # ── Segments — named, reusable campaign audiences ────────────────────────
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS segments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id   TEXT NOT NULL,
+                name        TEXT NOT NULL,
+                audience_type TEXT NOT NULL DEFAULT 'distributors',
+                criteria_json TEXT DEFAULT '{}',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_segments_name "
+            "ON segments(tenant_id, name)"
+        )
+
         # ── Campaigns ──────────────────────────────────────────────────────────
         conn.execute(
             """CREATE TABLE IF NOT EXISTS campaigns (
@@ -544,6 +575,8 @@ def init_db():
         _ensure_columns(conn, "campaigns", [
             ("campaign_type", "TEXT NOT NULL DEFAULT 'promotional'"),
             ("whatsapp_template", "TEXT DEFAULT ''"),
+            ("segment_id", "INTEGER"),
+            ("variable_fallbacks_json", "TEXT DEFAULT '{}'"),
         ])
         _ensure_columns(conn, "distributors", [
             ("city", "TEXT DEFAULT ''"),

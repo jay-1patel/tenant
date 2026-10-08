@@ -76,11 +76,13 @@ export interface Campaign {
   campaign_type: string
   audience_type: string
   whatsapp_template: string
+  segment_id: number | null
   segment: Record<string, unknown> | null
   target_count: number
   template_type: string
   message_template: string
   template_variables: Record<string, unknown>
+  variable_fallbacks: Record<string, string>
   buttons: unknown[]
   list_items: unknown[]
   media_filename: string | null
@@ -97,16 +99,26 @@ export interface CampaignTemplate {
   name: string
   category: string
   body: string
+  language: string
+  header: string | null
+  footer: string | null
+  params: unknown[]
   status: string
+  /** The WhatsApp provider's response — the rejection reason when it failed. */
+  provider_response: string | null
   created_at: string | null
   updated_at: string | null
 }
 
-/** A named audience derived from the tenant's own data (tiers / regions). */
-export interface CampaignSegmentOption {
-  id: string
-  label: string
-  segment: Record<string, unknown>
+/** A saved, reusable audience: distributors or customers + criteria. */
+export interface CampaignSegment {
+  id: number
+  name: string
+  audience_type: 'distributors' | 'customers'
+  criteria: Record<string, unknown>
+  target_count: number
+  created_at: string | null
+  updated_at: string | null
 }
 
 export interface CampaignStats {
@@ -157,10 +169,11 @@ export interface CampaignInput {
   campaign_type?: string
   audience_type: string
   whatsapp_template?: string
-  segment?: Record<string, unknown> | null
+  segment_id?: number | null
   template_type?: string
   message_template: string
   template_variables?: Record<string, unknown>
+  variable_fallbacks?: Record<string, string>
   buttons?: unknown[]
   list_items?: unknown[]
   media_filename?: string | null
@@ -212,7 +225,15 @@ export const operationsApi = {
 
   createCampaignTemplate: (
     tenantId: string,
-    body: { name: string; category: string; body: string },
+    body: {
+      name: string
+      category: string
+      body: string
+      language?: string
+      header?: string
+      footer?: string
+      params?: unknown[]
+    },
   ) =>
     api.post<{ ok: boolean; id: number }>(
       `${tenantBase(tenantId)}/campaigns/templates`,
@@ -224,11 +245,51 @@ export const operationsApi = {
       status,
     }),
 
+  deleteCampaignTemplate: (tenantId: string, id: number) =>
+    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}`),
+
+  uploadCampaignMedia: (tenantId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.postForm<{ filename: string; original_name: string; size: number }>(
+      `${tenantBase(tenantId)}/campaigns/media`,
+      form,
+    )
+  },
+
+  testSendCampaign: (tenantId: string, campaignId: number, waId: string) =>
+    api.post<{ ok: boolean; sent_to: string }>(
+      `${tenantBase(tenantId)}/campaigns/${campaignId}/test-send`,
+      { wa_id: waId },
+    ),
+
   campaignSegments: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ segments: CampaignSegmentOption[] }>(
+    api.get<{ segments: CampaignSegment[] }>(
       `${tenantBase(tenantId)}/campaigns/segments`,
       signal,
     ),
+
+  createCampaignSegment: (
+    tenantId: string,
+    body: { name: string; audience_type: string; criteria: Record<string, unknown> },
+  ) =>
+    api.post<{ ok: boolean; id: number }>(
+      `${tenantBase(tenantId)}/campaigns/segments`,
+      body,
+    ),
+
+  updateCampaignSegment: (
+    tenantId: string,
+    id: number,
+    body: { name: string; audience_type: string; criteria: Record<string, unknown> },
+  ) =>
+    api.put<{ ok: boolean }>(
+      `${tenantBase(tenantId)}/campaigns/segments/${id}`,
+      body,
+    ),
+
+  deleteCampaignSegment: (tenantId: string, id: number) =>
+    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/segments/${id}`),
 
   createCampaign: (tenantId: string, body: CampaignInput) =>
     api.post<{ ok: boolean; id: number }>(`${tenantBase(tenantId)}/campaigns`, body),
