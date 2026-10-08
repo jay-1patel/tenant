@@ -57,7 +57,7 @@ export interface AuditStatistics {
   by_action: Record<string, number>
   by_actor: Record<string, number>
   by_date: Record<string, number>
-  by.category: Record<string, number>
+  by_category: Record<string, number>
 }
 
 // Export options
@@ -148,3 +148,15 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
 
 // Filter persistence key
 export const FILTER_STORAGE_KEY = 'audit_history_filters'
+
+// Labels for display
+export const LABELS = {
+  created_at: 'Date/Time',
+  action: 'Action',
+  actor_username: 'Actor',
+  target_username: 'Target',
+  tenant_id: 'Tenant',
+  outcome: 'Outcome',
+  ip_address: 'IP Address',
+  resource_type: 'Resource Type',
+} as const;

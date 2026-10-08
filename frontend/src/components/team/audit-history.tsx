@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { Alert, EmptyState, LoadingBlock, Toast } from '@/components/ui/feedback'
+import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { Switch } from '@/components/ui/switch' 
 
@@ -244,7 +244,7 @@ const ExportMenu = ({
             <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2">
               {allColumns.map(column => {
                 const isSelected = selectedColumns.includes(column)
-                const columnLabel = LABELS[column] || column.replace(/_/g, ' ')
+                const columnLabel = (LABELS[column as keyof typeof LABELS] || column).toString().replace(/_/g, ' ')
                 return (
                   <label key={column} className="flex items-center gap-2 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer">
                     <input 
@@ -374,7 +374,7 @@ const StatisticsDashboard = ({
               {topActions.map(([action, count]) => (
                 <div key={action} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50">
                   <div className="flex items-center gap-3">
-                    <span className="text-slate-300">{LABELS[action] || action}</span>
+                    <span className="text-slate-300">{(LABELS[action as keyof typeof LABELS] || action).toString()}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400">{count.toLocaleString()}</span>
@@ -429,8 +429,8 @@ const TableView = ({
           bValue = new Date(b.created_at).getTime()
           break
         case 'action':
-          aValue = LABELS[a.action] || a.action
-          bValue = LABELS[b.action] || b.action
+            aValue = (LABELS[a.action as keyof typeof LABELS] || a.action).toString()
+            bValue = (LABELS[b.action as keyof typeof LABELS] || b.action).toString()
           break
         case 'actor_username':
           aValue = a.actor_username || ''
@@ -517,7 +517,7 @@ const TableView = ({
                   <span className={`px-2 py-1 rounded text-xs ${getCategoryColorClass(event.category || '')}`}>
                     {event.category ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'}
                   </span>
-                  {LABELS[event.action] || event.action}
+                  {(LABELS[event.action as keyof typeof LABELS] || event.action).toString()}
                 </div>
               </td>
               <td className="py-3 pr-4 text-slate-300">{event.actor_username || '—'}</td>
@@ -550,7 +550,7 @@ const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
             )}
             <Card>
               <CardHeader
-                title={LABELS[event.action] || event.action}
+                title={(LABELS[event.action as keyof typeof LABELS] || event.action).toString()}
                 description={
                   <div className="flex items-center gap-4 text-xs text-slate-400">
                     <span>{formatDate(event.created_at)}</span>
@@ -866,7 +866,7 @@ export function AuditHistory() {
             >
               <option value="">All actions</option>
               {Object.entries(LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>{String(label)}</option>
               ))}
             </Select>
             <Select 
@@ -918,7 +918,7 @@ export function AuditHistory() {
           <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
             <span>Showing {start}–{end} of {page.total.toLocaleString()} events</span>
             <div className="flex items-center gap-4">
-              <span>Sort: {filters.sort_by ? LABELS[filters.sort_by] || filters.sort_by : 'Date'} ({filters.sort_order})</span>
+              <span>Sort: {filters.sort_by ? (LABELS[filters.sort_by as keyof typeof LABELS] || filters.sort_by) : 'Date'} ({filters.sort_order})</span>
             </div>
           </div>
 
@@ -939,7 +939,7 @@ export function AuditHistory() {
               {formattedEvents.map((event) => (
                 <Card key={event.id}>
                   <CardHeader
-                    title={LABELS[event.action] ?? event.action.replace(/_/g, ' ')}
+                    title={(LABELS[event.action as keyof typeof LABELS] ?? event.action).toString().replace(/_/g, ' ')}
                     description={`${event.actor_username || event.target_username || 'Unknown account'}${event.actor_role ? ` · ${event.actor_role.replace(/_/g, ' ')}` : ''} · ${formatDate(event.created_at)}`}
                     actions={
                       <div className="flex gap-2">
