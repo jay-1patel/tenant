@@ -73,7 +73,9 @@ export interface Campaign {
   id: number
   name: string
   status: string
+  campaign_type: string
   audience_type: string
+  whatsapp_template: string
   segment: Record<string, unknown> | null
   target_count: number
   template_type: string
@@ -89,6 +91,24 @@ export interface Campaign {
   created_at: string | null
 }
 
+/** An approved WhatsApp template the campaign builder broadcasts through. */
+export interface CampaignTemplate {
+  id: number
+  name: string
+  category: string
+  body: string
+  status: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+/** A named audience derived from the tenant's own data (tiers / regions). */
+export interface CampaignSegmentOption {
+  id: string
+  label: string
+  segment: Record<string, unknown>
+}
+
 export interface CampaignStats {
   total_sent_24h: number
   delivery_rate: number
@@ -102,6 +122,9 @@ export interface Distributor {
   phone: string
   email: string
   region: string
+  city: string
+  address: string
+  service_area: string
   tier: string
   product_interests: string[]
   sales_volume: number
@@ -117,6 +140,9 @@ export interface DistributorInput {
   phone?: string
   email?: string
   region?: string
+  city?: string
+  address?: string
+  service_area?: string
   tier?: string
   product_interests?: string[]
   sales_volume?: number
@@ -128,7 +154,9 @@ export interface DistributorInput {
 export interface CampaignInput {
   name: string
   status: string
+  campaign_type?: string
   audience_type: string
+  whatsapp_template?: string
   segment?: Record<string, unknown> | null
   template_type?: string
   message_template: string
@@ -175,6 +203,32 @@ export const operationsApi = {
 
   deleteDistributor: (tenantId: string, waId: string) =>
     api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/distributors/${encodeURIComponent(waId)}`),
+
+  campaignTemplates: (tenantId: string, signal?: AbortSignal) =>
+    api.get<{ templates: CampaignTemplate[] }>(
+      `${tenantBase(tenantId)}/campaigns/templates`,
+      signal,
+    ),
+
+  createCampaignTemplate: (
+    tenantId: string,
+    body: { name: string; category: string; body: string },
+  ) =>
+    api.post<{ ok: boolean; id: number }>(
+      `${tenantBase(tenantId)}/campaigns/templates`,
+      body,
+    ),
+
+  setCampaignTemplateStatus: (tenantId: string, id: number, status: string) =>
+    api.put<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}`, {
+      status,
+    }),
+
+  campaignSegments: (tenantId: string, signal?: AbortSignal) =>
+    api.get<{ segments: CampaignSegmentOption[] }>(
+      `${tenantBase(tenantId)}/campaigns/segments`,
+      signal,
+    ),
 
   createCampaign: (tenantId: string, body: CampaignInput) =>
     api.post<{ ok: boolean; id: number }>(`${tenantBase(tenantId)}/campaigns`, body),

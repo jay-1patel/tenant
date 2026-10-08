@@ -160,6 +160,24 @@ def missing_contact_fields(brand) -> List[str]:
     return missing
 
 
+def is_valid_email(value: str) -> bool:
+    """Public email check for other modules (e.g. the distributor API)."""
+    v = (value or "").strip()
+    return bool(v) and bool(_EMAIL_RE.fullmatch(v))
+
+
+def is_valid_phone(value: str) -> bool:
+    """Country code followed by exactly 10 digits — the one rule everywhere."""
+    v = re.sub(r"[\s\-()]", "", (value or "").strip())
+    if not v or not _PHONE_RE.fullmatch(v):
+        return False
+    body = v[1:]
+    return any(
+        body.startswith(cc) and len(body) - len(cc) == 10
+        for cc in _PHONE_COUNTRY_CODES
+    )
+
+
 # ── Leaves ────────────────────────────────────────────────────────────────
 
 class Features(_Base):

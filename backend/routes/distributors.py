@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from database import get_db_context
 from routes.auth import require_permission, require_tenant_access
+from shared.tenancy.schemas import is_valid_email, is_valid_phone
 
 logger = logging.getLogger("distributors")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}/distributors", tags=["distributors"])
@@ -20,6 +22,9 @@ class DistributorCreate(BaseModel):
     phone: str = ""
     email: str = ""
     region: str = ""
+    city: str = ""
+    address: str = ""
+    service_area: str = ""
     tier: str = "Bronze"
     product_interests: list[str] = []
     sales_volume: float = 0
@@ -33,6 +38,9 @@ class DistributorUpdate(BaseModel):
     phone: str | None = None
     email: str | None = None
     region: str | None = None
+    city: str | None = None
+    address: str | None = None
+    service_area: str | None = None
     tier: str | None = None
     product_interests: list[str] | None = None
     sales_volume: float | None = None
@@ -42,6 +50,33 @@ class DistributorUpdate(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
+
+def _contact_errors(name=None, phone=None, email=None, wa_id=None):
+    """Collect the compulsory / format problems with one submission.
+
+    None means "not part of this submission" (partial updates only validate
+    the fields they actually carry).
+    """
+    errors = []
+    if name is not None and not str(name).strip():
+        errors.append("name is required")
+    if phone is not None:
+        if not str(phone).strip():
+            errors.append("phone is required")
+        elif not is_valid_phone(phone):
+            errors.append(
+                "phone must be a country code followed by a 10-digit number, "
+                "e.g. +91 98765 43210"
+            )
+    if email is not None:
+        if not str(email).strip():
+            errors.append("email is required")
+        elif not is_valid_email(email):
+            errors.append("email must be a valid address, e.g. name@company.com")
+    if wa_id is not None and not re.fullmatch(r"\d{15}", wa_id):
+        errors.append("the WhatsApp phone number id must be exactly 15 digits")
+    return errors
+
 
 def _row_to_dict(row) -> dict:
     d = dict(row)
@@ -157,6 +192,10 @@ def create_distributor(
     if not wa_id:
         raise HTTPException(400, "wa_id is required")
 
+    errors = _contact_errors(name=body.name, phone=body.phone, email=body.email, wa_id=wa_id)
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+
     with get_db_context() as conn:
         existing = conn.execute(
             "SELECT 1 FROM distributors WHERE wa_id = ?", (wa_id,)
@@ -169,10 +208,10 @@ def create_distributor(
 
         conn.execute(
             """INSERT INTO distributors
-                (wa_id, tenant_id, name, phone, email, region, tier, product_interests,
-                 sales_volume, last_order_value, outstanding_payments, notes,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (wa_id, tenant_id, name, phone, email, region, city, address, service_area,
+                 tier, product_interests, sales_volume, last_order_value, outstanding_payments,
+                 notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 wa_id,
                 tenant_id,
@@ -180,6 +219,9 @@ def create_distributor(
                 body.phone,
                 body.email,
                 body.region,
+                body.city,
+                body.address,
+                body.service_area,
                 body.tier,
                 json.dumps(body.product_interests),
                 body.sales_volume,
@@ -203,9 +245,19 @@ def update_distributor(
     current_admin: dict = Depends(require_permission("manage_distributors")),
 ):
     """Update one of this tenant's distributors (partial update — only sent fields)."""
+    updates = body.model_dump(exclude_unset=True)
+
+    errors = _contact_errors(
+        name=updates.get("name"),
+        phone=updates.get("phone"),
+        email=updates.get("email"),
+    )
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+
     fields, values = [], []
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in updates.items():
         if field == "product_interests":
             value = json.dumps(value)
         fields.append(f"{field} = ?")

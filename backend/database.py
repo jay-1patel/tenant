@@ -425,6 +425,9 @@ def init_db():
                 last_order_value  REAL DEFAULT 0,
                 outstanding_payments REAL DEFAULT 0,
                 notes       TEXT DEFAULT '',
+                city        TEXT DEFAULT '',
+                address     TEXT DEFAULT '',
+                service_area TEXT DEFAULT '',
                 created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )"""
@@ -437,7 +440,9 @@ def init_db():
                 tenant_id       TEXT,
                 name            TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'draft',
+                campaign_type   TEXT NOT NULL DEFAULT 'promotional',
                 audience_type   TEXT NOT NULL DEFAULT 'all',
+                whatsapp_template TEXT DEFAULT '',
                 segment_json    TEXT DEFAULT '{}',
                 target_count    INTEGER DEFAULT 0,
                 template_type   TEXT NOT NULL DEFAULT 'plain_text',
@@ -458,6 +463,7 @@ def init_db():
                 updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )"""
         )
+
 
         conn.execute(
             """CREATE TABLE IF NOT EXISTS campaign_replies (
@@ -535,6 +541,15 @@ def init_db():
             ("message", "TEXT NOT NULL DEFAULT ''"),
         ])
         # -- B2B Distributor migrations (orders / complaints / products) --
+        _ensure_columns(conn, "campaigns", [
+            ("campaign_type", "TEXT NOT NULL DEFAULT 'promotional'"),
+            ("whatsapp_template", "TEXT DEFAULT ''"),
+        ])
+        _ensure_columns(conn, "distributors", [
+            ("city", "TEXT DEFAULT ''"),
+            ("address", "TEXT DEFAULT ''"),
+            ("service_area", "TEXT DEFAULT ''"),
+        ])
         _ensure_columns(conn, "orders", [
             ("source", "TEXT DEFAULT 'whatsapp'"),
             ("tier", "TEXT DEFAULT 'Bronze'"),

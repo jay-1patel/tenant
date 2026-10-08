@@ -9,6 +9,7 @@ import {
   money,
   operationsApi,
 } from '@/lib/operations'
+import { EMAIL_RE, isValidPhone } from '@/lib/profile'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,9 @@ interface DistributorFormShape {
   phone: string
   email: string
   region: string
+  city: string
+  address: string
+  service_area: string
   tier: string
   product_interests: string
   sales_volume: string
@@ -46,6 +50,9 @@ function toShape(distributor?: Distributor | null): DistributorFormShape {
     phone: distributor?.phone ?? '',
     email: distributor?.email ?? '',
     region: distributor?.region ?? '',
+    city: distributor?.city ?? '',
+    address: distributor?.address ?? '',
+    service_area: distributor?.service_area ?? '',
     tier: distributor?.tier ?? 'Bronze',
     product_interests: (distributor?.product_interests ?? []).join(', '),
     sales_volume: distributor ? String(distributor.sales_volume ?? '') : '',
@@ -280,25 +287,35 @@ function DistributorForm({
     setForm((f) => ({ ...f, [key]: value }))
 
   const waIdMissing = touched && !initial && !form.wa_id.trim()
+  const waIdInvalid =
+    touched && !initial && form.wa_id.trim() !== '' && !/^\d{15}$/.test(form.wa_id.trim())
   const nameMissing = touched && !form.name.trim()
   const phoneMissing = touched && !form.phone.trim()
+  const emailMissing = touched && !form.email.trim()
   const regionMissing = touched && !form.region.trim()
 
-  const phoneValid = !form.phone.trim() || /^\+?\d{10,15}$/.test(form.phone.trim().replace(/\s+/g, ''))
+  const phoneValid = isValidPhone(form.phone.trim())
+  const emailValid = !form.email.trim() || EMAIL_RE.test(form.email.trim())
 
   const submit = () => {
     setTouched(true)
     if (!initial && !form.wa_id.trim()) return
+    if (waIdInvalid) return
     if (!form.name.trim()) return
     if (!form.phone.trim()) return
-    if (!form.region.trim()) return
+    if (emailMissing) return
     if (!phoneValid) return
+    if (!emailValid) return
+    if (!form.region.trim()) return
     onSubmit({
       wa_id: form.wa_id.trim(),
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
       region: form.region.trim(),
+      city: form.city.trim(),
+      address: form.address.trim(),
+      service_area: form.service_area.trim(),
       tier: form.tier,
       product_interests: form.product_interests
         .split(',')
@@ -321,16 +338,45 @@ function DistributorForm({
           <Input
             label="WhatsApp ID"
             value={form.wa_id}
-            error={waIdMissing ? 'A WhatsApp ID is required' : undefined}
+            error={
+              waIdMissing
+                ? 'A WhatsApp ID is required'
+                : waIdInvalid
+                  ? 'The WhatsApp phone number id must be exactly 15 digits.'
+                  : undefined
+            }
             onChange={(e) => set('wa_id', e.target.value)}
-            placeholder="919876543210"
+            placeholder="012345678901234"
             disabled={Boolean(initial)}
             hint={initial ? 'The ID a distributor is keyed by — it cannot change.' : undefined}
           />
           <Input label="Name" value={form.name} error={nameMissing ? 'Name is required' : undefined} onChange={(e) => set('name', e.target.value)} />
-          <Input label="Phone" value={form.phone} error={phoneMissing ? 'Phone number is required' : (!phoneValid ? 'Phone must be 10-15 digits (with optional +)' : undefined)} onChange={(e) => set('phone', e.target.value)} />
-          <Input label="Email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+          <Input
+            label="Phone"
+            value={form.phone}
+            error={
+              phoneMissing
+                ? 'Phone number is required'
+                : !phoneValid
+                  ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
+                  : undefined
+            }
+            onChange={(e) => set('phone', e.target.value)}
+          />
+          <Input
+            label="Email"
+            value={form.email}
+            error={
+              emailMissing
+                ? 'Email is required'
+                : !emailValid
+                  ? 'The email does not look valid.'
+                  : undefined
+            }
+            onChange={(e) => set('email', e.target.value)}
+          />
           <Input label="Region" value={form.region} error={regionMissing ? 'Region is required' : undefined} onChange={(e) => set('region', e.target.value)} />
+          <Input label="City" value={form.city} onChange={(e) => set('city', e.target.value)} />
           <Select label="Tier" value={form.tier} onChange={(e) => set('tier', e.target.value)}>
             {DISTRIBUTOR_TIERS.map((t) => (
               <option key={t} value={t}>
@@ -346,6 +392,20 @@ function DistributorForm({
           onChange={(e) => set('product_interests', e.target.value)}
           hint="Comma separated. Campaign audience filters match against these."
           placeholder="chikki, snacks"
+        />
+
+        <Textarea
+          label="Address"
+          rows={2}
+          value={form.address}
+          onChange={(e) => set('address', e.target.value)}
+        />
+
+        <Input
+          label="Service area"
+          value={form.service_area}
+          onChange={(e) => set('service_area', e.target.value)}
+          hint="Localities this distributor covers."
         />
 
         <div className="grid gap-4 sm:grid-cols-2">
