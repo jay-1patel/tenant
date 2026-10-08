@@ -56,8 +56,17 @@ export const tenantsApi = {
       body,
     ),
 
+  /** Super admins publish directly; other admins' publishes come back as
+   * `pending_approval` — queued for a super admin to approve. */
   publish: (id: string) =>
-    api.post<{ ok: boolean; version: number; active_intents: string[]; visible_buttons: string[] }>(
+    api.post<{
+      ok: boolean
+      version?: number
+      status?: 'published' | 'pending_approval'
+      message?: string
+      active_intents?: string[]
+      visible_buttons?: string[]
+    }>(
       `/api/admin/tenants/${encodeURIComponent(id)}/publish`,
     ),
 

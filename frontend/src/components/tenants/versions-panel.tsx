@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
+import { useAuth } from '@/lib/auth'
 import { useTenantDetail, useVersions } from './hooks'
 
 export function VersionsPanel({ tenantId }: { tenantId: string }) {
@@ -16,13 +17,19 @@ export function VersionsPanel({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
+  const { identity } = useAuth()
+  const isSuperAdmin = identity?.role === 'super_admin'
   const [confirming, setConfirming] = useState<number | null>(null)
   const [preview, setPreview] = useState<{ version: number; data: Record<string, unknown> } | null>(null)
 
   const publish = async () => {
     const result = await action.run(() => tenantsApi.publish(tenantId))
     if (result) {
-      toast.push(`Published version ${result.version}`)
+      if (result.status === 'pending_approval') {
+        toast.push(result.message ?? 'Change sent for super admin approval.')
+      } else {
+        toast.push(`Published version ${result.version}`)
+      }
       versions.reload()
       detail.reload()
     }
@@ -63,7 +70,7 @@ export function VersionsPanel({ tenantId }: { tenantId: string }) {
             icon={<Rocket className="h-4 w-4" />}
             onClick={publish}
           >
-            Publish draft
+            {isSuperAdmin ? 'Publish draft' : 'Submit for approval'}
           </Button>
         }
         meta={

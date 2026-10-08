@@ -1404,12 +1404,30 @@ def get_published_config(scope: str, default=None):
     return _loads_json(row["snapshot_json"])
 
 
-def get_draft_config(scope: str, default=None):
-    """Return the draft JSON snapshot for a scope, or default."""
+def get_draft_config(scope: str, default=None, max_age_days=None):
+    """Return the draft JSON snapshot for a scope, or default.
+
+    With ``max_age_days`` the draft also acts as a working-copy lease: a
+    row whose last save is older than the limit is deleted instead of
+    returned, so an unpublishable draft cannot linger forever. ``updated_at``
+    is refreshed on every save, so publishing or re-saving always extends it.
+    """
     with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT snapshot_json FROM draft_config WHERE scope = ?", (scope,)
-        ).fetchone()
+        if max_age_days is None:
+            row = conn.execute(
+                "SELECT snapshot_json FROM draft_config WHERE scope = ?", (scope,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT snapshot_json, COALESCE("
+                "    julianday(CURRENT_TIMESTAMP) - julianday(updated_at), 0) AS age_days"
+                " FROM draft_config WHERE scope = ?",
+                (scope,),
+            ).fetchone()
+            if row and float(row["age_days"] or 0) > float(max_age_days):
+                # Stale working copy: discard it rather than resurrect it.
+                conn.execute("DELETE FROM draft_config WHERE scope = ?", (scope,))
+                row = None
     if not row or not row["snapshot_json"]:
         return default if default is not None else None
     return _loads_json(row["snapshot_json"])

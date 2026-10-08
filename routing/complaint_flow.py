@@ -15,6 +15,7 @@ mechanism used by the B2B/B2C orchestrators, so everything survives restarts.
 """
 
 import logging
+import re
 from datetime import datetime
 
 import routing.config as config
@@ -33,6 +34,9 @@ COMPLAINT_STATES = {
 }
 
 MAIN_MENU_STATE = "MAIN_MENU"
+
+# WhatsApp phone-number IDs are digits only, at most 15 digits (E.164 limit).
+WA_ID_MAX_DIGITS = 15
 
 # Phrases that start a new complaint form.
 COMPLAINT_START_PHRASES = [
@@ -170,8 +174,19 @@ def _send(to: str, text: str) -> None:
         send_whatsapp_message(to, text)
 
 
+def is_valid_wa_id(wa_id: str) -> bool:
+    """Return True if the WhatsApp phone-number ID is digits only and <= 15 digits."""
+    if not wa_id:
+        return False
+    digits = str(wa_id).strip().lstrip("+")
+    return bool(re.fullmatch(r"\d{1,%d}" % WA_ID_MAX_DIGITS, digits))
+
+
 def start_complaint(wa_id: str) -> None:
     """Begin the complaint form: set the FSM state and ask for the type."""
+    if not is_valid_wa_id(wa_id):
+        logger.warning(f"COMPLAINT_REJECTED | invalid wa_id | {wa_id!r}")
+        return
     from database import set_user_state
     set_user_state(wa_id, COMPLAINT_AWAITING_TYPE, {})
     _send(wa_id, _WELCOME_MSG + _CANCEL_HINT)
@@ -184,6 +199,10 @@ def handle_complaint_state(wa_id: str, user_text: str) -> bool:
 
     Returns True when the message was consumed by the form, False otherwise.
     """
+    if not is_valid_wa_id(wa_id):
+        logger.warning(f"COMPLAINT_REJECTED | invalid wa_id | {wa_id!r}")
+        return False
+
     from database import get_user_state, set_user_state
 
     state_row = get_user_state(wa_id)

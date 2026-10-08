@@ -13,9 +13,10 @@ publish is rejected at write time rather than blowing up mid-conversation.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ── Feature flags ─────────────────────────────────────────────────────────
 # Every flag defaults to OFF except the ones a vertical explicitly turns on.
@@ -80,6 +81,85 @@ class _Base(BaseModel):
     )
 
 
+# ── Contact-field checks ────────────────────────────────────────────────────────────
+# Empty means "not set" and always passes; only filled-in fields are checked.
+# These run wherever a profile is built, so a bad value is rejected at draft
+# save (as a warning), at publish / approval (hard 422), and on every load.
+
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+# Phone numbers must carry their country code followed by exactly 10 digits;
+# spaces, dashes and parentheses are tolerated, e.g. "+91 98765 43210".
+# The same country-code table the registration wizard uses: it rules out
+# "country code + 11 digits" look-alikes such as +91 1800 123 4567, which a
+# plain length check cannot distinguish from a 3-digit code + 10 digits.
+_PHONE_RE = re.compile(r"^\+\d{11,13}$")
+_PHONE_COUNTRY_CODES = frozenset((
+    '212', '213', '216', '218', '220', '221', '222', '223', '224', '225',
+    '226', '227', '228', '229', '230', '231', '232', '233', '234', '235',
+    '236', '237', '238', '239', '240', '241', '242', '243', '244', '245',
+    '246', '248', '249', '250', '251', '252', '253', '254', '255', '256',
+    '257', '258', '260', '261', '262', '263', '264', '265', '266', '267',
+    '268', '269', '290', '291', '297', '298', '299', '350', '351', '352',
+    '353', '354', '355', '356', '357', '358', '359', '370', '371', '372',
+    '373', '374', '375', '376', '377', '378', '380', '381', '382', '383',
+    '385', '386', '387', '389', '420', '421', '423', '500', '501', '502',
+    '503', '504', '505', '506', '507', '508', '509', '590', '591', '592',
+    '593', '594', '595', '596', '597', '598', '599', '670', '672', '673',
+    '674', '675', '676', '677', '678', '679', '680', '681', '682', '683',
+    '685', '686', '687', '688', '689', '690', '691', '692', '850', '852',
+    '853', '855', '856', '870', '880', '886', '960', '961', '962', '963',
+    '964', '965', '966', '967', '968', '970', '971', '972', '973', '974',
+    '975', '976', '977', '992', '993', '994', '995', '996', '998', '20', '27',
+    '30', '31', '32', '33', '34', '36', '39', '40', '41', '43', '44', '45',
+    '46', '47', '48', '49', '51', '52', '53', '54', '55', '56', '57', '58',
+    '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86', '90',
+    '91', '92', '93', '94', '95', '98', '1', '7',
+))
+_URL_RE = re.compile(r"^(https?://)?([\w-]+\.)+[A-Za-z]{2,}(:\d+)?(/\S*)?$")
+
+
+def _require_email(value: str, field: str) -> str:
+    v = (value or "").strip()
+    if v and not _EMAIL_RE.fullmatch(v):
+        raise ValueError(f"{field} '{v}' is not a valid email address")
+    return value
+
+
+def _require_phone(value: str, field: str) -> str:
+    v = re.sub(r"[\s\-()]", "", (value or "").strip())
+    if not v:
+        return value
+    ok = _PHONE_RE.fullmatch(v)
+    if ok:
+        body = v[1:]
+        ok = any(
+            body.startswith(cc) and len(body) - len(cc) == 10
+            for cc in _PHONE_COUNTRY_CODES
+        )
+    if not ok:
+        raise ValueError(
+            f"{field} must be a country code followed by a 10-digit number, e.g. +91 98765 43210 (got '{value}')"
+        )
+    return value
+
+
+def _require_url(value: str, field: str) -> str:
+    v = (value or "").strip()
+    if v and not _URL_RE.fullmatch(v):
+        raise ValueError(f"{field} '{v}' is not a valid website URL")
+    return value
+
+
+def missing_contact_fields(brand) -> List[str]:
+    """Required contact fields every publishable profile must carry."""
+    missing: List[str] = []
+    if not str(getattr(brand, "support_email", "") or "").strip():
+        missing.append("brand.support_email")
+    if not str(getattr(brand, "support_phone", "") or "").strip():
+        missing.append("brand.support_phone")
+    return missing
+
+
 # ── Leaves ────────────────────────────────────────────────────────────────
 
 class Features(_Base):
@@ -141,6 +221,21 @@ class Brand(_Base):
     support_phone: str = ""
     signature: str = ""
     bot_name: str = ""
+
+    @field_validator("website")
+    @classmethod
+    def _check_website(cls, v):
+        return _require_url(v, "brand.website")
+
+    @field_validator("support_email")
+    @classmethod
+    def _check_support_email(cls, v):
+        return _require_email(v, "brand.support_email")
+
+    @field_validator("support_phone")
+    @classmethod
+    def _check_support_phone(cls, v):
+        return _require_phone(v, "brand.support_phone")
 
     def display_name(self) -> str:
         return self.bot_name or self.name
@@ -224,6 +319,17 @@ class NotificationChannel(_Base):
     # Only used for type == "webhook"
     secret: str = ""
 
+    @model_validator(mode="after")
+    def _check_to(self):
+        v = (self.to or "").strip()
+        if not v:
+            return self
+        if self.type == "email" and not _EMAIL_RE.fullmatch(v):
+            raise ValueError(f"channel destination '{v}' is not a valid email address")
+        if self.type == "webhook" and not _URL_RE.fullmatch(v):
+            raise ValueError(f"channel destination '{v}' is not a valid URL")
+        return self
+
 
 class Notifications(_Base):
     """Per-tenant delivery config. CATALOGUE_PDF_URL becomes notifications.brochure_url."""
@@ -233,6 +339,21 @@ class Notifications(_Base):
     brochure_url: str = ""
     brochure_label: str = ""
     channels: List[NotificationChannel] = Field(default_factory=list)
+
+    @field_validator("sales_email")
+    @classmethod
+    def _check_sales_email(cls, v):
+        return _require_email(v, "notifications.sales_email")
+
+    @field_validator("support_email")
+    @classmethod
+    def _check_support_email(cls, v):
+        return _require_email(v, "notifications.support_email")
+
+    @field_validator("brochure_url")
+    @classmethod
+    def _check_brochure_url(cls, v):
+        return _require_url(v, "notifications.brochure_url")
 
     def active_channels(self, kind: str | None = None) -> List[NotificationChannel]:
         out = [c for c in self.channels if c.enabled and c.to]

@@ -130,7 +130,7 @@ class TenantApprovalTests(unittest.TestCase):
 
     # ── registration flow ──────────────────────────────────────────────
 
-    def test_admin_cannot_create_tenants_but_publishes_directly(self):
+    def test_admin_cannot_create_tenants_or_publish_directly(self):
         # Registering a tenant is the super admin's step; the approval queue
         # exists for the wizard the admin completes afterwards.
         admin = self._create_admin("plain-admin")
@@ -150,13 +150,133 @@ class TenantApprovalTests(unittest.TestCase):
         )
         self.assertEqual(direct.status_code, 200)
 
-        # Publishing from the sidebar panels (profile, menu, versions) is NOT
-        # gated on approval — only the Register a tenant panel submits through
-        # the approval queue. An admin with a saved draft publishes directly.
+        # An admin's profile edit never goes live directly either: the publish
+        # endpoint queues it for super admin approval, like a registration.
+        # A draft missing the compulsory contact fields is refused outright.
         tenancy_store.save_draft("acme", {})
-        published = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
-        self.assertEqual(published.status_code, 200)
+        res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("Missing required profile fields", res.json()["detail"])
+
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
+        res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["status"], "pending_approval")
+        self.assertEqual(body["request"]["status"], "pending")
+        self.assertEqual(self._current_version("acme"), 0)
+
+        # Only the super admin's approval makes it live.
+        approved = self._decide(body["request"]["id"], "approved", "Ship it")
+        self.assertEqual(approved.status_code, 200)
         self.assertEqual(self._current_version("acme"), 1)
+
+        # The super admin still publishes directly.
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
+        direct_pub = self.client.post(
+            "/api/admin/tenants/acme/publish", headers=self._login("root")
+        )
+        self.assertEqual(direct_pub.status_code, 200)
+        self.assertIn("version", direct_pub.json())
+        self.assertEqual(self._current_version("acme"), 2)
+
+    # ── contact-detail validation ───────────────────────────────
+
+    def test_registration_rejects_invalid_contact_details(self):
+        admin = self._create_admin("contact-admin")
+        # Phone without a country code.
+        res = self._submit_create(
+            admin, snapshot={"brand": {"support_phone": "9876543210"}}
+        )
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("country code", res.json()["detail"])
+        # Website that is not a URL.
+        res = self._submit_create(
+            admin, snapshot={"brand": {"website": "not a website"}}
+        )
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("website URL", res.json()["detail"])
+        # Email that is not an email.
+        res = self._submit_create(
+            admin, snapshot={"notifications": {"sales_email": "nope"}}
+        )
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("email address", res.json()["detail"])
+        # waba_phone_id must be digits only.
+        res = self.client.post(
+            "/api/tenant-change-requests",
+            json={
+                "request_type": "create_tenant",
+                "tenant_id": "acme",
+                "tenant": {
+                    "slug": "acme",
+                    "vertical": "generic",
+                    "display_name": "Acme Ltd",
+                    "waba_phone_id": "12345678901234",
+                    "status": "active",
+                },
+            },
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("15-digit", res.json()["detail"])
+        # Valid contact details queue fine.
+        res = self._submit_create(
+            admin,
+            snapshot={
+                "brand": {
+                    "website": "https://acme.example",
+                    "support_email": "care@acme.example",
+                    "support_phone": "+91 98765 43210",
+                }
+            },
+        )
+        self.assertEqual(res.status_code, 201)
+
+    def test_profile_rejects_invalid_contact_details(self):
+        admin = self._create_admin("profile-admin")
+        self.client.post(
+            "/api/admin/tenants",
+            json={"tenant_id": "acme", "vertical": "generic"},
+            headers=self._login("root"),
+        )
+        # Saving a broken draft is allowed; the problem comes back as a
+        # validation warning.
+        res = self.client.put(
+            "/api/admin/tenants/acme/profile",
+            json={"snapshot": {"brand": {"website": "not a url"}}},
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("website URL" in w for w in res.json()["validation"]))
+        # A publish of that draft is refused outright instead of queueing.
+        res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(res.status_code, 422)
+        # Fix the contact details and the publish queues for approval.
+        res = self.client.put(
+            "/api/admin/tenants/acme/profile",
+            json={
+                "snapshot": {
+                    "brand": {
+                        "website": "https://acme.example",
+                        "support_email": "care@acme.example",
+                        "support_phone": "+91 98765 43210",
+                    }
+                }
+            },
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["validation"], [])
+        res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["status"], "pending_approval")
 
     def test_registration_submission_and_approval(self):
         admin = self._create_admin("reg-admin")
@@ -254,7 +374,10 @@ class TenantApprovalTests(unittest.TestCase):
         self._register_tenant()
         self.assertEqual(self._submit_publish(admin, "acme").status_code, 400)
 
-        tenancy_store.save_draft("acme", {"brand": {"name": "Acme"}})
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"name": "Acme", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
         submitted = self._submit_publish(admin, "acme")
         self.assertEqual(submitted.status_code, 201)
         self.assertEqual(submitted.json()["request"]["status"], "pending")
@@ -262,7 +385,10 @@ class TenantApprovalTests(unittest.TestCase):
 
     def test_publish_is_tenant_scoped_and_applies_submitted_snapshot(self):
         self._register_tenant("acme")
-        tenancy_store.save_draft("acme", {"brand": {"name": "Acme"}})
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"name": "Acme", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
 
         other = self._create_admin("other-admin", tenant_id="acme")
         self._register_tenant("rival")
@@ -304,7 +430,12 @@ class TenantApprovalTests(unittest.TestCase):
         admin = self._create_admin("completer")
         snapshot = {
             "display_name": "Acme Ltd",
-            "brand": {"name": "Acme Ltd", "bot_name": "Asha"},
+            "brand": {
+                "name": "Acme Ltd",
+                "bot_name": "Asha",
+                "support_email": "care@acme.example",
+                "support_phone": "+91 98765 43210",
+            },
             "business_hours": {"timezone": "Asia/Kolkata", "always_open": True},
         }
         bound = self.client.post(
@@ -353,13 +484,19 @@ class TenantApprovalTests(unittest.TestCase):
 
     def test_publish_rejection_keeps_live_version(self):
         self._register_tenant("acme")
-        tenancy_store.save_draft("acme", {"brand": {"name": "Acme"}})
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"name": "Acme", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
 
         # Publish once so the tenant has a live version.
         self.client.post("/api/admin/tenants/acme/publish", headers=self._login("root"))
         self.assertEqual(self._current_version("acme"), 1)
 
-        tenancy_store.save_draft("acme", {"brand": {"name": "Changed"}})
+        tenancy_store.save_draft(
+            "acme",
+            {"brand": {"name": "Changed", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
+        )
         scoped = self._create_admin("scoped-admin-2", tenant_id="acme")
         request_id = self._submit_publish(scoped, "acme").json()["request"]["id"]
 

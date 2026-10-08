@@ -122,6 +122,11 @@ export function TeamScreen() {
   }
 
   const reset = async (username: string) => {
+    const passwordValid = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/.test(newPassword)
+    if (!passwordValid) {
+      toast.push('Password must be at least 12 chars with upper/lower/digit/special char')
+      return
+    }
     const result = await action.run(() => adminsApi.resetPassword(username, newPassword))
     if (result) {
       toast.push(`Password reset for ${username}`)
@@ -205,18 +210,20 @@ export function TeamScreen() {
                 autoFocus
               />
               <Input
-                label="Email (optional)"
+                label="Email"
                 type="email"
                 value={draft.email}
                 onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                hint="Required in valid format"
               />
-              <Input
-                label="Password"
-                type="password"
-                value={draft.password}
-                onChange={(e) => setDraft({ ...draft, password: e.target.value })}
-                hint="At least 12 characters."
-              />
+                    <Input
+                      label="New password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      hint="At least 12 chars with upper/lower/digit/special char"
+                    />
             </div>
             <Select
               label="Tenant"
@@ -269,7 +276,11 @@ export function TeamScreen() {
               <Button
                 variant="primary"
                 loading={action.busy}
-                disabled={!draft.username.trim() || draft.password.length < 12}
+                disabled={
+                  !draft.username.trim() ||
+                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ||
+                  !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/.test(draft.password)
+                }
                 onClick={create}
               >
                 Create admin
@@ -347,7 +358,7 @@ export function TeamScreen() {
                           placeholder="New password"
                           className="w-48"
                         />
-                        <Button size="sm" variant="primary" loading={action.busy} disabled={newPassword.length < 12} onClick={() => reset(admin.username)}>
+                        <Button size="sm" variant="primary" loading={action.busy} disabled={!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/.test(newPassword)} onClick={() => reset(admin.username)}>
                           Save
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setResetting(null)}>

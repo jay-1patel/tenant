@@ -20,6 +20,7 @@ always approves what was reviewed, not what the draft looks like later.
 
 import json
 import logging
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -189,16 +190,31 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
+        waba_phone_id = str(tenant_fields.get("waba_phone_id") or "").strip()
+        if waba_phone_id and not re.fullmatch(r"\d{15}", waba_phone_id):
+            raise HTTPException(
+                status_code=422,
+                detail="waba_phone_id must be the 15-digit WhatsApp phone number id",
+            )
         payload = {
             "tenant": {
                 "slug": tenant_fields.get("slug") or tenant_id,
                 "vertical": tenant_fields.get("vertical") or "generic",
                 "display_name": tenant_fields.get("display_name") or "",
-                "waba_phone_id": tenant_fields.get("waba_phone_id") or "",
+                "waba_phone_id": waba_phone_id,
                 "status": tenant_fields.get("status") or "active",
             },
             "snapshot": body.snapshot or {},
         }
+        # Reject invalid contact details (email / phone with country code /
+        # website URL) at submission instead of at super admin approval.
+        try:
+            _loader.validate_merged_profile(tenant_id, payload["snapshot"])
+        except _loader.ProfileValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The submitted profile is invalid: {exc}",
+            ) from exc
         summary = (
             f"Register tenant '{tenant_id}'"
             f" ({payload['tenant']['display_name'] or tenant_id})"
@@ -213,10 +229,30 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
             raise HTTPException(status_code=403, detail=f"Admin is scoped to tenant '{admin_tenant}'")
 
         draft = tenancy_store.get_draft(tenant_id)
-        if not draft:
+        if draft is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"No draft exists for tenant '{tenant_id}' — save one first",
+            )
+        from shared.tenancy import loader as _loader
+        from shared.tenancy import schemas as _schemas
+
+        try:
+            draft_profile = _loader.validate_merged_profile(tenant_id, draft)
+        except _loader.ProfileValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The draft profile is invalid, fix it before submitting: {exc}",
+            ) from exc
+        missing = _schemas.missing_contact_fields(draft_profile.brand)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Missing required profile fields: "
+                    + ", ".join(missing)
+                    + " — fill them in the profile or the register form"
+                ),
             )
         # Capture the draft as submitted: approval applies exactly this snapshot.
         payload = {"snapshot": draft}
@@ -286,6 +322,63 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
 
 
 # ── listing ────────────────────────────────────────────────────────────────
+
+def queue_publish_for_approval(tenant_id: str, current_admin: dict) -> dict:
+    """Queue a publish request on behalf of a non-super admin.
+
+    Used by the direct publish endpoint (POST /api/admin/tenants/{id}/publish):
+    an admin's profile edit may not go live without super admin approval, so
+    their publish is converted into a pending request here. If one is already
+    pending for the tenant, its snapshot is refreshed with the latest draft so
+    the super admin always reviews the newest edits.
+    """
+    body = TenantChangeCreate(request_type="publish_profile", tenant_id=tenant_id)
+    try:
+        return _create_change_request(body, current_admin)
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+
+    from shared.tenancy import store as tenancy_store
+
+    draft = tenancy_store.get_draft(tenant_id) or {}
+    with get_db_context() as conn:
+        row = conn.execute(
+            """SELECT * FROM tenant_change_requests
+               WHERE request_type = 'publish_profile' AND tenant_id = ?
+                 AND status = 'pending'
+               ORDER BY id DESC LIMIT 1""",
+            (tenant_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A pending publish_profile request already exists for tenant '{tenant_id}'",
+            )
+        conn.execute(
+            "UPDATE tenant_change_requests SET payload_json = ?, updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?",
+            (json.dumps({"snapshot": draft}, ensure_ascii=False), row["id"]),
+        )
+        _add_event(
+            conn,
+            row["id"],
+            actor=current_admin,
+            event_type="submitted",
+            old_status="pending",
+            new_status="pending",
+            note="Snapshot refreshed with the latest draft",
+        )
+        refreshed = conn.execute(
+            "SELECT * FROM tenant_change_requests WHERE id = ?",
+            (row["id"],),
+        ).fetchone()
+    logger.info(
+        "TENANT_CHANGE_RESUBMITTED | type=publish_profile | tenant=%s | by=%s",
+        tenant_id, current_admin.get("username"),
+    )
+    return {"request": _enrich_with_tenant([refreshed])[0]}
+
 
 @router.get("/api/tenant-change-requests")
 def list_my_requests(current_admin: dict = Depends(get_current_admin)):

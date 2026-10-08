@@ -15,6 +15,7 @@ import { TagInput } from '@/components/ui/tags'
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
+import { useAuth } from '@/lib/auth'
 import { useTenantDetail } from './hooks'
 
 type ButtonDraft = Omit<MenuButton, 'sort_order'> & { sort_order: number }
@@ -53,6 +54,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const detail = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
+  const { identity } = useAuth()
+  const isSuperAdmin = identity?.role === 'super_admin'
 
   const [menu, setMenu] = useState<MenuSpec | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -194,7 +197,11 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      toast.push(`Menu published as version ${published.version}`)
+      if (published.status === 'pending_approval') {
+        toast.push(published.message ?? 'Change sent for super admin approval.')
+      } else {
+        toast.push(`Menu published as version ${published.version}`)
+      }
       detail.reload()
     }
   }
@@ -307,7 +314,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
               Save draft
             </Button>
             <Button size="sm" variant="primary" loading={action.busy} icon={<Send className="h-4 w-4" />} onClick={() => commit(true)}>
-              Save & publish
+              {isSuperAdmin ? 'Save & publish' : 'Submit for approval'}
             </Button>
           </>
         }
@@ -630,7 +637,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                     Save draft
                   </Button>
                   <Button variant="primary" loading={action.busy} icon={<Send className="h-4 w-4" />} onClick={() => commit(true)}>
-                    Save & publish
+                    {isSuperAdmin ? 'Save & publish' : 'Submit for approval'}
                   </Button>
                 </div>
               </CardBody>

@@ -69,7 +69,8 @@ interface FormShape {
 export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: InfoPageId }) {
   const spec = PAGES[page]
   const { data, loading, error, reload } = useResolved(tenantId)
-  const { can } = useAuth()
+  const { can, identity } = useAuth()
+  const isSuperAdmin = identity?.role === 'super_admin'
   const action = useAction()
   const toast = useToast()
   const canEdit = can(spec.permission)
@@ -139,7 +140,11 @@ export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: Info
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      toast.push(`Published version ${published.version}`)
+      if (published.status === 'pending_approval') {
+        toast.push(published.message ?? 'Change sent for super admin approval.')
+      } else {
+        toast.push(`Published version ${published.version}`)
+      }
       setEditing(false)
       setDraftSaved(false)
       reload()
@@ -205,7 +210,7 @@ export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: Info
                 disabled={!dirty}
                 onClick={() => save(true)}
               >
-                Save &amp; publish
+                {isSuperAdmin ? 'Save & publish' : 'Submit for approval'}
               </Button>
             </>
           )

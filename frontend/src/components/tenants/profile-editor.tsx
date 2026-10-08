@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
 import { tenantsApi } from '@/lib/tenants'
-import { editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
+import { editorContactErrors, editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
 import { getVertical } from '@/lib/verticals'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -19,6 +20,8 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
+  const { identity } = useAuth()
+  const isSuperAdmin = identity?.role === 'super_admin'
   const [form, setForm] = useState<EditorForm | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [dirty, setDirty] = useState(false)
@@ -26,7 +29,10 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   // click on a switch or input cannot silently rewrite a live tenant.
   const [editing, setEditing] = useState(false)
 
-  const effective = detail.data?.effective ?? null
+  // Prefer the pending draft (merged over the file baseline): it contains
+  // every unpublished change from the register wizard, so this editor and
+  // the wizard always edit the same working copy.
+  const effective = detail.data?.pending ?? detail.data?.effective ?? null
   const baseline = useMemo(
     () => (effective ? JSON.stringify(editorToSnapshot(editorFromProfile(effective))) : ''),
     [effective],
@@ -65,6 +71,12 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const current = JSON.stringify(editorToSnapshot(form))
 
   const saveDraft = async (thenPublish: boolean) => {
+    const contactErrors = editorContactErrors(form)
+    if (contactErrors.length) {
+      setWarnings(contactErrors)
+      toast.push('Fix the contact details before saving.', 'error')
+      return
+    }
     const saved = await action.run(() => tenantsApi.saveDraft(tenantId, editorToSnapshot(form)))
     if (!saved) return
     setWarnings(saved.validation ?? [])
@@ -81,7 +93,11 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      toast.push(`Published version ${published.version}`)
+      if (published.status === 'pending_approval') {
+        toast.push(published.message ?? 'Change sent for super admin approval.')
+      } else {
+        toast.push(`Published version ${published.version}`)
+      }
       setEditing(false)
       detail.reload()
     }
@@ -91,7 +107,11 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     <div>
       <PageHeader
         title="Profile"
-        description="This form is the tenant's data layer. Saving writes a draft; publishing validates it, versions it and swaps the live profile. Publishing is the only thing the bot ever sees."
+        description={
+          isSuperAdmin
+            ? "This form is the tenant's data layer. Saving writes a draft; publishing validates it, versions it and swaps the live profile. Publishing is the only thing the bot ever sees."
+            : "This form is the tenant's data layer. Your edits are saved as a draft and submitted to a super admin — nothing goes live until they approve."
+        }
         actions={
           editing ? (
             <>
@@ -108,24 +128,38 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               >
                 Discard changes
               </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                loading={action.busy}
-                icon={<Save className="h-4 w-4" />}
-                onClick={() => saveDraft(false)}
-              >
-                Save draft
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                loading={action.busy}
-                icon={<Send className="h-4 w-4" />}
-                onClick={() => saveDraft(true)}
-              >
-                Save & publish
-              </Button>
+              {isSuperAdmin ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={action.busy}
+                    icon={<Save className="h-4 w-4" />}
+                    onClick={() => saveDraft(false)}
+                  >
+                    Save draft
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    loading={action.busy}
+                    icon={<Send className="h-4 w-4" />}
+                    onClick={() => saveDraft(true)}
+                  >
+                    Save & publish
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={action.busy}
+                  icon={<Send className="h-4 w-4" />}
+                  onClick={() => saveDraft(true)}
+                >
+                  Submit for approval
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -363,7 +397,11 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
 
       <p className="mt-4 flex items-center gap-2 text-xs text-slate-600">
         <TriangleAlert className="h-3.5 w-3.5" />
-        {current === baseline ? 'No changes yet.' : 'Unsaved changes will be written as a draft, not published.'}
+        {current === baseline
+          ? 'No changes yet.'
+          : isSuperAdmin
+            ? 'Unsaved changes will be written as a draft, not published.'
+            : 'Unsaved changes stay a draft until you submit them for approval.'}
       </p>
     </div>
   )

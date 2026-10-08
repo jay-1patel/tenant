@@ -365,8 +365,15 @@ def rollback(tenant_id: str, version: int, conn=None) -> bool:
 
 # ── draft (working copy) ──────────────────────────────────────────────────
 
+# A working copy nobody publishes within this window is stale by design:
+# reading it after the lease expires discards it (see get_draft_config).
+DRAFT_TTL_DAYS = 7.0
+
+
 def get_draft(tenant_id: str) -> Optional[dict]:
-    return _db().get_draft_config(profile_scope(tenant_id), default=None)
+    return _db().get_draft_config(
+        profile_scope(tenant_id), default=None, max_age_days=DRAFT_TTL_DAYS
+    )
 
 
 def save_draft(tenant_id: str, payload: dict, updated_by: str = "", conn=None) -> bool:

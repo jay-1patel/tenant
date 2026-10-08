@@ -7,7 +7,7 @@ import {
 } from '@/lib/tenant-approvals'
 import { useAsync, useAction } from '@/lib/hooks'
 import { formatDate, isTruthyFlag } from '@/lib/format'
-import { FEATURE_LABELS } from '@/lib/verticals'
+import { tenantsApi } from '@/lib/tenants'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
@@ -54,115 +54,217 @@ function DetailSection({ title, rows }: { title: string; rows: [string, ReactNod
   )
 }
 
+/** Green highlight for values the admin changed against the live profile. */
+function Edited({ changed, children }: { changed: boolean; children: ReactNode }) {
+  if (!changed) return <>{children}</>
+  return (
+    <span
+      className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300 ring-1 ring-inset ring-emerald-500/30"
+      title="Changed by the admin"
+    >
+      {children}
+    </span>
+  )
+}
+
 /**
  * Everything the admin entered, field by field — the review counterpart of the
- * wizard's own steps. Anything the profile carries is shown; empty fields read
- * as an em dash so a gap is visible rather than silently missing.
+ * wizard's own steps. Empty fields read as an em dash so a gap is visible
+ * rather than silently missing. For profile publishes the live profile is the
+ * baseline: fields the admin actually changed are highlighted in green.
  */
-function SnapshotDetails({ request }: { request: TenantChangeRequest }) {
+function SnapshotDetails({
+  request,
+  baseline,
+}: {
+  request: TenantChangeRequest
+  baseline?: Record<string, any>
+}) {
   const snapshot = (request.payload.snapshot ?? {}) as Record<string, any>
   const brand = snapshot.brand ?? {}
   const hours = snapshot.business_hours ?? {}
   const notes = snapshot.notifications ?? {}
   const rails = snapshot.guardrails ?? {}
-  const vocab = snapshot.vocabulary ?? {}
   const prompt = snapshot.prompt ?? {}
   const menu = (snapshot.menu ?? {}) as { header?: string; body?: string }
   const channels: { type?: string; to?: string; label?: string }[] = notes.channels ?? []
 
-  const features = snapshot.features ?? {}
-  const enabledFeatures = Object.keys(features).filter((f) => features[f])
-  const featureLabels = FEATURE_LABELS as Record<string, { label: string }>
-
   const openDays: number[] = Array.isArray(hours.open_days) ? hours.open_days : []
+
+  const at = (source: unknown, path: string): unknown =>
+    path
+      .split('.')
+      .reduce<unknown>(
+        (acc, key) =>
+          acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
+        source,
+      )
+
+  /** True when a submitted value exists and differs from the live profile. */
+  const edited = (path: string): boolean => {
+    if (!baseline) return false
+    const submitted = at(snapshot, path)
+    if (submitted === undefined || submitted === null) return false
+    return JSON.stringify(submitted) !== JSON.stringify(at(baseline, path) ?? null)
+  }
+
+  const editedAny = (paths: string[]): boolean => paths.some(edited)
 
   return (
     <div className="space-y-4">
       <DetailSection
         title="Company"
         rows={[
-          ['Display name', valueOr(snapshot.display_name, request.tenant_display_name)],
-          ['Business field', valueOr(snapshot.vertical, request.tenant_vertical)],
-          ['Company', valueOr(brand.name)],
-          ['Website', valueOr(brand.website)],
+          [
+            'Display name',
+            <Edited key="dn" changed={edited('display_name')}>
+              {valueOr(snapshot.display_name, request.tenant_display_name)}
+            </Edited>,
+          ],
+          [
+            'Business field',
+            <Edited key="v" changed={edited('vertical')}>
+              {valueOr(snapshot.vertical, request.tenant_vertical)}
+            </Edited>,
+          ],
+          [
+            'Company',
+            <Edited key="cn" changed={edited('brand.name')}>
+              {valueOr(brand.name)}
+            </Edited>,
+          ],
+          [
+            'Website',
+            <Edited key="w" changed={edited('brand.website')}>
+              {valueOr(brand.website)}
+            </Edited>,
+          ],
         ]}
       />
       <DetailSection
         title="WhatsApp and working hours"
         rows={[
           ['WhatsApp phone id', valueOr(request.tenant_waba_phone_id, 'not bound')],
-          ['Timezone', valueOr(hours.timezone)],
+          [
+            'Timezone',
+            <Edited key="tz" changed={edited('business_hours.timezone')}>
+              {valueOr(hours.timezone)}
+            </Edited>,
+          ],
           [
             'Working hours',
-            <span key="hours">
-              {hours.always_open
-                ? 'Always open'
-                : `${valueOr(hours.open)}–${valueOr(hours.close)} · ${
-                    openDays.length ? openDays.map((d) => DAY_LABELS[d] ?? String(d)).join(', ') : 'no days set'
-                  }`}
-            </span>,
+            <Edited
+              key="hrs"
+              changed={editedAny([
+                'business_hours.always_open',
+                'business_hours.open',
+                'business_hours.close',
+                'business_hours.open_days',
+              ])}
+            >
+              <span>
+                {hours.always_open
+                  ? 'Always open'
+                  : `${valueOr(hours.open)}–${valueOr(hours.close)} · ${
+                      openDays.length
+                        ? openDays.map((d) => DAY_LABELS[d] ?? String(d)).join(', ')
+                        : 'no days set'
+                    }`}
+              </span>
+            </Edited>,
           ],
-          ['Out-of-hours message', valueOr(hours.out_of_hours_message)],
+          [
+            'Out-of-hours message',
+            <Edited key="ooh" changed={edited('business_hours.out_of_hours_message')}>
+              {valueOr(hours.out_of_hours_message)}
+            </Edited>,
+          ],
         ]}
       />
       <DetailSection
         title="Brand and voice"
         rows={[
-          ['Bot name', valueOr(brand.bot_name)],
-          ['Tagline', valueOr(brand.tagline)],
-          ['Tone', valueOr(prompt.tone)],
-          ['Support email', valueOr(brand.support_email)],
-          ['Support phone', valueOr(brand.support_phone)],
-          ['Closing signature', valueOr(brand.signature)],
-          ['Menu greeting', valueOr(menu.body)],
           [
-            'Vocabulary',
-            valueOr(
-              [vocab.item_noun, vocab.lead_noun].filter(Boolean).join(' · '),
-            ),
+            'Bot name',
+            <Edited key="bn" changed={edited('brand.bot_name')}>
+              {valueOr(brand.bot_name)}
+            </Edited>,
           ],
-        ]}
-      />
-      <DetailSection
-        title="Capabilities"
-        rows={[
           [
-            'Enabled features',
-            <span key="features" className="flex flex-wrap gap-1.5">
-              {enabledFeatures.length ? (
-                enabledFeatures.map((f) => (
-                  <span key={f} className="rounded bg-surface-panel px-1.5 py-0.5 text-xs text-slate-300">
-                    {featureLabels[f]?.label ?? f.replace(/_/g, ' ')}
-                  </span>
-                ))
-              ) : (
-                'none enabled'
-              )}
-            </span>,
+            'Tagline',
+            <Edited key="tg" changed={edited('brand.tagline')}>
+              {valueOr(brand.tagline)}
+            </Edited>,
           ],
-          ['Domain keywords', valueOr(prompt.keywords)],
+          [
+            'Tone',
+            <Edited key="to" changed={edited('prompt.tone')}>
+              {valueOr(prompt.tone)}
+            </Edited>,
+          ],
+          [
+            'Support email',
+            <Edited key="se" changed={edited('brand.support_email')}>
+              {valueOr(brand.support_email)}
+            </Edited>,
+          ],
+          [
+            'Support phone',
+            <Edited key="sp" changed={edited('brand.support_phone')}>
+              {valueOr(brand.support_phone)}
+            </Edited>,
+          ],
+          [
+            'Closing signature',
+            <Edited key="sig" changed={edited('brand.signature')}>
+              {valueOr(brand.signature)}
+            </Edited>,
+          ],
+          [
+            'Menu greeting',
+            <Edited key="mg" changed={edited('menu.body')}>
+              {valueOr(menu.body)}
+            </Edited>,
+          ],
         ]}
       />
       <DetailSection
         title="Notifications"
         rows={[
-          ['Sales email', valueOr(notes.sales_email)],
-          ['Support email', valueOr(notes.support_email)],
-          ['Brochure URL', valueOr(notes.brochure_url)],
+          [
+            'Sales email',
+            <Edited key="sle" changed={edited('notifications.sales_email')}>
+              {valueOr(notes.sales_email)}
+            </Edited>,
+          ],
+          [
+            'Support email',
+            <Edited key="nse" changed={edited('notifications.support_email')}>
+              {valueOr(notes.support_email)}
+            </Edited>,
+          ],
+          [
+            'Brochure URL',
+            <Edited key="bu" changed={edited('notifications.brochure_url')}>
+              {valueOr(notes.brochure_url)}
+            </Edited>,
+          ],
           [
             'Extra channels',
-            channels.length ? (
-              <ul key="channels" className="space-y-0.5">
-                {channels.map((c, i) => (
-                  <li key={i}>
-                    {valueOr(c.type)} → {valueOr(c.to)}
-                    {c.label ? ` (${c.label})` : ''}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              '—'
-            ),
+            <Edited key="ch" changed={edited('notifications.channels')}>
+              {channels.length ? (
+                <ul className="space-y-0.5">
+                  {channels.map((c, i) => (
+                    <li key={i}>
+                      {valueOr(c.type)} → {valueOr(c.to)}
+                      {c.label ? ` (${c.label})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                '—'
+              )}
+            </Edited>,
           ],
         ]}
       />
@@ -171,20 +273,42 @@ function SnapshotDetails({ request }: { request: TenantChangeRequest }) {
         rows={[
           [
             'Never state',
-            <span key="never">
-              {(rails.never_state ?? []).length
-                ? (rails.never_state as string[]).map((line, i) => (
-                    <span key={i} className="block">
-                      • {line}
-                    </span>
-                  ))
-                : '—'}
-            </span>,
+            <Edited key="ns" changed={edited('guardrails.never_state')}>
+              <span>
+                {(rails.never_state ?? []).length
+                  ? (rails.never_state as string[]).map((line, i) => (
+                      <span key={i} className="block">
+                        • {line}
+                      </span>
+                    ))
+                  : '—'}
+              </span>
+            </Edited>,
           ],
-          ['Forbidden terms', valueOr(rails.forbidden_terms)],
-          ['Handoff keywords', valueOr(rails.handoff_keywords)],
-          ['Escalate on', valueOr(rails.escalate_keywords)],
-          ['Escalation message', valueOr(rails.escalation_message)],
+          [
+            'Forbidden terms',
+            <Edited key="ft" changed={edited('guardrails.forbidden_terms')}>
+              {valueOr(rails.forbidden_terms)}
+            </Edited>,
+          ],
+          [
+            'Handoff keywords',
+            <Edited key="hk" changed={edited('guardrails.handoff_keywords')}>
+              {valueOr(rails.handoff_keywords)}
+            </Edited>,
+          ],
+          [
+            'Escalate on',
+            <Edited key="ek" changed={edited('guardrails.escalate_keywords')}>
+              {valueOr(rails.escalate_keywords)}
+            </Edited>,
+          ],
+          [
+            'Escalation message',
+            <Edited key="em" changed={edited('guardrails.escalation_message')}>
+              {valueOr(rails.escalation_message)}
+            </Edited>,
+          ],
         ]}
       />
     </div>
@@ -193,6 +317,19 @@ function SnapshotDetails({ request }: { request: TenantChangeRequest }) {
 
 function RequestPayload({ request }: { request: TenantChangeRequest }) {
   const [open, setOpen] = useState(false)
+  // For profile publishes the tenant's live profile is the diff baseline:
+  // fields whose submitted value differs from it are the admin's edits and
+  // show in green. Registrations have no prior profile to compare against.
+  const baselineState = useAsync(
+    (signal) =>
+      request.request_type === 'publish_profile'
+        ? tenantsApi.detail(request.tenant_id, signal)
+        : Promise.resolve(null),
+    [request.id, request.request_type, request.tenant_id],
+  )
+  const baseline = baselineState.data?.effective as unknown as
+    | Record<string, any>
+    | undefined
 
   return (
     <div className="space-y-4">
@@ -208,7 +345,7 @@ function RequestPayload({ request }: { request: TenantChangeRequest }) {
           ]}
         />
       )}
-      <SnapshotDetails request={request} />
+      <SnapshotDetails request={request} baseline={baseline} />
       <div>
         <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
           {open ? 'Hide' : 'Inspect'} raw submitted data

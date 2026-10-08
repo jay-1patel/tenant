@@ -12,14 +12,25 @@ import {
   Sparkles,
   Webhook,
 } from 'lucide-react'
-import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, timezoneOptions, type WizardDraft } from '@/lib/profile'
+import {
+  applyVertical,
+  draftFromProfile,
+  draftToSnapshot,
+  EMAIL_RE,
+  emptyDraft,
+  isValidPhone,
+  slugify,
+  timezoneOptions,
+  URL_RE,
+  type WizardDraft,
+} from '@/lib/profile'
 import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
 import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
 import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
-import type { Tenant } from '@/lib/types'
+import type { ResolvedProfile, Tenant } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -44,37 +55,7 @@ const DAYS = [
 
 /** Dropdown for the working-hours timezone — free text invited typos. */
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-// Country code (+91…) followed by a 10-digit number, spaces/dashes allowed.
-const normalizePhone = (value: string) => value.replace(/[\s\-()]/g, "")
-
-// Country calling codes. The subscriber part must be exactly 10 digits, so
-// "+91 741852544" (9 digits) is rejected while "+91 98765 43210" passes.
-const COUNTRY_CODES = [
-  '1', '7', '20', '27', '30', '31', '32', '33', '34', '36', '39', '40', '41', '43', '44', '45', '46', '47', '48', '49',
-  '51', '52', '53', '54', '55', '56', '57', '58', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86',
-  '90', '91', '92', '93', '94', '95', '98',
-  '212', '213', '216', '218', '220', '221', '222', '223', '224', '225', '226', '227', '228', '229', '230', '231',
-  '232', '233', '234', '235', '236', '237', '238', '239', '240', '241', '242', '243', '244', '245', '246', '248',
-  '249', '250', '251', '252', '253', '254', '255', '256', '257', '258', '260', '261', '262', '263', '264', '265',
-  '266', '267', '268', '269', '290', '291', '297', '298', '299', '350', '351', '352', '353', '354', '355', '356',
-  '357', '358', '359', '370', '371', '372', '373', '374', '375', '376', '377', '378', '380', '381', '382', '383',
-  '385', '386', '387', '389', '420', '421', '423', '500', '501', '502', '503', '504', '505', '506', '507', '508',
-  '509', '590', '591', '592', '593', '594', '595', '596', '597', '598', '599', '670', '672', '673', '674', '675',
-  '676', '677', '678', '679', '680', '681', '682', '683', '685', '686', '687', '688', '689', '690', '691', '692',
-  '850', '852', '853', '855', '856', '870', '880', '886', '960', '961', '962', '963', '964', '965', '966', '967',
-  '968', '970', '971', '972', '973', '974', '975', '976', '977', '992', '993', '994', '995', '996', '998',
-].sort((a, b) => b.length - a.length)
-
-const isValidPhone = (raw: string) => {
-  const digits = normalizePhone(raw)
-  if (!/^\+\d{9,15}$/.test(digits)) return false
-  const body = digits.slice(1)
-  const cc = COUNTRY_CODES.find((code) => body.startsWith(code))
-  if (!cc) return false
-  return /^\d{10}$/.test(body.slice(cc.length))
-}
-const WABA_ID_RE = /^\d{6,25}$/
+const WABA_ID_RE = /^\d{15}$/
 
 // The super admin only registers the company basics; an admin completes the
 // tenant from WhatsApp onwards, and that completion goes for approval.
@@ -116,9 +97,13 @@ export function RegisterWizard() {
   const pickTenant = async (tenantId: string) => {
     const tenant = tenants.find((t) => t.id === tenantId)
     if (!tenant) return
-    const profile = await action.run(() => tenantsApi.resolved(tenantId))
+    // Prefer the pending draft: it carries every unpublished change (from
+    // the profile editor or an earlier wizard pass), so both panels always
+    // edit the same working copy.
+    const detail = await action.run(() => tenantsApi.detail(tenantId))
+    const profile = detail?.pending ?? detail?.effective
     if (profile) {
-      setDraft(draftFromProfile(profile, tenant))
+      setDraft(draftFromProfile(profile as unknown as ResolvedProfile, tenant))
     } else {
       // A tenant the resolver cannot build yet still keeps its basics.
       setDraft({ ...emptyDraft(), companyName: tenant.display_name || tenant.id, tenantId: tenant.id, displayName: tenant.display_name, vertical: tenant.vertical })
@@ -872,6 +857,8 @@ function validationError(
       if (!draft.companyName.trim()) return 'A company name is required.'
       if (!draft.tenantId.trim()) return 'A tenant id is required.'
       if (idTaken) return 'That tenant id is already registered.'
+      if (draft.website.trim() && !URL_RE.test(draft.website.trim()))
+        return 'The website does not look like a valid URL (e.g. https://example.com).'
       return null
     case 'tenant':
       if (!tenantSelected) return 'Pick the tenant you are completing.'
@@ -879,7 +866,7 @@ function validationError(
     case 'whatsapp': {
       if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number id is required.'
       if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()))
-        return 'The WhatsApp phone number id must contain digits only.'
+        return 'The WhatsApp phone number id must be exactly 15 digits.'
       if (!draft.timezone.trim()) return 'Select a timezone.'
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null
@@ -906,6 +893,15 @@ function validationError(
         return 'The sales / enquiries email does not look valid.'
       if (draft.notificationsSupportEmail.trim() && !EMAIL_RE.test(draft.notificationsSupportEmail.trim()))
         return 'The notifications support email does not look valid.'
+      if (draft.brochureUrl.trim() && !URL_RE.test(draft.brochureUrl.trim()))
+        return 'The brochure URL does not look like a valid URL.'
+      for (const channel of draft.channels) {
+        if (!channel.to.trim()) continue
+        if (channel.type === 'email' && !EMAIL_RE.test(channel.to.trim()))
+          return 'A notification channel email destination does not look valid.'
+        if (channel.type === 'webhook' && !URL_RE.test(channel.to.trim()))
+          return 'A notification channel webhook destination does not look like a valid URL.'
+      }
       return null
     }
     case 'guardrails':

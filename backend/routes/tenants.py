@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from database import get_db_context, record_admin_audit_event
 from routes.auth import (
@@ -57,6 +57,16 @@ class TenantCreate(BaseModel):
     display_name: str = ""
     waba_phone_id: str = ""
     status: str = "active"
+
+    @field_validator("waba_phone_id")
+    @classmethod
+    def _check_waba_phone_id(cls, value: str) -> str:
+        v = (value or "").strip()
+        if v and not re.fullmatch(r"\d{15}", v):
+            raise ValueError(
+                "waba_phone_id must be the 15-digit WhatsApp phone number id"
+            )
+        return v
 
 
 class PhoneBind(BaseModel):
@@ -430,17 +440,36 @@ def save_intent_draft(
 @router.post("/{tenant_id}/publish")
 def publish_profile(
     tenant_id: str,
+    request: Request,
     principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Validate the merged profile, append a version, go live, purge the cache.
 
-    Publishing is direct for every admin with access — the super admin
-    approval queue is only for registrations/completions submitted through
-    the Register a tenant panel (POST /api/tenant-change-requests).
+    Publishing is direct for super admins (and tenant-scoped tokens, whose
+    one capability is publishing their own tenant). Any other admin's
+    profile edit does not go live: it is queued as a pending request only a
+    super admin can approve — the same gate as the Register a tenant panel.
     """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
+
+    if principal.get("type") == "admin" and principal.get("role") != "super_admin":
+        from routes.tenant_approvals import queue_publish_for_approval
+
+        current_admin = get_current_admin(request, credentials)
+        result = queue_publish_for_approval(tenant_id, current_admin)
+        return {
+            "ok": True,
+            "tenant_id": tenant_id,
+            "status": "pending_approval",
+            "request": result["request"],
+            "message": (
+                "Profile change sent for super admin approval — "
+                "it goes live only once approved."
+            ),
+        }
 
     try:
         profile = tenancy_loader.validate_merged_profile(tenant_id, draft)
@@ -448,6 +477,15 @@ def publish_profile(
         raise HTTPException(
             status_code=422,
             detail=f"Profile failed validation, nothing published: {exc}",
+        )
+
+    from shared.tenancy import schemas as tenancy_schemas
+
+    missing = tenancy_schemas.missing_contact_fields(profile.brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required profile fields: {', '.join(missing)}",
         )
 
     by = principal.get("username") or principal.get("label", "")
@@ -552,8 +590,14 @@ def bind_phone(
     _admin_only(principal)
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
+    phone_id = (body.waba_phone_id or "").strip()
+    if not re.fullmatch(r"\d{15}", phone_id):
+        raise HTTPException(
+            status_code=422,
+            detail="waba_phone_id must be the 15-digit WhatsApp phone number id",
+        )
     with get_db_context() as conn:
-        if not tenancy_store.set_waba_phone_id(tenant_id, body.waba_phone_id, conn=conn):
+        if not tenancy_store.set_waba_phone_id(tenant_id, phone_id, conn=conn):
             raise HTTPException(
                 status_code=409,
                 detail="phone id already bound to another tenant",
