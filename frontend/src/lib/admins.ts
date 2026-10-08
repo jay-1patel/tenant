@@ -4,9 +4,10 @@ import type { AdminIdentity } from './types'
 export interface AdminRecord {
   username: string
   email: string | null
-  role: 'super_admin' | 'sub_admin'
+  role: 'super_admin' | 'admin' | 'sub_admin'
   permissions: Record<string, boolean>
   created_at: string | null
+  tenant_id?: string | null
 }
 
 export const adminsApi = {
@@ -18,17 +19,18 @@ export const adminsApi = {
     role?: string
     permissions?: Record<string, boolean> | null
     email?: string | null
+    tenant_id?: string | null
   }) =>
-    api.post<{ status: string; username: string; role: string; permissions: Record<string, boolean> }>(
+    api.post<{ status: string; username: string; role: string; permissions: Record<string, boolean>; tenant_id?: string | null }>(
       '/api/auth/create',
       body,
     ),
 
   update: (
     username: string,
-    body: { role?: string; permissions?: Record<string, boolean>; email?: string | null },
+    body: { role?: string; permissions?: Record<string, boolean>; email?: string | null; tenant_id?: string | null },
   ) =>
-    api.patch<{ status: string; username: string; role: string; permissions: Record<string, boolean> }>(
+    api.patch<{ status: string; username: string; role: string; permissions: Record<string, boolean>; tenant_id?: string | null }>(
       `/api/auth/admins/${encodeURIComponent(username)}`,
       body,
     ),

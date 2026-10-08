@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ChangeEvent } from 'react'
 import {
   AlertTriangle,
   Layers,
@@ -8,11 +8,14 @@ import {
   Search,
   Settings2,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
+import { contentWritePerms } from '@/lib/permissions'
 import { offeringsApi } from '@/lib/offerings'
+import { uploadRecordImage } from '@/lib/uploads'
 import { useTenants } from '@/lib/tenants'
 import { getVertical } from '@/lib/verticals'
 import type { Offering, OfferingInput, RecordColumn, RecordColumnType } from '@/lib/types'
@@ -82,7 +85,12 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
 
   const content = getVertical(active?.vertical).content
   const canRead = can('view_products')
-  const canEdit = can('edit_delete_products')
+  // Add/edit/remove are granted separately per vertical — see contentWritePerms.
+  const { add: addPerms, edit: editPerms, remove: removePerms } = contentWritePerms(active?.vertical)
+  const canAdd = addPerms.some(can)
+  const canEditRow = editPerms.some(can)
+  const canRemove = removePerms.some(can)
+  const canEdit = canAdd || canEditRow || canRemove
   const canSchema = can('manage_operations')
 
   const [showInactive, setShowInactive] = useState(false)
@@ -171,7 +179,7 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
                 Add column
               </Button>
             )}
-            {canEdit && (
+            {canAdd && (
               <Button
                 variant="primary"
                 icon={<Plus className="h-4 w-4" />}
@@ -213,6 +221,7 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
 
       {creating && (
         <RecordForm
+          tenantId={tenantId}
           columns={columns}
           content={content}
           busy={action.busy}
@@ -230,6 +239,7 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
 
       {editing && (
         <RecordForm
+          tenantId={tenantId}
           columns={columns}
           content={content}
           initial={editing}
@@ -370,17 +380,19 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
                       </td>
                     ))}
                     <td className="px-4 py-3">
-                      {canEdit && (
+                      {(canEditRow || canRemove) && (
                         <div className="flex shrink-0 items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            icon={<Pencil className="h-3.5 w-3.5" />}
-                            onClick={() => setEditing(row)}
-                          >
-                            Edit
-                          </Button>
-                          {row.is_active &&
+                          {canEditRow && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              icon={<Pencil className="h-3.5 w-3.5" />}
+                              onClick={() => setEditing(row)}
+                            >
+                              Edit
+                            </Button>
+                          )}
+                          {canRemove && row.is_active &&
                             (confirmDelete === row.id ? (
                               <>
                                 <Button
@@ -405,7 +417,7 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
                                 Remove
                               </Button>
                             ))}
-                          {!row.is_active && (
+                          {canEditRow && !row.is_active && (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -566,7 +578,9 @@ function initialCells(columns: RecordColumn[], row?: Offering): Cells {
   const cells: Cells = {}
   for (const column of columns) {
     if (column.type === 'boolean') {
-      cells[column.key] = Boolean(row ? cellValue(row, column) : false)
+      // A new record defaults to visible; every other boolean column
+      // (returnable, includes_flight…) defaults to off.
+      cells[column.key] = Boolean(row ? cellValue(row, column) : column.key === 'is_active')
     } else {
       const value = row ? cellValue(row, column) : null
       cells[column.key] = value === null || value === undefined ? '' : String(value)
@@ -576,6 +590,7 @@ function initialCells(columns: RecordColumn[], row?: Offering): Cells {
 }
 
 function RecordForm({
+  tenantId,
   columns,
   content,
   initial,
@@ -583,6 +598,7 @@ function RecordForm({
   onSubmit,
   onCancel,
 }: {
+  tenantId: string
   columns: RecordColumn[]
   content: ReturnType<typeof getVertical>['content']
   initial?: Offering
@@ -592,10 +608,32 @@ function RecordForm({
 }) {
   const [cells, setCells] = useState<Cells>(() => initialCells(columns, initial))
   const [touched, setTouched] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
 
   const set = (key: string, value: string | boolean) => setCells((c) => ({ ...c, [key]: value }))
   const nameColumn = columns.find((c) => c.key === 'name')
   const nameMissing = touched && nameColumn && !String(cells.name ?? '').trim()
+
+  const pickImage = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setImageError('Only image files (PNG, JPG, WebP…) can be uploaded.')
+      return
+    }
+    setImageBusy(true)
+    setImageError(null)
+    try {
+      const url = await uploadRecordImage(tenantId, file)
+      set('media_url', url)
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'The upload failed.')
+    } finally {
+      setImageBusy(false)
+    }
+  }
 
   const submit = () => {
     setTouched(true)
@@ -684,6 +722,51 @@ function RecordForm({
                     ))}
                   </select>
                   {column.help && <p className="hint">{column.help}</p>}
+                </div>
+              )
+            }
+            if (column.key === 'media_url') {
+              const url = String(value ?? '')
+              return (
+                <div key={column.key}>
+                  <label className="field-label">{column.label}</label>
+                  {url ? (
+                    <div className="flex items-center gap-2.5 rounded-lg bg-surface-raised p-2 ring-1 ring-inset ring-surface-line">
+                      <img
+                        src={url}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-inset ring-surface-line"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{url}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        onClick={() => set('media_url', '')}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ) : (
+                    <label
+                      className={cn(
+                        'flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-surface-raised py-2 text-sm text-slate-300 ring-1 ring-inset ring-surface-line transition hover:bg-accent-50 hover:text-slate-100',
+                        imageBusy && 'pointer-events-none opacity-60',
+                      )}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={imageBusy}
+                        onChange={pickImage}
+                      />
+                      <Upload className="h-4 w-4" />
+                      {imageBusy ? 'Uploading…' : 'Upload image'}
+                    </label>
+                  )}
+                  {imageError && <p className="hint text-rose-700">{imageError}</p>}
+                  {column.help && !imageError && <p className="hint">{column.help}</p>}
                 </div>
               )
             }

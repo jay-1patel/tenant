@@ -53,13 +53,22 @@ SYSTEM_COLUMNS: List[Dict[str, Any]] = [
     {"key": "short_label", "label": "Tag", "type": "text", "help": "A small highlight, e.g. “Best seller”."},
     {"key": "short_description", "label": "Short description", "type": "long_text", "help": "The one line the bot replies with."},
     {"key": "description", "label": "Full description", "type": "long_text", "help": "The detail read out when a customer asks for more."},
-    {"key": "price", "label": "Price", "type": "text", "help": "Free text so a currency symbol is preserved. Blank when there is no price."},
-    {"key": "detail_url", "label": "Link", "type": "text", "help": "Where the customer can see it."},
-    {"key": "media_url", "label": "Image URL", "type": "text", "help": "Shown on the product page."},
     {"key": "is_active", "label": "Visible to the bot", "type": "boolean", "help": "Off keeps the record but hides it from the bot."},
 ]
 
+#: Columns every tenant starts with but which belong to the tenant: an admin
+#: can remove them when they are irrelevant (a consultancy does not need a
+#: price; a services firm has no image). Their physical columns live on the
+#: shared records table, so removal only unregisters — the data of every other
+#: tenant is untouched — and re-adding registers without re-creating.
+SHARED_PRESENTATION_COLUMNS: List[Dict[str, Any]] = [
+    {"key": "price", "label": "Price", "type": "text", "help": "Free text so a currency symbol is preserved. Blank when there is no price."},
+    {"key": "detail_url", "label": "Link", "type": "text", "help": "Where the customer can see it."},
+    {"key": "media_url", "label": "Image URL", "type": "text", "help": "Shown on the product page."},
+]
+
 _SYSTEM_KEYS = {c["key"] for c in SYSTEM_COLUMNS}
+_SHARED_PRESENTATION_KEYS = {c["key"] for c in SHARED_PRESENTATION_COLUMNS}
 
 
 def _col(
@@ -137,7 +146,7 @@ def default_columns_for(vertical: Optional[str]) -> List[Dict[str, Any]]:
     """System columns followed by the vertical's own, keyed for insertion."""
     seeded = DEFAULT_COLUMNS.get(vertical or "", [])
     out: List[Dict[str, Any]] = []
-    for order, col in enumerate(SYSTEM_COLUMNS + seeded):
+    for order, col in enumerate(SYSTEM_COLUMNS + SHARED_PRESENTATION_COLUMNS + seeded):
         row = dict(col)
         # SYSTEM_COLUMNS are hand-written literals and omit the optional keys that
         # the `_col` helper always sets. Fill them here so every spec is uniform
@@ -246,10 +255,17 @@ def add_column(conn, key: str, col_type: str, *, check_reserved: bool = True) ->
 
 
 def drop_column(conn, key: str) -> bool:
-    """Drop the column and its data. False when the table cannot be altered."""
+    """Drop the column and its data. False when the table cannot be altered.
+
+    Shared presentation columns (price, link, image) are never physically
+    dropped: their column belongs to the shared records table and every other
+    tenant's data lives in it. Removal unregisters them for this tenant only.
+    """
     key = (key or "").strip().lower()
     if key in _SYSTEM_KEYS or key in RESERVED_KEYS:
         raise ColumnError("A core column cannot be removed — hide it with “Visible to the bot” instead.")
+    if key in _SHARED_PRESENTATION_KEYS:
+        return False
     if key not in existing_columns(conn):
         return False
     if not IDENT.match(key):
@@ -539,15 +555,14 @@ def coerce_record(columns: List[Dict[str, Any]], values: Dict[str, Any]) -> Dict
             clean[column["key"]] = coerce(column, values[column["key"]])
         except ColumnError as exc:
             errors[column["key"]] = str(exc)
-    # Required check — for the tenant's own columns only. System columns
-    # (name, category, …) arrive as top-level body fields, never inside
-    # `values`, so checking them here would reject every valid save.
     for column in columns:
-        if (
-            column["required"]
-            and not column.get("is_system")
-            and clean.get(column["key"]) in (None, "")
-        ):
+        # System columns (name, category, price...) travel in the request's own
+        # fields, never in `values`, so a required check here would reject every
+        # save. Their required-ness is enforced by the route instead: pydantic
+        # on create, the existing row on update.
+        if column.get("is_system"):
+            continue
+        if column["required"] and clean.get(column["key"]) in (None, ""):
             errors.setdefault(column["key"], f"‘{column['label']}’ is required.")
     return clean, errors
 

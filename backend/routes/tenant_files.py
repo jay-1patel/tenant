@@ -194,7 +194,24 @@ async def upload_tenant_image(
     file: UploadFile = File(...),
     principal: dict = Depends(require_tenant_access()),
 ):
-    """Upload an image and return its URL (tenant-scoped wrapper)."""
-    from routes.admin import _upload_to_imghippo
+    """Upload an image and return its public URL (tenant-scoped wrapper).
 
-    return await _upload_to_imghippo(file)
+    Used by the record form's Image column: the image is hosted externally
+    (imghippo) and the returned URL is what the record stores, so the bot can
+    send it to customers without the console having to serve files.
+    """
+    from routes.chat import _upload_to_imghippo
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="The upload is empty.")
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Images must be under 15 MB.")
+    url = _upload_to_imghippo(content, file.filename or "image")
+    if not url:
+        raise HTTPException(
+            status_code=502,
+            detail="Image hosting failed — check the imghippo API key.",
+        )
+    logger.info("TENANT_IMAGE_UPLOADED | tenant=%s | name=%s | bytes=%s", tenant_id, file.filename, len(content))
+    return {"url": url, "name": file.filename, "size": len(content)}

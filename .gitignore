@@ -1,32 +1,57 @@
-# Python
-__pycache__/
-*.py[cod]
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Secrets
+# ---- Secrets / environment ----
 .env
 *.env
-routing/.env
+.env.*
+!.env.example
+env/
 
-# ML models
+# ---- Python ----
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- ML models (6.4 GB of sentence-transformers weights) ----
 backend/models/
 
-# Local databases
+# ---- Runtime data / databases ----
 *.db
 *.sqlite
 *.sqlite3
+FAQ.DB
+backend/uploaded_files/
 
-# Logs
+# ---- Frontend ----
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+.vite/
+npm-debug.log*
+
+# ---- Build output ----
+backend/admin_build/
+scratchpad/admin_build_backup_*/
+
+# ---- Local scratch / logs / backups ----
+scratchpad/
 *.log
+*.bak
+*.stdout
+*.stderr
 
-# IDE
-.vscode/
-.idea/
+# ---- Ad-hoc local test payloads (contain hardcoded credentials) ----
+payload.json
+incoming_payload.json
 
-# OS
+# ---- IDE / OS / editor ----
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+*.swp

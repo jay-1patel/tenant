@@ -30,7 +30,8 @@ logger = logging.getLogger("faq_bot")
 # Constants
 # ─────────────────────────────────────────────
 EMBEDDING_MODEL     = EMBEDDING_MODEL_PATH
-CROSS_ENCODER_MODEL = os.path.join(os.path.dirname(__file__), "..", "models", "ettin-reranker-68m-v1")
+_local_ce_path      = os.path.join(os.path.dirname(__file__), "..", "models", "ettin-reranker-68m-v1")
+CROSS_ENCODER_MODEL = _local_ce_path if os.path.exists(_local_ce_path) else "BAAI/bge-reranker-base"
 
 _model_cfg_path = os.path.join(EMBEDDING_MODEL, "config.json")
 if os.path.exists(_model_cfg_path):
@@ -83,6 +84,58 @@ def _tenant_from_payload(payload: dict) -> str | None:
             return tid
     return None
 
+
+def _brand_context(tenant_id=None) -> dict:
+    """The brand fields the FAQ prompts and closing signature speak with.
+
+    Resolved from the tenant's effective profile (vertical defaults ->
+    clients/<id>/config.json -> published DB version), so every tenant answers
+    in its own voice and signs off with its own signature. The legacy env
+    config (routing/.env) is only a fallback for deployments with no profile
+    layer at all; when a profile exists, its values win, including an empty
+    signature (a tenant that configured none gets none).
+    """
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        root = str(_Path(__file__).resolve().parents[2])
+        if root not in _sys.path:
+            _sys.path.insert(0, root)
+
+        from shared.tenancy import loader
+
+        profile = loader.get_tenant_profile(_resolve_tenant_id(tenant_id))
+        brand = profile.brand
+        return {
+            "brand_name": brand.name,
+            "brand_tagline": brand.tagline,
+            "support_email": brand.support_email,
+            "support_phone": brand.support_phone,
+            "signature": brand.signature,
+        }
+    except Exception as exc:  # defensive: the bot must keep answering
+        logger.debug("brand profile unavailable, using env config: %s", exc)
+        return {
+            "brand_name": BRAND_NAME or "",
+            "brand_tagline": BRAND_TAGLINE or "",
+            "support_email": SUPPORT_EMAIL or "",
+            "support_phone": SUPPORT_PHONE or "",
+            "signature": SIGNATURE or "",
+        }
+
+
+def _render_prompt(template: str, brand: dict) -> str:
+    """Substitute the brand placeholders into a prompt template.
+
+    Plain replacement instead of str.format so literal braces elsewhere in a
+    template can never break rendering.
+    """
+    out = template
+    for key, value in brand.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
 # ─────────────────────────────────────────────
 # Tokenizer
 # ─────────────────────────────────────────────
@@ -106,6 +159,10 @@ def simple_tokenize(text: str) -> list[str]:
 # Models
 # ─────────────────────────────────────────────
 embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+if hasattr(embedding_model, "get_sentence_embedding_dimension"):
+    EMBEDDING_DIM = embedding_model.get_sentence_embedding_dimension()
+elif hasattr(embedding_model, "get_embedding_dimension"):
+    EMBEDDING_DIM = embedding_model.get_embedding_dimension()
 cross_encoder   = CrossEncoder(CROSS_ENCODER_MODEL)
 
 
@@ -611,8 +668,8 @@ class FAQIndex:
 # ─────────────────────────────────────────────
 faq_index = FAQIndex()
 
-SYSTEM_PROMPT = f"""
-You are a friendly, helpful assistant for {BRAND_NAME}, {BRAND_TAGLINE}.
+SYSTEM_PROMPT_TEMPLATE = """
+You are a friendly, helpful assistant for {brand_name}, {brand_tagline}.
 
 Your job is to answer the user's question using ONLY the information provided in the context.
 
@@ -650,17 +707,17 @@ GENERAL RULES:
 HUMAN SUPPORT TRIGGER:
 If the user is frustrated, confused, asks for human support, or asks about delays, complaints, billing issues, distributor partnerships, or missing information, include these bullets:
 • 🙋 **Need further assistance?** Our support team is happy to help!
-• 📧 Email us at: {SUPPORT_EMAIL}
-• 📞 Call us at: {SUPPORT_PHONE}
+• 📧 Email us at: {support_email}
+• 📞 Call us at: {support_phone}
 • 💬 We'll assist you and get back to you as soon as possible!
 
 End EVERY response with this signature on its own line:
 ---
-{SIGNATURE}
+{signature}
 """
 
-STRICT_SYSTEM_PROMPT = f"""
-You are a friendly, helpful assistant for {BRAND_NAME}, {BRAND_TAGLINE}.
+STRICT_SYSTEM_PROMPT_TEMPLATE = """
+You are a friendly, helpful assistant for {brand_name}, {brand_tagline}.
 
 The retrieved context is a PARTIAL match to the user's question. Extract and combine ALL available relevant details.
 
@@ -688,20 +745,20 @@ RESPONSE STRUCTURE:
 HUMAN SUPPORT TRIGGER:
 If the query cannot be fully resolved, or involves sensitive topics (billing, complaints, disputes, refunds), include these bullets:
 • 🙋 **Need further assistance?** Our support team is happy to help!
-• 📧 Email us at: {SUPPORT_EMAIL}
-• 📞 Call us at: {SUPPORT_PHONE}
+• 📧 Email us at: {support_email}
+• 📞 Call us at: {support_phone}
 • 💬 We're available to help and will get back to you as quickly as possible!
 
 End EVERY response with this signature on its own line:
 ---
-{SIGNATURE}
+{signature}
 """
 # ─────────────────────────────────────────────
 # Dynamic catalogue / new-arrivals listing
 # ─────────────────────────────────────────────
 # Listing requests ("✨ New Releases", "show new releases", "brochure", etc.)
 # are answered from the COMPLETE module content in faq_dataset instead of the
-# top-k RAG chunks. The generic SYSTEM_PROMPT caps answers at 100-160 words,
+# top-k RAG chunks. The generic SYSTEM_PROMPT_TEMPLATE caps answers at 100-160 words,
 # which makes the LLM summarise a product table down to a few items; this
 # prompt instead mandates enumerating EVERY product found in the context.
 
@@ -784,8 +841,8 @@ def _fetch_module_full_content(modules: tuple[str, ...], tenant_id: str | None =
         return "\n\n".join(tables)
     return "\n\n".join(r["content"] for r in rows)
 
-LISTING_SYSTEM_PROMPT = f"""
-You are a friendly, helpful assistant for {BRAND_NAME}, {BRAND_TAGLINE}.
+LISTING_SYSTEM_PROMPT_TEMPLATE = """
+You are a friendly, helpful assistant for {brand_name}, {brand_tagline}.
 
 The user asked to see the product list (new releases or brochure). The context is the COMPLETE product data extracted from the company's PDF.
 
@@ -806,7 +863,7 @@ RESPONSE STRUCTURE:
 
 End EVERY response with this signature on its own line:
 ---
-{SIGNATURE}
+{signature}
 """
 
 async def _handle_listing_query(message: str, tenant_id: str | None = None) -> dict | None:
@@ -826,16 +883,18 @@ async def _handle_listing_query(message: str, tenant_id: str | None = None) -> d
 
     logger.info(f"LISTING_QUERY | module={module} | context_chars={len(content)}")
 
+    brand = _brand_context(tenant_id)
     try:
         response = await _generate_ollama_dynamic_response(
-            LISTING_SYSTEM_PROMPT, message, content, source_file=module,
+            _render_prompt(LISTING_SYSTEM_PROMPT_TEMPLATE, brand),
+            message, content, source_file=module,
         )
         answer = response.get("answer", "")
         if not answer:
             logger.warning(f"LISTING_QUERY | module={module} | empty LLM answer")
             return None
 
-        result = {"answer": _append_signature(answer)}
+        result = {"answer": _append_signature(answer, tenant_id)}
         interactive = _build_interactive(response.get("next_actions", []))
         if interactive:
             result["interactive"] = interactive
@@ -859,9 +918,10 @@ def build_index() -> dict:
 
 async def handle_faq_query(payload: dict) -> dict:
     message = payload.get("message", "").strip()
+    tenant_id = _tenant_from_payload(payload)
 
     if not message:
-        return {"answer": _append_signature("Please provide a question.")}
+        return {"answer": _append_signature("Please provide a question.", tenant_id)}
 
     # ── Dynamic catalogue / new-arrivals listing ──
     # Listing requests ("✨ New Arrivals", "show new arrivals", "catalogue")
@@ -869,7 +929,6 @@ async def handle_faq_query(payload: dict) -> dict:
     # the top-k RAG chunks, so the LLM enumerates every stored product instead
     # of summarising down to a few items. This runs before the FAQ index build
     # because it does not depend on RAG retrieval.
-    tenant_id = _tenant_from_payload(payload)
     listing_result = await _handle_listing_query(message, tenant_id)
     if listing_result:
         return listing_result
@@ -886,7 +945,7 @@ async def handle_faq_query(payload: dict) -> dict:
         fallback = _fallback_dynamic_buttons(
             "I'm still learning. Please try again shortly or contact our support team.", message
         )
-        result = {"answer": _append_signature(fallback.get("answer", ""))}
+        result = {"answer": _append_signature(fallback.get("answer", ""), tenant_id)}
         interactive = _build_interactive(fallback.get("next_actions", []))
         if interactive:
             result["interactive"] = interactive
@@ -900,7 +959,7 @@ async def handle_faq_query(payload: dict) -> dict:
             f"Dissimilar question (no FAQ match): '{message}' | "
             f"Query returned 0 results after similarity threshold ({SIMILARITY_THRESHOLD})"
         )
-        return {"answer": _append_signature("")}
+        return {"answer": _append_signature("", tenant_id)}
 
     logger.info(f"Top 20 QA matches for user question: '{message}'")
     for rank, (chunk_text, metadata, score) in enumerate(results, start=1):
@@ -943,17 +1002,18 @@ async def handle_faq_query(payload: dict) -> dict:
         )
 
     # ── Two-tier: pick system prompt by confidence ──
+    brand = _brand_context(tenant_id)
     if best_ce_score >= HIGH_CONFIDENCE_THRESHOLD:
-        system_prompt = SYSTEM_PROMPT
+        system_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
         logger.info(f"High confidence ({best_ce_score:.3f}) for: '{message}'")
     elif best_ce_score >= MEDIUM_CONFIDENCE_THRESHOLD:
-        system_prompt = STRICT_SYSTEM_PROMPT
+        system_prompt = _render_prompt(STRICT_SYSTEM_PROMPT_TEMPLATE, brand)
         logger.info(f"Medium confidence ({best_ce_score:.3f}) for: '{message}' — strict prompt")
     else:
         logger.info(f"Low confidence ({best_ce_score:.3f}) for: '{message}' — using raw chunk with keyword buttons")
         best_chunk = results[0][0]
         fallback = _fallback_dynamic_buttons(best_chunk, message, source_file=best_meta.get("source_file", "") or "")
-        result = {"answer": _append_signature(fallback.get("answer", best_chunk))}
+        result = {"answer": _append_signature(fallback.get("answer", best_chunk), tenant_id)}
         if media_url:
             result["media_url"]  = media_url
             result["media_type"] = media_type
@@ -972,7 +1032,7 @@ async def handle_faq_query(payload: dict) -> dict:
         answer = response.get("answer", "")
         next_actions = response.get("next_actions", [])
 
-        result = {"answer": _append_signature(answer)}
+        result = {"answer": _append_signature(answer, tenant_id)}
         if media_url:
             result["media_url"]  = media_url
             result["media_type"] = media_type
@@ -986,7 +1046,7 @@ async def handle_faq_query(payload: dict) -> dict:
         logger.error(f"Dynamic button generation error: {exc}", exc_info=True)
         best_chunk, best_meta_fb, _ = results[0]
         fallback = _fallback_dynamic_buttons(best_chunk, message, source_file=best_meta_fb.get("source_file", "") or "")
-        result = {"answer": _append_signature(fallback.get("answer", best_chunk))}
+        result = {"answer": _append_signature(fallback.get("answer", best_chunk), tenant_id)}
         if media_url:
             result["media_url"]  = media_url
             result["media_type"] = media_type
@@ -1016,11 +1076,16 @@ def _format_answer_lines(text: str) -> str:
     return text.strip()
 
 
-def _append_signature(text: str) -> str:
+def _append_signature(text: str, tenant_id: str | None = None) -> str:
+    """Sign off with the tenant's own closing signature, resolved from
+    the profile layer (env config only as the no-profile fallback). The
+    separator stays a plain dash: decoration belongs to the signature
+    text a tenant configures."""
+    signature = _brand_context(tenant_id)["signature"]
     text = _format_answer_lines(text)
-    if not SIGNATURE:
+    if not signature:
         return text or ""
     text = text or ""
-    if SIGNATURE in text:
+    if signature in text:
         return text
-    return text.rstrip() + f"\n\n--- 🌿 {SIGNATURE}"
+    return text.rstrip() + f"\n\n--- {signature}"

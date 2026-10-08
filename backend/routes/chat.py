@@ -78,7 +78,7 @@ def _upload_to_catbox(content: bytes, filename: str) -> str | None:
             files={"fileToUpload": (filename, content, "application/octet-stream")},
             timeout=30,
         )
-        if resp.ok and not resp.text.startswith("error"):
+        if resp.is_success and not resp.text.startswith("error"):
             return resp.text.strip()
     except Exception as e:
         logger.error(f"Catbox upload failed: {e}")
@@ -92,14 +92,14 @@ def _upload_to_imghippo(content: bytes, filename: str) -> str | None:
     try:
         resp = httpx.post(
             IMGHIPPO_API_URL,
-            data={"api_key": IMGHIPPO_API_KEY},
+            headers={"X-API-Key": IMGHIPPO_API_KEY},
             files={"file": (filename, content, "application/octet-stream")},
             timeout=30,
         )
-        if resp.ok:
+        if resp.is_success:
             data = resp.json()
-            if data.get("success"):
-                return data["data"]["url"]
+            if data.get("success") or data.get("status") == 200:
+                return (data.get("data") or {}).get("url")
     except Exception as e:
         logger.error(f"Imghippo upload failed: {e}")
     return None

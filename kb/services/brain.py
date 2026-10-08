@@ -166,17 +166,86 @@ def _guess_category(query: str) -> str:
     return ""
 
 
-def _build_system_prompt(retrieved_context: str = "") -> str:
+def _get_tenant_profile(wa_id: str = ""):
+    """Tenant profile for this user, or None when tenancy is unavailable."""
+    try:
+        from shared.tenancy import loader
+        from shared.tenancy.resolver import resolve_tenant_for_user
+
+        return loader.get_tenant_profile(resolve_tenant_for_user(wa_id))
+    except Exception as e:
+        logger.debug(f"tenant profile unavailable: {e}")
+        return None
+
+
+def get_brand_name(wa_id: str = "", profile=None) -> str:
+    """Business name for the tenant this user belongs to.
+
+    Falls back to the legacy global config so the pre-tenant stack keeps
+    serving its own brand unchanged.
+    """
+    profile = profile if profile is not None else _get_tenant_profile(wa_id)
+    brand = getattr(profile, "brand", None)
+    name = ((getattr(brand, "name", "") or "") or getattr(profile, "display_name", "") or "").strip()
+    if name:
+        return name
+    return BUSINESS_NAME or "Our Business"
+
+
+def _resolve_tenant_id(wa_id: str = ""):
+    """Tenant id owning this conversation, or None when tenancy is unavailable."""
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+
+        return resolve_tenant_for_user(wa_id)
+    except Exception as e:
+        logger.debug(f"tenant resolution unavailable: {e}")
+        return None
+
+
+def _tenant_contact_details(profile) -> Dict:
+    """Contact details from the tenant profile (brand block)."""
+    brand = getattr(profile, "brand", None)
+    if brand is None:
+        return {}
+    return {
+        "phone": (getattr(brand, "support_phone", "") or "").strip(),
+        "email": (getattr(brand, "support_email", "") or "").strip(),
+        "website": (getattr(brand, "website", "") or "").strip(),
+        "address": "",
+    }
+
+
+def _build_system_prompt(retrieved_context: str = "", wa_id: str = "") -> str:
+    profile = _get_tenant_profile(wa_id)
+    business_name = get_brand_name(wa_id, profile=profile)
     personality = get_personality()
     guardrails = get_guardrails()
 
-    parts = [personality]
+    # Identity first so per-tenant prompts never share a cache key prefix,
+    # and so the model cannot fall back to any other company name.
+    parts = [
+        f"You are the WhatsApp assistant for {business_name}. "
+        f"Always refer to the business by this exact name — never by any other company name.",
+        personality,
+    ]
 
     if guardrails:
         parts.append(f"\n## Rules & Guardrails\n{guardrails}")
 
+    tenant_never_state = [
+        str(x) for x in (getattr(getattr(profile, "guardrails", None), "never_state", None) or [])
+    ]
+    if tenant_never_state:
+        parts.append(
+            "\n## Tenant Rules (STRICT)\n"
+            "NEVER state or promise: " + "; ".join(tenant_never_state) + "."
+        )
+
     contact_details = get_contact_details()
-    if contact_details_available():
+    if not any(contact_details.values()):
+        contact_details = _tenant_contact_details(profile)
+    if any(contact_details.values()):
         parts.append("\n## Contact Details\n" + _format_contact_details(contact_details))
         parts.append(
             "If the user asks for contact information or address, answer directly with these details. "
@@ -189,7 +258,7 @@ def _build_system_prompt(retrieved_context: str = "") -> str:
         esc_msg = escalation.get("escalation_message", "I'll connect you with our team.")
         parts.append(f"\n## Escalation\nIf the user seems upset or uses words like: {', '.join(trigger_phrases)}, say: \"{esc_msg}\"")
 
-    parts.append(f"\n## Business: {BUSINESS_NAME}")
+    parts.append(f"\n## Business: {business_name}")
     parts.append("\n## CRITICAL: Tool Usage Requirements (MANDATORY)")
     parts.append("- You MUST use tools BEFORE answering product-related questions")
     parts.append("- For ANY question about products, ingredients, allergens, diet, or recommendations: CALL search_products OR get_product_details FIRST — they return nutritional_facts and ingredients fields with the actual data.")
@@ -214,7 +283,7 @@ def _build_system_prompt(retrieved_context: str = "") -> str:
     parts.append("- Use retrieved knowledge to give direct, helpful answers")
     parts.append("- When you have good information from tools or knowledge base, be confident and specific")
     parts.append("- Structure answers clearly: direct answer first, then details if helpful")
-    parts.append("- NEVER mention or repeat source document names, file names, titles, or labels like [TrooGood_Company_Details.pdf] in your answer. The [title] prefixes in the retrieved knowledge are internal references only — never quote them, refer to them, or include them in the reply.")
+    parts.append("- NEVER mention or repeat source document names, file names, titles, or labels like [Company_Details.pdf] in your answer. The [title] prefixes in the retrieved knowledge are internal references only — never quote them, refer to them, or include them in the reply.")
 
     parts.append("\n## Grounding & Anti-Hallucination Rules (STRICT)")
     parts.append("- You must answer using information from: 1) Tool results (priority), 2) Retrieved knowledge base context")
@@ -460,16 +529,17 @@ def _score_product(prod: Dict, query_tokens: List[str]) -> float:
     return score
 
 
-def _retrieve_context(query: str, k: int = None) -> Tuple[str, List[Dict]]:
+def _retrieve_context(query: str, k: int = None, wa_id: str = "") -> Tuple[str, List[Dict]]:
     settings = get_response_settings()
     if k is None:
         k = settings.get("context_window", 3)
 
+    tenant_id = _resolve_tenant_id(wa_id)
     query_tokens = _tokenize(query)
     candidates: List[Dict] = []
 
     # ---- Source 1: FAQ ----
-    faq_results = search_faq_db(query, limit=k)
+    faq_results = search_faq_db(query, limit=k, tenant_id=tenant_id)
     for faq in faq_results:
         candidates.append({
             "text": faq["content"],
@@ -479,8 +549,8 @@ def _retrieve_context(query: str, k: int = None) -> Tuple[str, List[Dict]]:
         })
 
     # ---- Source 2: Knowledge base ----
-    kb_results = search_knowledge_base_db(query, limit=k)
-    faiss_results = search_kb_faiss(query, limit=k)
+    kb_results = search_knowledge_base_db(query, limit=k, tenant_id=tenant_id)
+    faiss_results = search_kb_faiss(query, limit=k, tenant_id=tenant_id)
     for doc in _format_kb_candidates(kb_results, faiss_results, query, k):
         candidates.append({
             "text": doc["text"],
@@ -490,7 +560,7 @@ def _retrieve_context(query: str, k: int = None) -> Tuple[str, List[Dict]]:
         })
 
     # ---- Source 3: Products ----
-    product_results = search_products(query, limit=k)
+    product_results = search_products(query, limit=k, tenant_id=tenant_id)
     for prod in product_results:
         candidates.append({
             "text": _format_product_context(prod),
@@ -821,7 +891,7 @@ def process_with_brain(
     enabled_tools = get_tools()
     tool_schemas = tool_registry.get_openai_schemas(enabled_tools)
 
-    retrieved_context, sources = _retrieve_context(user_message)
+    retrieved_context, sources = _retrieve_context(user_message, wa_id=wa_id)
 
     escalation = get_escalation_rules()
     is_escalation = False
@@ -833,7 +903,7 @@ def process_with_brain(
                 is_escalation = True
                 break
 
-    system_prompt = _build_system_prompt(retrieved_context)
+    system_prompt = _build_system_prompt(retrieved_context, wa_id=wa_id)
 
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(_build_chat_history(history))

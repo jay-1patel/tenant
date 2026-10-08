@@ -7,7 +7,7 @@
  * rather than relying on a bare `<a href>` (which would be unauthenticated).
  */
 
-import { api, getToken } from './api'
+import { api, getToken, ApiError } from './api'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -78,6 +78,39 @@ export const uploadsApi = {
     if (!res.ok) throw new Error(`Could not fetch the file (${res.status})`)
     return res.blob()
   },
+}
+
+/**
+ * Upload a record image and get its public URL. Multipart, so it bypasses the
+ * JSON `api` wrapper — the bearer token is attached by hand. The backend hosts
+ * the file externally and returns the URL the record's Image column stores.
+ */
+export async function uploadRecordImage(tenantId: string, file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let res: Response
+  try {
+    res = await fetch(`${base(tenantId)}/files/image`, { method: 'POST', headers, body: form })
+  } catch {
+    throw new ApiError(0, 'Cannot reach the backend to upload the image.')
+  }
+  if (!res.ok) {
+    let message = `Upload failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') message = body.detail
+    } catch {
+      /* keep the default */
+    }
+    throw new ApiError(res.status, message)
+  }
+  const body = (await res.json()) as { url?: string }
+  if (!body.url) throw new ApiError(502, 'The upload returned no URL.')
+  return body.url
 }
 
 export function saveBlob(blob: Blob, filename: string) {

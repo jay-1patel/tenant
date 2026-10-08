@@ -66,14 +66,6 @@ async function readDetail(res: Response): Promise<string> {
     const body = await res.json()
     const detail = body?.detail
     if (typeof detail === 'string') return detail
-    // Cell-level validation errors, e.g. offerings saves:
-    // { message: "Some cells need attention.", cells: { name: "'Name' is required." } }
-    if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
-      const cells = detail.cells
-      const cellText =
-        cells && typeof cells === 'object' ? Object.values(cells).map(String).join(' ') : ''
-      return [detail.message, cellText].filter(Boolean).join(' ')
-    }
     if (Array.isArray(detail) && detail.length) {
       // pydantic validation errors
       return detail

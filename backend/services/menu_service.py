@@ -186,6 +186,20 @@ def _get_brand_name(wa_id: str = "") -> str:
     except Exception as e:
         logger.debug("profile brand unavailable, using config: %s", e)
 
+    # Tenancy store still resolves a default tenant even when this user has no
+    # profile row (fresh deployments, untagged users) - prefer it over the
+    # global env, which belongs to the legacy single-tenant stack.
+    try:
+        from shared.tenancy import loader
+        from shared.tenancy.resolver import resolve_default_tenant
+
+        profile = loader.get_tenant_profile(resolve_default_tenant())
+        name = (getattr(profile.brand, "name", "") or profile.display_name or "").strip()
+        if name:
+            return name
+    except Exception as e:
+        logger.debug("default tenant brand unavailable, using config: %s", e)
+
     try:
         from routing.config import BRAND_NAME
         return BRAND_NAME or "TrooGood"

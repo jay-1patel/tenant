@@ -56,7 +56,8 @@ DB_PATH = os.path.normpath(DB_PATH)
 
 # ── Embedding model ───────────────────────────────────────────────────────
 _local_model_path = BACKEND_DIR / "models" / "bge-m3"
-EMBEDDING_MODEL_PATH = str(_local_model_path) if _local_model_path.is_dir() else "BAAI/bge-m3"
+_default_embedding = str(_local_model_path) if _local_model_path.is_dir() else "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", _default_embedding)
 
 # ── Server ports ──────────────────────────────────────────────────────────
 ROUTER_PORT = _int_env("ROUTER_PORT", 9000)

@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
-import { editorFromProfile, editorToSnapshot, type EditorForm } from '@/lib/profile'
-import { FEATURE_GROUPS, FEATURE_LABELS, getVertical } from '@/lib/verticals'
+import { editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
+import { getVertical } from '@/lib/verticals'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
 import { Input, Textarea } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { TagInput } from '@/components/ui/tags'
 import { Alert, LoadingBlock } from '@/components/ui/feedback'
@@ -256,12 +257,19 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               label="Always open"
             />
             <div className="grid grid-cols-3 gap-3">
-              <Input
+              <Select
                 label="Timezone"
                 disabled={!editing}
                 value={form.businessHours.timezone}
                 onChange={(e) => patch({ businessHours: { ...form.businessHours, timezone: e.target.value } })}
-              />
+              >
+                <option value="">Select…</option>
+                {timezoneOptions(form.businessHours.timezone).map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </Select>
               <Input
                 label="Opens"
                 type="time"
@@ -304,49 +312,9 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               value={form.notifications.supportEmail}
               onChange={(e) => patch({ notifications: { ...form.notifications, supportEmail: e.target.value } })}
             />
-            <Input
-              label="Brochure URL"
-              disabled={!editing}
-              value={form.notifications.brochureUrl}
-              onChange={(e) => patch({ notifications: { ...form.notifications, brochureUrl: e.target.value } })}
-            />
           </CardBody>
         </Card>
       </div>
-
-      <Card className="mt-4">
-        <CardHeader
-          title="Capabilities"
-          description="Turning a flag off hides the menu button and refuses the service at the API level — the bot will politely say the service is unavailable."
-        />
-        <CardBody className="space-y-5">
-          {FEATURE_GROUPS.map((group) => (
-            <div key={group.id}>
-              <SectionTitle hint={group.description}>{group.label}</SectionTitle>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {group.flags.map((flag) => (
-                  <div key={flag} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
-                    <Switch
-                      size="sm"
-                      checked={form.features.includes(flag)}
-                      disabled={!editing}
-                      label={FEATURE_LABELS[flag].label}
-                      description={FEATURE_LABELS[flag].help}
-                      onChange={(next) =>
-                        patch({
-                          features: next
-                            ? [...form.features, flag]
-                            : form.features.filter((f) => f !== flag),
-                        })
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </CardBody>
-      </Card>
 
       <Card className="mt-4">
         <CardHeader title="Guardrails" description="What the bot must never claim, and when it must stop and call a human." />

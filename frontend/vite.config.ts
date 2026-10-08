@@ -15,6 +15,7 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
+    allowedHosts: ['prominent-faster-dropper.ngrok-free.dev'],
     // The API is proxied so the browser talks to a single origin. The backend's
     // CORS allow-list does not include :5173, so the proxy is the supported path.
     proxy: {

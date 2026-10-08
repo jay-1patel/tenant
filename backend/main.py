@@ -51,6 +51,10 @@ from routes.conversations import router as conversations_router
 from routes.tenant_files import router as tenant_files_router
 from routes.tenant_chat import router as tenant_chat_router
 from routes.leads import router as leads_router
+from routes.api_onboarding import router as api_onboarding_router
+from routes.audit import router as audit_router
+from routes.tenant_approvals import router as tenant_approvals_router
+from routes.integrations import router as integrations_router
 from services.handoff_timeout import handoff_timeout_monitor
 
 logging.basicConfig(level=logging.INFO)
@@ -206,6 +210,10 @@ app.include_router(conversations_router, tags=["conversations"])
 app.include_router(tenant_files_router, tags=["tenant-files"])
 app.include_router(tenant_chat_router, tags=["tenant-chat"])
 app.include_router(leads_router, tags=["leads"])
+app.include_router(api_onboarding_router, tags=["api-onboarding"])
+app.include_router(audit_router, tags=["audit-history"])
+app.include_router(tenant_approvals_router, tags=["tenant-approvals"])
+app.include_router(integrations_router, tags=["integrations"])
 
 IMAGES_DIR = os.path.join(os.path.dirname(__file__), "images")
 if os.path.isdir(IMAGES_DIR):
@@ -254,7 +262,9 @@ async def forward(request: Request):
 
 
 if os.path.isdir(ADMIN_BUILD_DIR):
-    app.mount("/assets", StaticFiles(directory=os.path.join(ADMIN_BUILD_DIR, "assets")), name="admin-assets")
+    admin_assets_dir = os.path.join(ADMIN_BUILD_DIR, "assets")
+    if os.path.isdir(admin_assets_dir):
+        app.mount("/assets", StaticFiles(directory=admin_assets_dir), name="admin-assets")
 
     @app.get("/admin")
     @app.get("/admin/{full_path:path}")

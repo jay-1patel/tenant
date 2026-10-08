@@ -109,6 +109,65 @@ def merge_layers(*layers: Any) -> Dict[str, Any]:
     return result
 
 
+def merge_drafts(base: Any, override: Any, path: tuple = ()) -> Any:
+    """Merge a new draft save over the pending draft, KEEPING ``__remove__`` markers.
+
+    The draft is a partial layer: keyed lists (intents, flows, menu buttons)
+    override lower layers by name, and a deletion is a tombstone that only the
+    final live merge (``deep_merge`` in build_profile) may consume. Using
+    ``deep_merge`` here would consume the tombstone the moment it is saved —
+    the marker would never reach the published layer, and the deleted default
+    would resurrect on publish. So this variant keeps markers in the result,
+    drops the matching pending item, and lets a re-added id replace its marker.
+    """
+    if isinstance(base, Mapping) and isinstance(override, Mapping):
+        out: Dict[str, Any] = dict(base)
+        for key, val in override.items():
+            child_path = path + (key,)
+            if key in out:
+                out[key] = merge_drafts(out[key], val, child_path)
+            else:
+                out[key] = _copy(val, child_path)
+        return out
+    if isinstance(base, list) and isinstance(override, list):
+        key_field = KEYED_PATHS.get(path)
+        if key_field and _is_named(base, key_field) and _is_named(override, key_field):
+            return _merge_named_drafts(base, override, key_field, path)
+        # Unkeyed lists still replace wholesale.
+        return _copy(override, path)
+    if override is None:
+        return _copy(base)
+    return _copy(override)
+
+
+def _merge_named_drafts(base: List[Any], override: List[Any], key_field: str, path: tuple) -> List[Any]:
+    """Keyed merge for the draft layer, with tombstone preservation."""
+    out: List[Any] = []
+    index: Dict[str, int] = {}
+    for item in base:
+        name = str(item.get(key_field, ""))
+        index[name] = len(out)
+        out.append(dict(item))
+
+    for item in override:
+        name = str(item.get(key_field, ""))
+        marker = bool(item.get(REMOVE_KEY))
+        if name in index:
+            current = out[index[name]]
+            # A marker replaces the pending item; re-adding a tombstoned id
+            # replaces the marker. Neither case can deep-merge the two.
+            if marker or current.get(REMOVE_KEY):
+                out[index[name]] = dict(item)
+            else:
+                out[index[name]] = merge_drafts(current, item, path)
+        else:
+            # A tombstone for a name the draft never carried must persist too —
+            # it is what deletes the *default* at publish time.
+            index[name] = len(out)
+            out.append(dict(item))
+    return out
+
+
 def prune_nulls(payload: Mapping[str, Any]) -> Dict[str, Any]:
     """Drop ``None`` values so an override can't blank out a default by omission."""
     out: Dict[str, Any] = {}

@@ -1,7 +1,15 @@
 import { useState } from 'react'
-import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { ArrowLeft, KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
 import { adminsApi, type AdminRecord } from '@/lib/admins'
-import { ALL_PERMISSIONS, PERMISSION_GROUPS, PERMISSION_LABELS, usePermissions } from '@/lib/permissions'
+import { navigate } from '@/lib/router'
+import {
+  ALL_PERMISSIONS,
+  PERMISSION_GROUPS,
+  permissionGroups,
+  PERMISSION_LABELS,
+  usePermissions,
+} from '@/lib/permissions'
+import { useTenants } from '@/lib/tenants'
 import { useAction, useAsync } from '@/lib/hooks'
 import { formatDate, initials } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -18,28 +26,35 @@ type Draft = {
   username: string
   email: string
   password: string
-  role: 'super_admin' | 'sub_admin'
+  tenantId: string
+  role: 'super_admin' | 'admin' | 'sub_admin'
   permissions: Record<string, boolean>
 }
 
-const emptyDraft = (): Draft => ({
-  username: '',
-  email: '',
-  password: '',
-  role: 'sub_admin',
-  permissions: Object.fromEntries(ALL_PERMISSIONS.map((p) => [p, false])),
-})
-
 export function TeamScreen() {
   const { identity, isSuperAdmin, canManageTeam } = usePermissions()
+  const { tenants } = useTenants()
   const admins = useAsync(() => adminsApi.list(), [])
   const action = useAction()
   const toast = useToast()
+
+  /** Only super admins pick a tenant; everyone else inherits their own. */
+  const ownTenantId = identity?.tenant_id ?? ''
+
+  const emptyDraft = (): Draft => ({
+    username: '',
+    email: '',
+    password: '',
+    tenantId: isSuperAdmin ? '' : ownTenantId,
+    role: 'sub_admin',
+    permissions: Object.fromEntries(ALL_PERMISSIONS.map((p) => [p, false])),
+  })
 
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [editing, setEditing] = useState<string | null>(null)
   const [editPerms, setEditPerms] = useState<Record<string, boolean>>({})
+  const [editTenant, setEditTenant] = useState('')
   const [resetting, setResetting] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -58,8 +73,13 @@ export function TeamScreen() {
         username: draft.username.trim(),
         password: draft.password,
         role: draft.role,
-        permissions: draft.role === 'super_admin' ? null : draft.permissions,
+        // Sub admins get exactly the switches above. Admins are created with
+        // every permission on (server default); a super admin edits them down
+        // afterwards from this same screen.
+        permissions: draft.role === 'sub_admin' ? draft.permissions : null,
         email: draft.email.trim() || null,
+        // Super admins choose; the server forces everyone else to their own tenant.
+        tenant_id: isSuperAdmin ? draft.tenantId.trim() || null : ownTenantId || null,
       }),
     )
     if (result) {
@@ -70,15 +90,24 @@ export function TeamScreen() {
     }
   }
 
+  /** Vertical of a tenant, so the permission matrix matches what it manages. */
+  const verticalOf = (tenantId?: string | null) => tenants.find((t) => t.id === tenantId)?.vertical
+
   const startEdit = (admin: AdminRecord) => {
     setEditing(admin.username)
     setEditPerms({ ...admin.permissions })
+    setEditTenant(admin.tenant_id ?? '')
   }
 
-  const savePerms = async (username: string) => {
-    const result = await action.run(() => adminsApi.update(username, { permissions: editPerms }))
+  const saveEdit = async (admin: AdminRecord) => {
+    const body: { permissions?: Record<string, boolean>; tenant_id?: string | null } = {}
+    if (admin.role !== 'super_admin') body.permissions = editPerms
+    if (isSuperAdmin && (editTenant || null) !== (admin.tenant_id ?? null)) {
+      body.tenant_id = editTenant || null
+    }
+    const result = await action.run(() => adminsApi.update(admin.username, body))
     if (result) {
-      toast.push(`Permissions updated for ${username}`)
+      toast.push(`Saved changes for ${admin.username}`)
       setEditing(null)
       admins.reload()
     }
@@ -110,23 +139,39 @@ export function TeamScreen() {
     }
   }
 
+  /** Where the Back button goes: the admin's own tenant, or the tenant list. */
+  const backTarget =
+    identity?.role !== 'super_admin' && identity?.tenant_id
+      ? `/tenants/${encodeURIComponent(identity.tenant_id)}/overview`
+      : '/tenants'
+
   return (
     <div>
       <PageHeader
         title="Team & permissions"
         description="Every admin sees this console through their own permissions: a screen or an action they do not hold is never offered. The server re-checks all of it — this is the operator's view, not the enforcement point."
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => {
-              setCreating((v) => !v)
-              setDraft(emptyDraft())
-            }}
-          >
-            New admin
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<ArrowLeft className="h-4 w-4" />}
+              onClick={() => navigate(backTarget)}
+            >
+              Back
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => {
+                setCreating((v) => !v)
+                setDraft(emptyDraft())
+              }}
+            >
+              New admin
+            </Button>
+          </div>
         }
         meta={
           <Badge tone="accent">
@@ -174,18 +219,44 @@ export function TeamScreen() {
               />
             </div>
             <Select
+              label="Tenant"
+              value={isSuperAdmin ? draft.tenantId : ownTenantId}
+              onChange={(e) => setDraft({ ...draft, tenantId: e.target.value })}
+              disabled={!isSuperAdmin}
+              hint={
+                isSuperAdmin
+                  ? 'The tenant this admin is scoped to. Leave empty for a tenant-wide super admin.'
+                  : 'Automatically set to your tenant — only a super admin can choose it.'
+              }
+            >
+              {isSuperAdmin ? (
+                <>
+                  <option value="">No tenant (unscoped)</option>
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.display_name || tenant.id}
+                    </option>
+                  ))}
+                </>
+              ) : (
+                <option value={ownTenantId}>{ownTenantId || 'Your account has no tenant'}</option>
+              )}
+            </Select>
+            <Select
               label="Role"
               value={draft.role}
               onChange={(e) => setDraft({ ...draft, role: e.target.value as Draft['role'] })}
-              hint={isSuperAdmin ? undefined : 'Only a super admin can grant the super admin role.'}
-              disabled={!isSuperAdmin}
+              hint={isSuperAdmin ? undefined : (identity?.role === 'admin' ? 'Admin can create sub-admin only' : 'Only a super admin can grant super/admin roles.')}
+              disabled={identity?.role === 'sub_admin'}
             >
-              <option value="sub_admin">Sub admin — permissions apply</option>
-              <option value="super_admin">Super admin — everything</option>
+              <option value="sub_admin">Sub admin �?" permissions apply</option>
+              {(isSuperAdmin || identity?.role === 'admin') && <option value="admin">Admin �?" all permissions for their tenant</option>}
+              {isSuperAdmin && <option value="super_admin">Super admin �?" everything</option>}
             </Select>
 
             {draft.role === 'sub_admin' && (
               <PermissionMatrix
+                groups={permissionGroups(verticalOf(isSuperAdmin ? draft.tenantId : ownTenantId))}
                 value={draft.permissions}
                 onChange={(permissions) => setDraft({ ...draft, permissions })}
               />
@@ -236,13 +307,15 @@ export function TeamScreen() {
                           <ShieldCheck className="h-3 w-3" />
                           super admin
                         </Badge>
+                      ) : admin.role === 'admin' ? (
+                        <Badge tone="accent">admin</Badge>
                       ) : (
                         <Badge tone="neutral">sub admin</Badge>
                       )}
                       {isSelf && <Badge tone="muted">you</Badge>}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      {admin.email || 'no email'} · joined {formatDate(admin.created_at)}
+                      {admin.email || 'no email'} · joined {formatDate(admin.created_at)}{admin.tenant_id ? ` · ${admin.tenant_id}` : ''}
                     </p>
                     <div className="mt-2.5 flex flex-wrap gap-1.5">
                       {admin.role === 'super_admin' ? (
@@ -260,9 +333,9 @@ export function TeamScreen() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">
-                    {admin.role === 'sub_admin' && !isSelf && (
+                    {!isSelf && (admin.role === 'sub_admin' || (admin.role === 'admin' && isSuperAdmin)) && (
                       <Button size="sm" variant="secondary" onClick={() => startEdit(admin)} icon={<Pencil className="h-4 w-4" />}>
-                        Permissions
+                        Edit
                       </Button>
                     )}
                     {resetting === admin.username ? (
@@ -288,7 +361,7 @@ export function TeamScreen() {
                         </Button>
                       )
                     )}
-                    {admin.role === 'sub_admin' &&
+                    {(admin.role === 'sub_admin' || (admin.role === 'admin' && isSuperAdmin)) &&
                       (deleting === admin.username ? (
                         <>
                           <Button size="sm" variant="danger" loading={action.busy} onClick={() => remove(admin.username)}>
@@ -312,7 +385,10 @@ export function TeamScreen() {
                   </p>
                 )}
 
-                {admin.role === 'sub_admin' && !isSelf && isSuperAdmin && !isEditing && (
+                {(!isSelf) && !isEditing && (
+                  (isSuperAdmin) ||
+                  (identity?.role === 'admin' && admin.role === 'sub_admin')
+                ) && (
                   <div className="mt-4 flex items-center gap-2 border-t border-surface-line pt-3">
                     <span className="text-xs text-slate-500">Role:</span>
                     <Select
@@ -320,8 +396,9 @@ export function TeamScreen() {
                       onChange={(e) => saveRole(admin.username, e.target.value)}
                       className="w-40"
                     >
-                      <option value="sub_admin">sub admin</option>
-                      <option value="super_admin">super admin</option>
+                      {(identity?.role === 'admin' || isSuperAdmin) && <option value="sub_admin">sub admin</option>}
+                      {(identity?.role === 'admin' || isSuperAdmin) && <option value="admin">admin</option>}
+                      {isSuperAdmin && <option value="super_admin">super admin</option>}
                     </Select>
                   </div>
                 )}
@@ -329,7 +406,7 @@ export function TeamScreen() {
                 {isEditing && (
                   <div className="mt-4 border-t border-surface-line pt-4">
                     <div className="mb-3 flex items-center justify-between">
-                      <SectionTitle>Permissions for {admin.username}</SectionTitle>
+                      <SectionTitle>Edit {admin.username}</SectionTitle>
                       <div className="flex gap-2">
                         <Button size="sm" variant="ghost" onClick={() => setEditPerms(Object.fromEntries(ALL_PERMISSIONS.map((p) => [p, true])))}>
                           All on
@@ -339,13 +416,38 @@ export function TeamScreen() {
                         </Button>
                       </div>
                     </div>
-                    <PermissionMatrix value={editPerms} onChange={setEditPerms} />
+                    {isSuperAdmin ? (
+                      <div className="mb-4 max-w-sm">
+                        <Select
+                          label="Tenant"
+                          value={editTenant}
+                          onChange={(e) => setEditTenant(e.target.value)}
+                          hint="Re-scopes this admin to another tenant."
+                        >
+                          <option value="">No tenant (unscoped)</option>
+                          {tenants.map((tenant) => (
+                            <option key={tenant.id} value={tenant.id}>
+                              {tenant.display_name || tenant.id}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    ) : (
+                      <p className="mb-4 text-xs text-slate-500">
+                        Tenant is fixed to yours ({ownTenantId || 'none'}) — only a super admin can re-scope an admin.
+                      </p>
+                    )}
+                    <PermissionMatrix
+                      groups={permissionGroups(verticalOf(editTenant || admin.tenant_id))}
+                      value={editPerms}
+                      onChange={setEditPerms}
+                    />
                     <div className="mt-4 flex justify-end gap-2">
                       <Button variant="ghost" onClick={() => setEditing(null)}>
                         Cancel
                       </Button>
-                      <Button variant="primary" loading={action.busy} onClick={() => savePerms(admin.username)}>
-                        Save permissions
+                      <Button variant="primary" loading={action.busy} onClick={() => saveEdit(admin)}>
+                        Save changes
                       </Button>
                     </div>
                   </div>
@@ -360,15 +462,18 @@ export function TeamScreen() {
 }
 
 function PermissionMatrix({
+  groups = PERMISSION_GROUPS,
   value,
   onChange,
 }: {
+  /** Vertical-specific groups — see `permissionGroups` in lib/permissions. */
+  groups?: { label: string; permissions: string[] }[]
   value: Record<string, boolean>
   onChange: (next: Record<string, boolean>) => void
 }) {
   return (
     <div className="grid gap-4 rounded-lg bg-surface-panel p-4 ring-1 ring-inset ring-surface-line sm:grid-cols-2 lg:grid-cols-3">
-      {PERMISSION_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.label}>
           <SectionTitle>{group.label}</SectionTitle>
           <div className="space-y-2">

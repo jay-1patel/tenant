@@ -91,10 +91,10 @@
       "applicable": ["it", "technology"]
     },
 
-    "portfolio": {
-      "id": "portfolio",
-      "title": "Portfolio",
-      "action": "show_portfolio",
+    "projects": {
+      "id": "projects",
+      "title": "Projects",
+      "action": "show_projects",
       "category": "information",
       "description": "View our past work and projects",
       "applicable": ["it", "technology", "software", "generic"]

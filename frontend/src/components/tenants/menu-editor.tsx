@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ListPlus, Pencil, Save, Send, Trash2, X } from 'lucide-react'
 import { tenantsApi } from '@/lib/tenants'
 import { useAction } from '@/lib/hooks'
-import { FEATURE_FLAGS, type FeatureFlag, type MenuButton, type MenuSpec, type ProfileSnapshot } from '@/lib/types'
+import { slugify } from '@/lib/profile'
+import { FEATURE_FLAGS, type FeatureFlag, type IntentSpec, type MenuButton, type MenuSpec, type ProfileSnapshot } from '@/lib/types'
 import { FEATURE_LABELS, getVertical } from '@/lib/verticals'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -10,12 +11,22 @@ import { Badge } from '@/components/ui/badge'
 import { Input, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { TagInput } from '@/components/ui/tags'
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
 import { useTenantDetail } from './hooks'
 
 type ButtonDraft = Omit<MenuButton, 'sort_order'> & { sort_order: number }
+
+/** Select sentinel: the operator is creating a new informational page. */
+const NEW_INTENT = '__new_page__'
+const INTENT_ID_RE = /^[a-z][a-z0-9_]{0,39}$/
+
+interface IntentEdit {
+  answer: string
+  keywords: string[]
+}
 
 const blankButton = (index: number): ButtonDraft => ({
   id: '',
@@ -55,8 +66,18 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const [removed, setRemoved] = useState<string[]>([])
   /** The buttons as loaded, so we can tell an inherited value from a cleared one. */
   const [loaded, setLoaded] = useState<ButtonDraft[]>([])
+  /**
+   * Answer/keyword edits for the intent an option routes to — new pages
+   * created in this session and tweaks to existing ones. Saved into the draft
+   * on commit, before the menu itself.
+   */
+  const [intentEdits, setIntentEdits] = useState<Record<string, IntentEdit>>({})
+  /** Names created in this session (they need `enabled: true` on first save). */
+  const [newIntents, setNewIntents] = useState<string[]>([])
+  const [newIntentName, setNewIntentName] = useState('')
+  const [newNameTouched, setNewNameTouched] = useState(false)
 
-  const effective = detail.data?.effective ?? null
+  const effective = detail.data?.pending ?? detail.data?.effective ?? null
 
   useEffect(() => {
     if (effective?.menu) {
@@ -64,6 +85,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
       setMenu(next)
       setLoaded(next.buttons)
       setRemoved([])
+      setIntentEdits({})
+      setNewIntents([])
     }
   }, [effective])
 
@@ -83,6 +106,17 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const intentNames = useMemo(
     () => (effective?.intents ?? []).map((i) => i.name).sort(),
     [effective],
+  )
+  /** Every intent with its current answer/keywords, to prefill the editor. */
+  const intentMap = useMemo(
+    () => new Map<string, IntentSpec>((effective?.intents ?? []).map((i) => [i.name, i])),
+    [effective],
+  )
+  /** Intent ids the option form can pick: existing ones plus this session's. */
+  const intentOptions = useMemo(
+    () =>
+      Array.from(new Set([...intentNames, ...Object.keys(intentEdits), ...newIntents])).sort(),
+    [intentNames, intentEdits, newIntents],
   )
 
   if (detail.loading) return <LoadingBlock label="Loading the menu…" />
@@ -115,6 +149,23 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
       return
     }
     setError(null)
+    // Intent pages ride along in the same draft: save the ones an option
+    // actually references first (a half-written page whose option was
+    // cancelled or deleted is skipped), then the menu — drafts accumulate,
+    // so both land together and one publish makes them live.
+    const referenced = new Set(
+      buttons.map((b) => b.intent).filter((i): i is string => Boolean(i)),
+    )
+    const pending = Object.entries(intentEdits).filter(([name]) => referenced.has(name))
+    for (const [name, edit] of pending) {
+      const body: { answer?: string | null; keywords?: string[]; enabled?: boolean } = {
+        answer: edit.answer,
+        keywords: edit.keywords,
+      }
+      if (newIntents.includes(name)) body.enabled = true
+      const ok = await action.run(() => tenantsApi.saveIntent(tenantId, name, body))
+      if (!ok) return
+    }
     const snapshot = {
       menu: {
         key: menu.key,
@@ -131,6 +182,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     }
     const saved = await action.run(() => tenantsApi.saveDraft(tenantId, snapshot))
     if (!saved) return
+    setIntentEdits({})
+    setNewIntents([])
     if (!thenPublish) {
       toast.push('Menu saved as a draft. Publish to make it live.')
       return
@@ -170,6 +223,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const startAdd = () => {
     setDraft(blankButton(buttons.length))
     setEditingIndex(-1)
+    setNewIntentName('')
+    setNewNameTouched(false)
   }
 
   const startEdit = (index: number) => {
@@ -179,17 +234,37 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
 
   const saveDraftButton = () => {
     if (!draft) return
-    const problem = validateButton(draft, buttons.filter((_, i) => i !== editingIndex))
+    let button = draft
+    if (draft.intent === NEW_INTENT) {
+      const name = newIntentName.trim()
+      if (!INTENT_ID_RE.test(name)) {
+        setError(
+          'The new page id must be lowercase letters, digits and underscores, starting with a letter (e.g. why_choose_us).',
+        )
+        return
+      }
+      if (intentNames.includes(name)) {
+        setError(`"${name}" already exists as an intent — pick it from the list instead.`)
+        return
+      }
+      button = { ...draft, intent: name }
+      setNewIntents((current) => (current.includes(name) ? current : [...current, name]))
+      // Even an untouched new page must reach the draft so the intent exists.
+      setIntentEdits((prev) =>
+        prev[name] ? prev : { ...prev, [name]: { answer: '', keywords: [] } },
+      )
+    }
+    const problem = validateButton(button, buttons.filter((_, i) => i !== editingIndex))
     if (problem) {
       setError(problem)
       return
     }
     const next = [...buttons]
-    if (editingIndex === -1 || editingIndex === null) next.push(draft)
-    else next[editingIndex] = draft
+    if (editingIndex === -1 || editingIndex === null) next.push(button)
+    else next[editingIndex] = button
     setButtons(next)
     // Re-adding a previously deleted id cancels its tombstone.
-    setRemoved((current) => current.filter((id) => id !== draft.id))
+    setRemoved((current) => current.filter((id) => id !== button.id))
     setDraft(null)
     setEditingIndex(null)
     setError(null)
@@ -240,6 +315,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
           <>
             <Badge tone="accent">{vertical.short}</Badge>
             <Badge tone="neutral">{buttons.length} options in the editor</Badge>
+            {detail.data?.has_draft && <Badge tone="warning">draft in progress</Badge>}
             {removed.length > 0 && <Badge tone="danger">{removed.length} marked for deletion</Badge>}
             <Badge tone="muted">live v{detail.data?.current_version ?? 0}</Badge>
           </>
@@ -321,7 +397,13 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                   <Input
                     label="Title"
                     value={draft.title}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                    onChange={(e) => {
+                      const title = e.target.value
+                      setDraft({ ...draft, title })
+                      if (draft.intent === NEW_INTENT && !newNameTouched) {
+                        setNewIntentName(slugify(title))
+                      }
+                    }}
                     placeholder="Get a Quote"
                   />
                   <Input
@@ -373,16 +455,80 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                   <Select
                     label="Routes to intent"
                     value={draft.intent ?? ''}
-                    onChange={(e) => setDraft({ ...draft, intent: e.target.value || null })}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value === NEW_INTENT) {
+                        setDraft({ ...draft, intent: NEW_INTENT })
+                        setNewNameTouched(false)
+                        if (!newIntentName.trim()) setNewIntentName(slugify(draft.title))
+                      } else {
+                        setDraft({ ...draft, intent: value || null })
+                      }
+                    }}
+                    hint="When tapped, the bot replies with the page's answer."
                   >
                     <option value="">No intent</option>
-                    {intentNames.map((name) => (
+                    {intentOptions.map((name) => (
                       <option key={name} value={name}>
                         {name}
                       </option>
                     ))}
+                    <option value={NEW_INTENT}>+ New page — write its answer…</option>
                   </Select>
                 </div>
+
+                {draft.intent && (
+                  <div className="space-y-4 rounded-lg bg-surface-panel p-4 ring-1 ring-inset ring-surface-line">
+                    {draft.intent === NEW_INTENT ? (
+                      <Input
+                        label="New page id"
+                        value={newIntentName}
+                        onChange={(e) => {
+                          setNewNameTouched(true)
+                          setNewIntentName(e.target.value)
+                        }}
+                        placeholder="why_choose_us"
+                        hint="Auto-filled from the title. Lowercase snake_case — this becomes the intent the bot routes to."
+                      />
+                    ) : null}
+                    {(() => {
+                      const key = draft.intent === NEW_INTENT ? newIntentName.trim() : draft.intent
+                      const existingIntent = intentMap.get(key)
+                      const edit = intentEdits[key]
+                      const answer = edit?.answer ?? existingIntent?.answer ?? ''
+                      const keywords = edit?.keywords ?? [...(existingIntent?.keywords ?? [])]
+                      const setEdit = (patch: Partial<IntentEdit>) => {
+                        const base: IntentEdit = edit ?? {
+                          answer,
+                          keywords: [...keywords],
+                        }
+                        setIntentEdits((prev) => ({ ...prev, [key]: { ...base, ...patch } }))
+                      }
+                      return (
+                        <>
+                          <Textarea
+                            label={draft.intent === NEW_INTENT ? 'Answer text' : `Answer text — ${key}`}
+                            rows={5}
+                            value={answer}
+                            onChange={(e) => setEdit({ answer: e.target.value })}
+                            hint='What the bot replies when this option is tapped, or a typed question matches. "• " starts a bullet, *stars* make a word bold. Leave empty and questions fall through to the knowledge base.'
+                          />
+                          <div>
+                            <TagInput
+                              value={keywords}
+                              onChange={(next) => setEdit({ keywords: next })}
+                              placeholder="Add a keyword and press Enter"
+                            />
+                            <p className="hint">
+                              Phrases that route a typed question to this answer. Editing a
+                              built-in page (technologies, careers…) needs its own permission.
+                            </p>
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
                 <Switch
                   checked={draft.out_of_hours_only}
                   onChange={(out_of_hours_only) => setDraft({ ...draft, out_of_hours_only })}
@@ -516,6 +662,7 @@ function validateButton(button: ButtonDraft, others: ButtonDraft[]): string | nu
   if (!/^[a-z0-9_]+$/.test(button.id.trim())) return 'Ids must be lowercase letters, digits and underscores.'
   if (others.some((o) => o.id === button.id)) return `The id "${button.id}" is already used by another option.`
   if (!button.title.trim()) return 'Every menu option needs a title.'
+  if (button.intent === NEW_INTENT) return 'Finish the new page first — give it an id, then save the option.'
   return null
 }
 

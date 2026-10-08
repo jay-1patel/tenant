@@ -131,6 +131,8 @@ export interface IntentSpec {
   keywords: string[]
   requires_feature: string | null
   flow: string | null
+  /** Informational intents answer directly with this text (info-page panels). */
+  answer?: string | null
   enabled: boolean
 }
 
@@ -365,6 +367,10 @@ export interface LayerDetail {
   versions: VersionRecord[]
   effective: ProfileSnapshot | null
   effective_error: string | null
+  /** The working draft merged over the file baseline — what publish would go live. */
+  has_draft?: boolean
+  pending?: ProfileSnapshot | null
+  pending_error?: string | null
 }
 
 export interface TenantToken {
@@ -401,9 +407,10 @@ export interface TestQuestionResult {
 export interface AdminIdentity {
   id: number
   username: string
-  role: string
+  role: 'super_admin' | 'admin' | 'sub_admin' | string
   email: string | null
   permissions: Record<string, boolean>
+  tenant_id?: string | null
 }
 
 export interface PublishResult {

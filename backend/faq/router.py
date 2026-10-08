@@ -10,6 +10,7 @@ class FAQRequest(BaseModel):
     """Request model for FAQ queries"""
     message: str = Field(..., description="Your question for the FAQ bot", min_length=1)
     session_id: Optional[str] = Field(None, description="Optional session identifier")
+    tenant_id: Optional[str] = Field(None, description="Optional tenant to answer as; defaults to the sender's or the default tenant")
 
 
 class FAQResponse(BaseModel):
@@ -23,7 +24,7 @@ class FAQResponse(BaseModel):
 @faq_router.post("/ask", response_model=FAQResponse)
 async def ask(request: FAQRequest):
     """Ask a question and get an answer from the FAQ bot"""
-    payload = {"message": request.message}
+    payload = {"message": request.message, "tenant_id": request.tenant_id}
     result = await handle_faq_query(payload)
     return result
 

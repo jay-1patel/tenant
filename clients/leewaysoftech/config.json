@@ -60,6 +60,25 @@
     "open_days": [0, 1, 2, 3, 4]
   },
 
+  "intents": [
+    {
+      "name": "technologies",
+      "answer": "• Here's the stack we build with:\n• *Frontend:* React, Angular and Vue\n• *Backend:* Node.js, Python (Django/Flask), PHP and .NET\n• *Mobile:* Flutter, React Native and native iOS/Android\n• *Cloud & DevOps:* AWS, Azure, GCP, Docker, Kubernetes and CI/CD pipelines\n• *Databases:* PostgreSQL, MySQL, MongoDB and Redis\n• Tell us what you're building and we'll match the right stack for it."
+    },
+    {
+      "name": "projects",
+      "answer": "• A snapshot of the work we deliver:\n• *Web platforms:* e-commerce stores, customer portals and internal systems\n• *Mobile apps:* customer and field-force apps for iOS and Android\n• *Enterprise:* CRM/ERP integrations, workflow automation and analytics dashboards\n• *Industries:* retail, healthcare, finance, logistics and education\n• We share client names and detailed case studies only with their written permission — our team can walk you through relevant examples on a call."
+    },
+    {
+      "name": "careers",
+      "answer": "• We're always glad to hear from good people:\n• *Roles we hire for:* frontend, backend and mobile developers, QA engineers, DevOps and UI/UX designers\n• *Internships:* available for final-year students and fresh graduates\n• *How to apply:* send your CV to info@leewaysoftech.com with the role in the subject line\n• Shortlisted candidates hear from us within a few working days."
+    },
+    {
+      "name": "benefits",
+      "answer": "• Why teams choose to work with us:\n• *Dedicated project manager* as your single point of contact\n• *Agile delivery* in two-week sprints with regular demos\n• *Transparent reporting* — you always know where things stand\n• *Post-launch support and maintenance* packages\n• *Your IP stays yours* — full code and documentation handover\n• *Fixed-price or dedicated-team* engagement models, NDA on request"
+    }
+  ],
+
   "guardrails": {
     "never_state": [
       "prices, budgets, or rates before the team confirms a quote",

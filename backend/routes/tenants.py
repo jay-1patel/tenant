@@ -6,7 +6,8 @@ versioned and rollbackable:
     GET  /api/admin/tenants
     POST /api/admin/tenants
     GET  /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
-    PUT  /api/admin/tenants/{tenant_id}/profile     -> save draft
+    PUT  /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
+    PUT  /api/admin/tenants/{tenant_id}/intents/{name} -> save one info-page intent into the draft
     POST /api/admin/tenants/{tenant_id}/publish     -> validate + version + go live
     POST /api/admin/tenants/{tenant_id}/rollback    -> re-point at a prior version
     GET  /api/admin/tenants/{tenant_id}/versions
@@ -21,16 +22,27 @@ enforces token.tenant_id == target (Phase 0.5).
 """
 
 import logging
+import re
 import secrets
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
-from routes.auth import hash_tenant_token, require_permission, require_tenant_access
+from database import get_db_context, record_admin_audit_event
+from routes.auth import (
+    get_current_admin,
+    has_permission,
+    hash_tenant_token,
+    require_permission,
+    require_tenant_access,
+    security,
+)
 from shared.tenancy import cache as tenancy_cache
 from shared.tenancy import loader as tenancy_loader
 from shared.tenancy import store as tenancy_store
+from shared.tenancy.merge import deep_merge, merge_drafts
 
 logger = logging.getLogger("tenants")
 router = APIRouter(prefix="/api/admin/tenants", tags=["tenants"])
@@ -55,6 +67,13 @@ class ProfileDraft(BaseModel):
     snapshot: dict = Field(default_factory=dict)
 
 
+class IntentOverride(BaseModel):
+    """One informational intent's editable fields. Omitted keys are not touched."""
+    answer: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+
 class RollbackRequest(BaseModel):
     version: int
 
@@ -71,6 +90,7 @@ def _admin_only(principal: dict) -> str:
     """Only admins may mint tokens, rebind phone ids, or set secrets."""
     if principal.get("type") != "admin":
         raise HTTPException(status_code=403, detail="Admin credentials required")
+    # Allow admin role too
     return principal.get("username", "")
 
 
@@ -98,6 +118,16 @@ def create_tenant(
     body: TenantCreate,
     current_admin: dict = Depends(require_permission("manage_operations")),
 ):
+    if current_admin.get("role") != "super_admin":
+        # Admins and sub admins register tenants through the approval queue;
+        # only a super admin's approval creates the tenant.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Tenant registration by an admin needs super admin approval — "
+                "submit it via POST /api/tenant-change-requests"
+            ),
+        )
     tid = str(body.tenant_id or "").strip()
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_id is required")
@@ -112,14 +142,28 @@ def create_tenant(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
-    tenancy_store.ensure_tenant(
-        tid,
-        slug=body.slug or tid,
-        vertical=body.vertical,
-        waba_phone_id=body.waba_phone_id,
-        display_name=body.display_name,
-        status=body.status,
-    )
+    with get_db_context() as conn:
+        if conn.execute("SELECT 1 FROM tenants WHERE id = ?", (tid,)).fetchone():
+            raise HTTPException(status_code=409, detail=f"tenant '{tid}' already exists")
+        tenancy_store.ensure_tenant(
+            tid,
+            slug=body.slug or tid,
+            vertical=body.vertical,
+            waba_phone_id=body.waba_phone_id,
+            display_name=body.display_name,
+            status=body.status,
+            conn=conn,
+        )
+        record_admin_audit_event(
+            conn,
+            action="tenant_created",
+            actor=current_admin,
+            resource_type="tenant",
+            resource_id=tid,
+            tenant_id=tid,
+            details={"vertical": body.vertical, "status": body.status},
+        )
+    tenancy_cache.purge(tid)
     logger.info("TENANT_CREATED | tenant=%s | vertical=%s | by=%s",
                 tid, body.vertical, current_admin.get("username"))
     return {"ok": True, "tenant": _public_tenant(tenancy_store.get_tenant(tid))}
@@ -133,8 +177,17 @@ def delete_tenant(
     _admin_only(principal)
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
+    with get_db_context() as conn:
+        tenancy_store.delete_tenant(tenant_id, conn=conn)
+        record_admin_audit_event(
+            conn,
+            action="tenant_deleted",
+            actor={"username": principal.get("username"), "role": principal.get("role"), "tenant_id": tenant_id},
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+        )
     tenancy_cache.purge(tenant_id)
-    tenancy_store.delete_tenant(tenant_id)
     logger.info("TENANT_DELETED | tenant=%s | by=%s", tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id}
 
@@ -179,6 +232,15 @@ def tenant_detail(tenant_id: str, principal: dict = Depends(require_tenant_acces
         effective = tenancy_loader.get_tenant_profile(tenant_id).to_payload()
     except Exception as exc:  # never fail the editor on a bad layer
         logger.error("Could not build effective profile for %s: %s", tenant_id, exc)
+    # What the editor should show when a working copy is pending: the draft
+    # merged over the file baseline — exactly what publish would make live.
+    pending, pending_error = None, None
+    draft = tenancy_store.get_draft(tenant_id)
+    if draft:
+        try:
+            pending = tenancy_loader.validate_merged_profile(tenant_id, draft).to_payload()
+        except Exception as exc:
+            pending_error = str(exc)
     return {
         "tenant": _public_tenant(layers.get("tenant")),
         "layers": layers.get("layers", {}),
@@ -186,6 +248,9 @@ def tenant_detail(tenant_id: str, principal: dict = Depends(require_tenant_acces
         "versions": layers.get("versions", []),
         "effective": effective,
         "effective_error": None if effective else "effective profile could not be built",
+        "has_draft": bool(draft),
+        "pending": pending,
+        "pending_error": pending_error,
     }
 
 
@@ -225,17 +290,139 @@ def save_profile_draft(    tenant_id: str,
 
     The draft is validated immediately so the editor can show errors before
     anyone presses publish.
+
+    The draft accumulates: this merges the snapshot over the existing draft
+    instead of replacing it, so partial saves from different screens (the
+    profile editor, the info-page panels) keep each other's pending changes.
+    Tombstones survive the merge — deleting a default menu option is a marker
+    only the publish-time live merge may consume.
     """
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
     by = principal.get("username") or principal.get("label", "")
-    tenancy_store.save_draft(tenant_id, body.snapshot, updated_by=by)
+    draft = tenancy_store.get_draft(tenant_id) or {}
+    merged = merge_drafts(draft, body.snapshot)
+    with get_db_context() as conn:
+        tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_draft_saved",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"changed_sections": sorted(body.snapshot.keys())},
+            )
 
     warnings: list = []
     try:
-        tenancy_loader.validate_merged_profile(tenant_id, body.snapshot)
+        tenancy_loader.validate_merged_profile(tenant_id, merged)
     except tenancy_loader.ProfileValidationError as exc:
         # Saving a broken draft is allowed; publishing it is not.
+        warnings.append(str(exc))
+    return {"ok": True, "tenant_id": tenant_id, "has_draft": True, "validation": warnings}
+
+
+# Info pages whose panel edits a single informational intent. The map is the
+# authorisation contract: an intent is editable through this endpoint only if
+# it has a panel and a permission behind it.
+INFO_PAGE_PERMISSIONS = {
+    "projects": "manage_projects",
+    "technologies": "manage_technologies",
+    "careers": "manage_careers",
+    "benefits": "manage_benefits",
+}
+
+# A new informational intent created from the menu editor becomes an id the
+# classifier and flow runner switch on, so keep the grammar narrow.
+INTENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
+
+@router.put("/{tenant_id}/intents/{intent_name}")
+def save_intent_draft(
+    tenant_id: str,
+    intent_name: str,
+    body: IntentOverride,
+    request: Request,
+    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Merge one informational intent's answer into the working draft.
+
+    Projects / technologies / careers / benefits have no flow and no service:
+    the answer text is the whole page. A name that does not exist yet is a new
+    page created from the menu editor — gated on manage_operations. This merges
+    into the existing draft (never replaces), so a pending profile edit
+    survives a panel save and vice versa. Publishing is what makes the answer
+    live.
+    """
+    if not tenancy_store.get_tenant(tenant_id):
+        raise HTTPException(status_code=404, detail="tenant not found")
+
+    profile = tenancy_loader.get_tenant_profile(tenant_id)
+    existing = {i.name for i in profile.intents}
+
+    permission = INFO_PAGE_PERMISSIONS.get(intent_name)
+    if permission:
+        if intent_name not in existing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"intent '{intent_name}' is not part of this tenant's profile",
+            )
+    elif intent_name in existing:
+        # Operational intents (place_order, service_enquiry...) have flows and
+        # services behind them; this endpoint only edits answered info pages.
+        raise HTTPException(
+            status_code=404,
+            detail=f"intent '{intent_name}' exists but is not an editable info page",
+        )
+    else:
+        if not INTENT_NAME_RE.match(intent_name):
+            raise HTTPException(
+                status_code=422,
+                detail="Intent names are lowercase letters, digits and underscores, starting with a letter.",
+            )
+        permission = "manage_operations"
+
+    # Tenant tokens are scoped to their own tenant above; admins need the
+    # page's own grant, not just manage_operations.
+    if principal.get("type") != "tenant" and not has_permission(
+        get_current_admin(request, credentials), permission
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"You need the '{permission}' permission to edit this page",
+        )
+
+    override: Dict[str, Any] = {"name": intent_name}
+    if body.answer is not None:
+        override["answer"] = body.answer
+    if body.keywords is not None:
+        override["keywords"] = [k for k in (s.strip() for s in body.keywords) if k]
+    if body.enabled is not None:
+        override["enabled"] = body.enabled
+
+    by = principal.get("username") or principal.get("label", "")
+    draft = tenancy_store.get_draft(tenant_id) or {}
+    merged = deep_merge(draft, {"intents": [override]})
+    with get_db_context() as conn:
+        tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_intent_draft_saved",
+                actor=principal,
+                resource_type="tenant_intent",
+                resource_id=intent_name,
+                tenant_id=tenant_id,
+                details={"changed_fields": sorted(k for k in override if k != "name")},
+            )
+
+    warnings: list = []
+    try:
+        tenancy_loader.validate_merged_profile(tenant_id, merged)
+    except tenancy_loader.ProfileValidationError as exc:
         warnings.append(str(exc))
     return {"ok": True, "tenant_id": tenant_id, "has_draft": True, "validation": warnings}
 
@@ -245,7 +432,12 @@ def publish_profile(
     tenant_id: str,
     principal: dict = Depends(require_tenant_access()),
 ):
-    """Validate the merged profile, append a version, go live, purge the cache."""
+    """Validate the merged profile, append a version, go live, purge the cache.
+
+    Publishing is direct for every admin with access — the super admin
+    approval queue is only for registrations/completions submitted through
+    the Register a tenant panel (POST /api/tenant-change-requests).
+    """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
@@ -259,7 +451,18 @@ def publish_profile(
         )
 
     by = principal.get("username") or principal.get("label", "")
-    version = tenancy_store.publish_version(tenant_id, draft, published_by=by)
+    with get_db_context() as conn:
+        version = tenancy_store.publish_version(tenant_id, draft, published_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_published",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"version": version},
+            )
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_PROFILE_PUBLISHED | tenant=%s | version=%s | by=%s", tenant_id, version, by)
     return {
@@ -312,8 +515,19 @@ def rollback_profile(
     principal: dict = Depends(require_tenant_access()),
 ):
     """Re-point is_current at an earlier version. Nothing is deleted."""
-    if not tenancy_store.rollback(tenant_id, body.version):
-        raise HTTPException(status_code=404, detail=f"version {body.version} not found")
+    with get_db_context() as conn:
+        if not tenancy_store.rollback(tenant_id, body.version, conn=conn):
+            raise HTTPException(status_code=404, detail=f"version {body.version} not found")
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_rolled_back",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"version": body.version},
+            )
     tenancy_cache.purge(tenant_id)
     profile = tenancy_loader.get_tenant_profile(tenant_id)
     logger.info("TENANT_PROFILE_ROLLBACK | tenant=%s | to=v%s | by=%s",
@@ -338,10 +552,20 @@ def bind_phone(
     _admin_only(principal)
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
-    if not tenancy_store.set_waba_phone_id(tenant_id, body.waba_phone_id):
-        raise HTTPException(
-            status_code=409,
-            detail=f"phone id already bound to another tenant",
+    with get_db_context() as conn:
+        if not tenancy_store.set_waba_phone_id(tenant_id, body.waba_phone_id, conn=conn):
+            raise HTTPException(
+                status_code=409,
+                detail="phone id already bound to another tenant",
+            )
+        record_admin_audit_event(
+            conn,
+            action="tenant_phone_id_bound",
+            actor=principal,
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"configured": bool(body.waba_phone_id.strip())},
         )
     return {"ok": True, "tenant_id": tenant_id, "waba_phone_id": body.waba_phone_id}
 
@@ -354,8 +578,6 @@ def set_webhook_secret(
 ):
     """Per-tenant HMAC secret for outbound CRM webhooks."""
     _admin_only(principal)
-    from database import get_db_context
-
     with get_db_context() as conn:
         cur = conn.execute(
             "UPDATE tenants SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -363,6 +585,15 @@ def set_webhook_secret(
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="tenant not found")
+        record_admin_audit_event(
+            conn,
+            action="tenant_webhook_secret_configured",
+            actor=principal,
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"configured": True},
+        )
     logger.info("TENANT_WEBHOOK_SECRET_SET | tenant=%s | by=%s",
                 tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id, "configured": True}
@@ -384,9 +615,19 @@ def create_token(
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
     raw = secrets.token_urlsafe(40)
-    token_id = tenancy_store.create_tenant_token(
-        tenant_id, hash_tenant_token(raw), label=body.label, created_by=by
-    )
+    with get_db_context() as conn:
+        token_id = tenancy_store.create_tenant_token(
+            tenant_id, hash_tenant_token(raw), label=body.label, created_by=by, conn=conn
+        )
+        record_admin_audit_event(
+            conn,
+            action="tenant_token_created",
+            actor=principal,
+            resource_type="tenant_token",
+            resource_id=token_id,
+            tenant_id=tenant_id,
+            details={},
+        )
     logger.info("TENANT_TOKEN_CREATED | tenant=%s | id=%s | by=%s", tenant_id, token_id, by)
     return {
         "ok": True,
@@ -410,8 +651,22 @@ def revoke_token(
     principal: dict = Depends(require_tenant_access()),
 ):
     _admin_only(principal)
-    if not tenancy_store.revoke_tenant_token(token_id):
-        raise HTTPException(status_code=404, detail="token not found or already revoked")
+    with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT id, label FROM tenant_tokens WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL",
+            (token_id, tenant_id),
+        ).fetchone()
+        if not row or not tenancy_store.revoke_tenant_token(token_id, conn=conn):
+            raise HTTPException(status_code=404, detail="token not found or already revoked")
+        record_admin_audit_event(
+            conn,
+            action="tenant_token_revoked",
+            actor=principal,
+            resource_type="tenant_token",
+            resource_id=token_id,
+            tenant_id=tenant_id,
+            details={},
+        )
     return {"ok": True, "id": token_id}
 
 

@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react'
-import { Blocks, ChevronDown, LayoutGrid, LogOut, PlusCircle, UserRound, Users } from 'lucide-react'
+import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, PlusCircle, ScrollText, Send, UserRound, Users, ShieldCheck, KeyRound } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { useTenantFeatures, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
@@ -44,7 +44,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
 
         <div className="px-3">
-          {can(TENANT_PERMISSION) ? (
+          {can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
             <Button
               variant="primary"
               className="w-full"
@@ -61,64 +61,66 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           )}
         </div>
 
-        <div className="relative mt-4 px-3">
-          <button
-            type="button"
-            onClick={() => setSwitcherOpen((v) => !v)}
-            className="flex w-full items-center gap-2.5 rounded-lg bg-surface px-3 py-2.5 text-left ring-1 ring-surface-line transition hover:bg-surface-panel"
-          >
-            <VerticalGlyph name={getVertical(active?.vertical).icon} className="h-4 w-4 shrink-0 text-accent-700" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium text-slate-100">
-                {active?.display_name || active?.id || 'No tenant'}
+        {identity?.role === 'super_admin' && (
+          <div className="relative mt-4 px-3">
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen((v) => !v)}
+              className="flex w-full items-center gap-2.5 rounded-lg bg-surface px-3 py-2.5 text-left ring-1 ring-surface-line transition hover:bg-surface-panel"
+            >
+              <VerticalGlyph name={getVertical(active?.vertical).icon} className="h-4 w-4 shrink-0 text-accent-700" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium text-slate-100">
+                  {active?.display_name || active?.id || 'No tenant'}
+                </span>
+                <span className="block truncate text-xs text-slate-500">
+                  {active ? getVertical(active.vertical).short : 'select a tenant'}
+                </span>
               </span>
-              <span className="block truncate text-xs text-slate-500">
-                {active ? getVertical(active.vertical).short : 'select a tenant'}
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-slate-500 transition', switcherOpen && 'rotate-180')} />
-          </button>
+              <ChevronDown className={cn('h-4 w-4 shrink-0 text-slate-500 transition', switcherOpen && 'rotate-180')} />
+            </button>
 
-          {switcherOpen && (
-            <div className="absolute left-3 right-3 top-full z-30 mt-1 overflow-hidden rounded-lg bg-surface-overlay ring-1 ring-surface-line shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setSwitcherOpen(false)
-                  navigate('/tenants')
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-surface-panel"
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                All tenants
-                <span className="ml-auto text-slate-500">{tenants.length}</span>
-              </button>
-              <div className="max-h-72 overflow-y-auto scroll-thin">
-                {tenants.map((tenant) => (
-                  <button
-                    key={tenant.id}
-                    type="button"
-                    onClick={() => {
-                      setActive(tenant.id)
-                      setSwitcherOpen(false)
-                      navigate(`/tenants/${encodeURIComponent(tenant.id)}/overview`)
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-panel',
-                      tenant.id === active?.id ? 'text-accent-700' : 'text-slate-300',
-                    )}
-                  >
-                    <VerticalGlyph name={getVertical(tenant.vertical).icon} className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{tenant.display_name || tenant.id}</span>
-                    {tenant.current_version ? (
-                      <span className="shrink-0 text-2xs text-slate-500">v{tenant.current_version}</span>
-                    ) : null}
-                  </button>
-                ))}
+            {switcherOpen && (
+              <div className="absolute left-3 right-3 top-full z-30 mt-1 overflow-hidden rounded-lg bg-surface-overlay ring-1 ring-surface-line shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSwitcherOpen(false)
+                    navigate('/tenants')
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-surface-panel"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  All tenants
+                  <span className="ml-auto text-slate-500">{tenants.length}</span>
+                </button>
+                <div className="max-h-72 overflow-y-auto scroll-thin">
+                  {tenants.map((tenant) => (
+                    <button
+                      key={tenant.id}
+                      type="button"
+                      onClick={() => {
+                        setActive(tenant.id)
+                        setSwitcherOpen(false)
+                        navigate(`/tenants/${encodeURIComponent(tenant.id)}/overview`)
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-panel',
+                        tenant.id === active?.id ? 'text-accent-700' : 'text-slate-300',
+                      )}
+                    >
+                      <VerticalGlyph name={getVertical(tenant.vertical).icon} className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{tenant.display_name || tenant.id}</span>
+                      {tenant.current_version ? (
+                        <span className="shrink-0 text-2xs text-slate-500">v{tenant.current_version}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <nav className="mt-4 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
           {tenantScoped && route.tenantId ? (
@@ -152,10 +154,105 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 )
               })}
             </div>
+          ) : identity?.role !== 'super_admin' && identity?.tenant_id ? (
+            <div className="space-y-0.5">
+              <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+                Your tenant
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate(`/tenants/${encodeURIComponent(identity.tenant_id!)}/overview`)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-accent-50 hover:text-slate-100"
+              >
+                <ArrowLeft className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {tenants.find((t) => t.id === identity.tenant_id)?.display_name || identity.tenant_id}
+                </span>
+              </button>
+            </div>
           ) : (
             <p className="px-3 text-xs leading-relaxed text-slate-500">
               Select a tenant to configure its profile, or register a new one.
             </p>
+          )}
+
+          {(identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && can('manage_operations'))) && (
+            <div className="border-t border-surface-line pt-3">
+              {identity?.role === 'super_admin' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/tenant-requests')}
+                    className={cn(
+                      'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      route.view === 'tenant-requests'
+                        ? 'bg-accent-100 font-medium text-accent-800'
+                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                    )}
+                  >
+                    <ClipboardCheck className="h-4 w-4 shrink-0" />
+                    Tenant change review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/api-requests')}
+                    className={cn(
+                      'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      route.view === 'api-requests'
+                        ? 'bg-accent-100 font-medium text-accent-800'
+                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                    )}
+                  >
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                    API access review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/audit-history')}
+                    className={cn(
+                      'mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      route.view === 'audit-history'
+                        ? 'bg-accent-100 font-medium text-accent-800'
+                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                    )}
+                  >
+                    <ScrollText className="h-4 w-4 shrink-0" />
+                    Audit history
+                  </button>
+                </>
+              ) : (
+                <>
+                  {identity?.tenant_id && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/tenants/${encodeURIComponent(identity.tenant_id!)}/api-access`)}
+                      className={cn(
+                        'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                        route.view === 'api-access'
+                          ? 'bg-accent-100 font-medium text-accent-800'
+                          : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                      )}
+                    >
+                      <KeyRound className="h-4 w-4 shrink-0" />
+                      API access
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/tenant-requests')}
+                    className={cn(
+                      'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      route.view === 'tenant-requests'
+                        ? 'bg-accent-100 font-medium text-accent-800'
+                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                    )}
+                  >
+                    <Send className="h-4 w-4 shrink-0" />
+                    My change requests
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           {can(TEAM_PERMISSION) && (
@@ -184,8 +281,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-slate-200">{identity?.username}</p>
-              <Badge tone={identity?.role === 'super_admin' ? 'accent' : 'neutral'} className="mt-0.5">
-                {identity?.role === 'super_admin' ? 'super admin' : 'sub admin'}
+              <Badge tone={(identity?.role === 'super_admin' || identity?.role === 'admin') ? 'accent' : 'neutral'} className="mt-0.5">
+                {identity?.role === 'super_admin' ? 'super admin' : identity?.role === 'admin' ? 'admin' : 'sub admin'}
               </Badge>
             </div>
             <button

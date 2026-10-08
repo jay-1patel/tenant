@@ -1,0 +1,180 @@
+INFO:sentence_transformers.base.model:No device provided, using cpu
+INFO:sentence_transformers.base.model:Loading SentenceTransformer model from C:\keya\2608\backend\models\bge-m3.
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|##########| 391/391 [00:00<00:00, 56453.45it/s]
+INFO:sentence_transformers.base.model:No device provided, using cpu
+INFO:sentence_transformers.base.model:Loading CrossEncoder model from C:\keya\2608\backend\faq\..\models\ettin-reranker-68m-v1.
+Loading weights:   0%|          | 0/116 [00:00<?, ?it/s]Loading weights: 100%|##########| 116/116 [00:00<00:00, 15757.34it/s]
+WARNING:extract:Tesseract executable not found. OCR on scanned/image-only PDF pages will fail. Set the TESSERACT_CMD environment variable to the full path of tesseract.exe.
+INFO:__bot:RateLimiter initialized: 5520 TPM, min_interval: 0.005s
+INFO:__bot:KB reusing shared embedding model from FAQ service. Dimension: 1024
+INFO:__bot:Tool registered: search_products
+INFO:__bot:Tool registered: get_product_details
+INFO:__bot:Tool registered: get_nutrition_info
+INFO:__bot:Tool registered: check_order_status
+INFO:__bot:Tool registered: get_faq_answer
+INFO:__bot:Tool registered: get_contact_details
+INFO:__bot:Tool registered: human_handover
+INFO:__bot:Tool registered: list_categories
+INFO:__bot:Tool registered: get_products_by_category
+INFO:__bot:Tool registered: calculate_margin
+INFO:__bot:Registered 10 default tools
+INFO:     Started server process [29844]
+INFO:     Waiting for application startup.
+INFO:router:[STARTUP] lifespan entered
+INFO:router:[STARTUP] init_db done
+INFO:router:[STARTUP] faq_index id=1711278612768, is_built=False
+INFO:faq_bot:FAQ index built: 275 vectors (dense + sparse)
+INFO:router:[STARTUP] build() returned, is_built=True, ntotal=275
+INFO:router:FAQ index built: 275 vectors
+INFO:__bot:Chunks built for 0 KB docs
+INFO:__bot:rebuild_faiss_index: 202 chunks indexed from 5 docs
+INFO:router:[STARTUP] KB index built
+INFO:router:[STARTUP] Handoff timeout monitor started (1h auto-revert)
+INFO:handoff_timeout:Handoff timeout monitor started (interval=60s, timeout=3600s)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
+INFO:chiki_webhook:CATBOX_UPLOAD | Product_Catalogue.pdf -> https://files.catbox.moe/h2pw4m.pdf
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:02<00:00,  2.29s/it]Batches: 100%|##########| 1/1 [00:02<00:00,  2.30s/it]
+INFO:faq_bot:Computed and saved 20 new embeddings
+INFO:faq_bot:FAQ index built: 295 vectors (dense + sparse)
+INFO:chiki_webhook:Deleted: Product_Catalogue.pdf (faq=60, kb=0)
+INFO:chiki_webhook:CATBOX_UPLOAD | Product_Catalogue.pdf -> https://files.catbox.moe/h2pw4m.pdf
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:02<00:00,  2.10s/it]Batches: 100%|##########| 1/1 [00:02<00:00,  2.10s/it]
+INFO:faq_bot:Computed and saved 20 new embeddings
+INFO:faq_bot:FAQ index built: 255 vectors (dense + sparse)
+INFO:test_simulator:TEST_SIMULATOR | wa_id=test-user-001 | type=auto | message='calat;ogue'
+INFO:whatsapp_sender:SEND_LIST | to=test-user-001 | sections=3
+INFO:chiki_webhook:LIST_MENU_REQUEST | to=test-user-001 | sections=3 | rows=7
+INFO:httpx:HTTP Request: POST https://api.send2.digital/whatsapp/attachment/list_messages "HTTP/1.1 500 Internal Server Error"
+INFO:chiki_webhook:LIST_MENU_RESPONSE | to=test-user-001 | status=500 | body={"error":"Unexpected server error","details":{"error":{"message":"(#131009) Parameter value is not valid","code":131009,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"The phone number is malformed: Please use the format: +1234567890."},"fbtrace_id":"AkyNOTN7djSdM3zGr
+INFO:test_simulator:TEST_SIMULATOR | wa_id=test-user-001 | type=auto | message='catalogue'
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  4.45it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  4.44it/s]
+INFO:faq_bot:Search query: 'catalogue' | Fused candidates: 30 \u2192 after threshold: 30 | Dense top scores: [0.5142, 0.4143, 0.4095, 0.4059, 0.3961]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:02<00:00,  2.02s/it]Batches: 100%|##########| 1/1 [00:02<00:00,  2.02s/it]
+INFO:whatsapp_sender:SEND_TEXT | to=test-user-001 | chars=229
+INFO:__bot:OUTGOING (LEGACY) | to=test-user-001 | type=text | msg=Q: Does TrooGood offer a product catalogue or brochure? A: Yes — a downloadable product catalogue
+co...
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/session-msg-send "HTTP/1.1 200 OK"
+INFO:__bot:OUTGOING_RESULT | to=test-user-001 | status=200 | ok=False | resp=We sorry, but you`re unable to send message contact_no. Because the user has OPT OUT
+INFO:chiki_webhook:Incoming webhook payload (570 bytes)
+INFO:chiki_webhook:Incoming message from Leeway Softech (919512777899): Catalogue
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:message:Query classified as: faq
+INFO:message:MODULE_PDFS | module=catalogue | found=2 | urls=['https://files.catbox.moe/h2pw4m.pdf', '/uploaded_files/catalogue/Product_Catalogue.pdf']
+INFO:message:MODULE_PDFS | skip duplicate https://files.catbox.moe/h2pw4m.pdf
+INFO:message:DIRECT_PDF | 919512777899 | module=catalogue | msg='Catalogue'
+INFO:chiki_webhook:process_message returned: media_url=None, media_type=None, whatsapp_sent=True
+INFO:chiki_webhook:KB bot already sent interactive reply to 919512777899
+INFO:__bot:API_REQUEST | url=https://api.send2.digital/devdesk/session-msg-send | timeout=120 | payload_preview={'user_name': 'Test!ing', 'password': 'Leeway@2026', 'contact_no': '919512777899', 'message_type': 'document', 'message': 'https://files.catbox.moe/h2pw4m.pdf'}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/session-msg-send "HTTP/1.1 200 OK"
+INFO:__bot:API_RESPONSE | status=200 | body=Your Message ID : 2613fd34-613e-4e7f-9bc7-bc7155fc6a6e , Message Sent Successfully
+INFO:__bot:MEDIA_SENT | to=919512777899 | type=document | url=https://files.catbox.moe/h2pw4m.pdf
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSN0M4MDRCMkIwQjVGNzM0NTQ5AA== status=sent timestamp=1788240376
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSN0M4MDRCMkIwQjVGNzM0NTQ5AA== status=read timestamp=1788240377
+INFO:chiki_webhook:Incoming webhook payload (800 bytes)
+INFO:chiki_webhook:Interactive reply: type=list_reply text=\u2728 New Arrivals
+INFO:chiki_webhook:Incoming message from Leeway Softech (919512777899): \u2728 New Arrivals
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:message:Query classified as: faq
+INFO:message:MODULE_PDFS | module=new_arrival | found=2 | urls=['https://files.catbox.moe/0bqncp.pdf', '/uploaded_files/new_arrival/troogood-new-arrivals.pdf']
+INFO:message:MODULE_PDFS | skip duplicate https://files.catbox.moe/0bqncp.pdf
+INFO:message:DIRECT_PDF | 919512777899 | module=new_arrival | msg='\u2728 New Arrivals'
+INFO:chiki_webhook:process_message returned: media_url=None, media_type=None, whatsapp_sent=True
+INFO:chiki_webhook:KB bot already sent interactive reply to 919512777899
+INFO:__bot:API_REQUEST | url=https://api.send2.digital/devdesk/session-msg-send | timeout=120 | payload_preview={'user_name': 'Test!ing', 'password': 'Leeway@2026', 'contact_no': '919512777899', 'message_type': 'document', 'message': 'https://files.catbox.moe/0bqncp.pdf'}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/session-msg-send "HTTP/1.1 200 OK"
+INFO:__bot:API_RESPONSE | status=200 | body=Your Message ID : b543a25e-18ac-454d-ab62-d09308acd076 , Message Sent Successfully
+INFO:__bot:MEDIA_SENT | to=919512777899 | type=document | url=https://files.catbox.moe/0bqncp.pdf
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSMEFCNUM0Q0VFNzU3QThEREFCAA== status=sent timestamp=1788240440
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSMEFCNUM0Q0VFNzU3QThEREFCAA== status=read timestamp=1788240441
+INFO:chiki_webhook:Incoming webhook payload (563 bytes)
+INFO:chiki_webhook:Incoming message from Leeway Softech (919512777899): Hi
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:message:Query classified as: greeting
+INFO:chiki_webhook:process_message returned: media_url=None, media_type=None, whatsapp_sent=False
+INFO:chiki_webhook:Reply sent to 919512777899 [text], status=200, body=INVALID PARAMETER
+INFO:chiki_webhook:LIST_MENU_REQUEST | to=919512777899 | sections=2 | rows=4
+INFO:httpx:HTTP Request: POST https://api.send2.digital/whatsapp/attachment/list_messages "HTTP/1.1 200 OK"
+INFO:chiki_webhook:LIST_MENU_RESPONSE | to=919512777899 | status=200 | body={"success":true,"response":{"messaging_product":"whatsapp","contacts":[{"input":"919512777899","wa_id":"919512777899"}],"messages":[{"id":"wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSNzc0MEVGNjk2QkMxMjI0ODA1AA=="}]}}
+INFO:chiki_webhook:Interactive list reply sent to 919512777899
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSNzc0MEVGNjk2QkMxMjI0ODA1AA== status=sent timestamp=1788240482
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSNzc0MEVGNjk2QkMxMjI0ODA1AA== status=read timestamp=1788240483
+INFO:     ('103.56.183.188', 0) - "WebSocket /api/admin/chat/ws/admin1?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbjEiLCJpYXQiOjE3ODgyMzkwNDIsImV4cCI6MTc4ODMyNTQ0Mn0.hqQ2yqqYBgq8My6KuPSng8Fu53MbuTKs4FsLny-qNV0&conn_id=chat" [accepted]
+INFO:     connection open
+INFO:chiki_webhook:Admin logged in: admin1
+INFO:     connection closed
+INFO:chiki_webhook:Deleted: terms_condition.txt (faq=24, kb=0)
+INFO:chiki_webhook:Deleted: troogood-new-arrivals.pdf (faq=4, kb=0)
+INFO:chiki_webhook:Deleted: Product_Catalogue.pdf (faq=20, kb=0)
+INFO:chiki_webhook:Deleted: shipping_policy.txt (faq=14, kb=0)
+INFO:chiki_webhook:Deleted: privacy_policy.txt (faq=19, kb=0)
+INFO:chiki_webhook:Deleted: payment_terms.txt (faq=15, kb=0)
+INFO:chiki_webhook:Deleted: moq_creditperiod.txt (faq=20, kb=0)
+INFO:chiki_webhook:Deleted: health_related.txt (faq=10, kb=0)
+INFO:chiki_webhook:Deleted: gst_details.txt (faq=10, kb=0)
+INFO:chiki_webhook:Deleted: general_qa2.txt (faq=43, kb=0)
+INFO:chiki_webhook:Deleted: copmany_policy.txt (faq=14, kb=0)
+INFO:chiki_webhook:Deleted: general_qa.txt (faq=14, kb=0)
+INFO:chiki_webhook:Deleted: cancellation_refund_returnpolicy.txt (faq=23, kb=0)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:01<00:00,  1.82s/it]Batches: 100%|##########| 1/1 [00:01<00:00,  1.82s/it]
+INFO:faq_bot:Computed and saved 20 new embeddings
+INFO:faq_bot:FAQ index built: 45 vectors (dense + sparse)
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches:  50%|#####     | 1/2 [00:04<00:04,  4.46s/it]Batches: 100%|##########| 2/2 [00:05<00:00,  2.33s/it]Batches: 100%|##########| 2/2 [00:05<00:00,  2.65s/it]
+INFO:faq_bot:Computed and saved 43 new embeddings
+INFO:faq_bot:FAQ index built: 88 vectors (dense + sparse)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:01<00:00,  1.58s/it]Batches: 100%|##########| 1/1 [00:01<00:00,  1.58s/it]
+INFO:faq_bot:Computed and saved 14 new embeddings
+INFO:faq_bot:FAQ index built: 102 vectors (dense + sparse)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:01<00:00,  1.50s/it]Batches: 100%|##########| 1/1 [00:01<00:00,  1.50s/it]
+INFO:faq_bot:Computed and saved 10 new embeddings
+INFO:faq_bot:FAQ index built: 112 vectors (dense + sparse)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:02<00:00,  2.09s/it]Batches: 100%|##########| 1/1 [00:02<00:00,  2.09s/it]
+INFO:faq_bot:Computed and saved 23 new embeddings
+INFO:faq_bot:FAQ index built: 135 vectors (dense + sparse)
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches:  50%|#####     | 1/2 [00:02<00:02,  2.75s/it]Batches: 100%|##########| 2/2 [00:04<00:00,  2.03s/it]Batches: 100%|##########| 2/2 [00:04<00:00,  2.14s/it]
+INFO:faq_bot:Computed and saved 52 new embeddings
+INFO:faq_bot:FAQ index built: 187 vectors (dense + sparse)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:03<00:00,  3.58s/it]Batches: 100%|##########| 1/1 [00:03<00:00,  3.58s/it]
+INFO:faq_bot:Computed and saved 30 new embeddings
+INFO:faq_bot:FAQ index built: 217 vectors (dense + sparse)
+Batches:   0%|          | 0/3 [00:00<?, ?it/s]Batches:  33%|###3      | 1/3 [00:03<00:06,  3.26s/it]Batches:  67%|######6   | 2/3 [00:05<00:02,  2.61s/it]Batches: 100%|##########| 3/3 [00:07<00:00,  2.15s/it]Batches: 100%|##########| 3/3 [00:07<00:00,  2.34s/it]
+INFO:faq_bot:Computed and saved 88 new embeddings
+INFO:faq_bot:FAQ index built: 305 vectors (dense + sparse)
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches:  50%|#####     | 1/2 [00:04<00:04,  4.25s/it]Batches: 100%|##########| 2/2 [00:05<00:00,  2.43s/it]Batches: 100%|##########| 2/2 [00:05<00:00,  2.70s/it]
+INFO:faq_bot:Computed and saved 46 new embeddings
+INFO:faq_bot:FAQ index built: 351 vectors (dense + sparse)
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches:  50%|#####     | 1/2 [00:04<00:04,  4.18s/it]Batches: 100%|##########| 2/2 [00:04<00:00,  1.98s/it]Batches: 100%|##########| 2/2 [00:04<00:00,  2.31s/it]
+INFO:faq_bot:Computed and saved 38 new embeddings
+INFO:faq_bot:FAQ index built: 389 vectors (dense + sparse)
+INFO:chiki_webhook:Incoming webhook payload (563 bytes)
+INFO:chiki_webhook:Incoming message from Leeway Softech (919512777899): Hi
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:httpx:HTTP Request: POST https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry "HTTP/1.1 200 OK"
+INFO:company_api:INCOMING_ENTRY | to=919512777899 | status=200 | body={"success":true,"message":"Incoming message saved successfully"}
+INFO:message:Query classified as: greeting
+INFO:chiki_webhook:process_message returned: media_url=None, media_type=None, whatsapp_sent=False
+INFO:chiki_webhook:Reply sent to 919512777899 [text], status=200, body=INVALID PARAMETER
+INFO:chiki_webhook:LIST_MENU_REQUEST | to=919512777899 | sections=2 | rows=4
+INFO:httpx:HTTP Request: POST https://api.send2.digital/whatsapp/attachment/list_messages "HTTP/1.1 200 OK"
+INFO:chiki_webhook:LIST_MENU_RESPONSE | to=919512777899 | status=200 | body={"success":true,"response":{"messaging_product":"whatsapp","contacts":[{"input":"919512777899","wa_id":"919512777899"}],"messages":[{"id":"wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSQkI1REM3QzExQjU0OTRCNjYxAA=="}]}}
+INFO:chiki_webhook:Interactive list reply sent to 919512777899
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSQkI1REM3QzExQjU0OTRCNjYxAA== status=sent timestamp=1788240934
+INFO:chiki_webhook:Incoming webhook payload (608 bytes)
+INFO:chiki_webhook:Status callback: id=wamid.HBgMOTE5NTEyNzc3ODk5FQIAERgSQkI1REM3QzExQjU0OTRCNjYxAA== status=read timestamp=1788240935

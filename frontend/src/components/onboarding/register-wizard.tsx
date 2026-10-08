@@ -12,13 +12,16 @@ import {
   Sparkles,
   Webhook,
 } from 'lucide-react'
-import { applyVertical, draftToSnapshot, emptyDraft, slugify, type WizardDraft } from '@/lib/profile'
+import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, timezoneOptions, type WizardDraft } from '@/lib/profile'
 import { useAction } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
+import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
-import { FEATURE_GROUPS, FEATURE_LABELS, VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
-import type { FeatureFlag } from '@/lib/types'
+import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
+import type { Tenant } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
 import { Input, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -39,69 +42,147 @@ const DAYS = [
   { value: 0, label: 'Sun' },
 ]
 
-const STEPS = [
-  { id: 'company', label: 'Company' },
+/** Dropdown for the working-hours timezone — free text invited typos. */
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Country code (+91…) followed by a 10-digit number, spaces/dashes allowed.
+const normalizePhone = (value: string) => value.replace(/[\s\-()]/g, "")
+
+// Country calling codes. The subscriber part must be exactly 10 digits, so
+// "+91 741852544" (9 digits) is rejected while "+91 98765 43210" passes.
+const COUNTRY_CODES = [
+  '1', '7', '20', '27', '30', '31', '32', '33', '34', '36', '39', '40', '41', '43', '44', '45', '46', '47', '48', '49',
+  '51', '52', '53', '54', '55', '56', '57', '58', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86',
+  '90', '91', '92', '93', '94', '95', '98',
+  '212', '213', '216', '218', '220', '221', '222', '223', '224', '225', '226', '227', '228', '229', '230', '231',
+  '232', '233', '234', '235', '236', '237', '238', '239', '240', '241', '242', '243', '244', '245', '246', '248',
+  '249', '250', '251', '252', '253', '254', '255', '256', '257', '258', '260', '261', '262', '263', '264', '265',
+  '266', '267', '268', '269', '290', '291', '297', '298', '299', '350', '351', '352', '353', '354', '355', '356',
+  '357', '358', '359', '370', '371', '372', '373', '374', '375', '376', '377', '378', '380', '381', '382', '383',
+  '385', '386', '387', '389', '420', '421', '423', '500', '501', '502', '503', '504', '505', '506', '507', '508',
+  '509', '590', '591', '592', '593', '594', '595', '596', '597', '598', '599', '670', '672', '673', '674', '675',
+  '676', '677', '678', '679', '680', '681', '682', '683', '685', '686', '687', '688', '689', '690', '691', '692',
+  '850', '852', '853', '855', '856', '870', '880', '886', '960', '961', '962', '963', '964', '965', '966', '967',
+  '968', '970', '971', '972', '973', '974', '975', '976', '977', '992', '993', '994', '995', '996', '998',
+].sort((a, b) => b.length - a.length)
+
+const isValidPhone = (raw: string) => {
+  const digits = normalizePhone(raw)
+  if (!/^\+\d{9,15}$/.test(digits)) return false
+  const body = digits.slice(1)
+  const cc = COUNTRY_CODES.find((code) => body.startsWith(code))
+  if (!cc) return false
+  return /^\d{10}$/.test(body.slice(cc.length))
+}
+const WABA_ID_RE = /^\d{6,25}$/
+
+// The super admin only registers the company basics; an admin completes the
+// tenant from WhatsApp onwards, and that completion goes for approval.
+const SUPER_STEPS = [{ id: 'company', label: 'Company' }] as const
+
+const ADMIN_STEPS = [
+  { id: 'tenant', label: 'Tenant' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'brand', label: 'Brand & voice' },
-  { id: 'capabilities', label: 'Capabilities' },
   { id: 'domain', label: 'Your business' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'guardrails', label: 'Guardrails' },
   { id: 'review', label: 'Review' },
 ] as const
 
+type StepId = (typeof SUPER_STEPS | typeof ADMIN_STEPS)[number]['id']
+
 export function RegisterWizard() {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<WizardDraft>(emptyDraft)
   const { reload, tenants } = useTenants()
+  const { identity } = useAuth()
   const action = useAction()
   const toast = useToast()
+
+  const isSuperAdmin = identity?.role === 'super_admin'
+  const steps = isSuperAdmin ? SUPER_STEPS : ADMIN_STEPS
+  const stepId = steps[step].id as StepId
 
   const patch = (values: Partial<WizardDraft>) => setDraft((d) => ({ ...d, ...values }))
 
   const tenantIdTaken = tenants.some((t) => t.id === draft.tenantId.trim())
+  const error = useMemo(
+    () => validationError(stepId, draft, tenantIdTaken, Boolean(draft.tenantId.trim())),
+    [stepId, draft, tenantIdTaken],
+  )
 
-  const error = useMemo(() => validationError(step, draft, tenantIdTaken), [step, draft, tenantIdTaken])
+  /** Load the selected tenant's resolved profile into the wizard draft. */
+  const pickTenant = async (tenantId: string) => {
+    const tenant = tenants.find((t) => t.id === tenantId)
+    if (!tenant) return
+    const profile = await action.run(() => tenantsApi.resolved(tenantId))
+    if (profile) {
+      setDraft(draftFromProfile(profile, tenant))
+    } else {
+      // A tenant the resolver cannot build yet still keeps its basics.
+      setDraft({ ...emptyDraft(), companyName: tenant.display_name || tenant.id, tenantId: tenant.id, displayName: tenant.display_name, vertical: tenant.vertical })
+    }
+  }
 
   const submit = async () => {
-    const created = await action.run(() =>
-      tenantsApi.create({
-        tenant_id: draft.tenantId.trim(),
-        slug: draft.tenantId.trim(),
-        vertical: draft.vertical,
-        display_name: draft.displayName || draft.companyName,
-        waba_phone_id: draft.wabaPhoneId.trim(),
-        status: 'active',
-      }),
-    )
-    if (!created) return
+    if (isSuperAdmin) {
+      // The super admin registers the company only. No publish: an admin
+      // completes the tenant, and that completion needs approval.
+      const created = await action.run(() =>
+        tenantsApi.create({
+          tenant_id: draft.tenantId.trim(),
+          slug: draft.tenantId.trim(),
+          vertical: draft.vertical,
+          display_name: draft.displayName || draft.companyName,
+          status: 'active',
+        }),
+      )
+      if (!created) return
 
-    const id = created.tenant.id
-    const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
-    if (!saved) return
+      const id = created.tenant.id
+      const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
+      if (!saved) return
 
-    const published = await action.run(() => tenantsApi.publish(id))
-    if (!published) {
-      toast.push('Draft saved but publishing failed — open the tenant and fix the profile.', 'error')
+      toast.push(`${draft.companyName} registered. An admin can now complete it from WhatsApp onwards.`)
       reload()
-      navigate(`/tenants/${encodeURIComponent(id)}/profile`)
+      navigate(`/tenants/${encodeURIComponent(id)}/overview`)
       return
     }
 
-    toast.push(`${draft.companyName} is live on version ${published.version}`)
+    // Admin: bind the WhatsApp number, save the completed data as the
+    // tenant's draft, then queue the publish for super admin approval.
+    const id = draft.tenantId.trim()
+    if (draft.wabaPhoneId.trim()) {
+      const bound = await action.run(() => tenantsApi.bindPhone(id, draft.wabaPhoneId.trim()))
+      if (!bound) return
+    }
+    const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
+    if (!saved) return
+    if ((saved.validation ?? []).length) {
+      toast.push('Draft has validation warnings — review them before submitting.', 'error')
+      return
+    }
+    const submitted = await action.run(() => tenantApprovalsApi.submitPublish(id))
+    if (!submitted) return
+    toast.push(`${draft.companyName} submitted — a super admin must approve it before it goes live.`)
     reload()
-    navigate(`/tenants/${encodeURIComponent(id)}/overview`)
+    navigate('/tenant-requests')
   }
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Register a tenant"
-        description="Answer these and the console builds the tenant's profile: its menu, intents, flows, vocabulary and guardrails. Nothing here is hardcoded afterwards — publish a new version any time."
+        description={
+          isSuperAdmin
+            ? 'Register the company basics — name, id and business field. An admin then completes the tenant from WhatsApp onwards, and their submission goes for your approval before anything goes live.'
+            : 'Pick a tenant the super admin registered, then complete it from WhatsApp onwards. Your submission goes to a super admin for approval before anything goes live.'
+        }
       />
 
       <ol className="mb-7 flex flex-wrap gap-1.5">
-        {STEPS.map((s, index) => {
+        {steps.map((s, index) => {
           const state = index === step ? 'current' : index < step ? 'done' : 'todo'
           return (
             <li key={s.id} className="flex items-center gap-1.5">
@@ -120,21 +201,28 @@ export function RegisterWizard() {
                 {state === 'done' ? <Check className="h-3 w-3" /> : <span>{index + 1}</span>}
                 {s.label}
               </button>
-              {index < STEPS.length - 1 && <span className="text-slate-600">/</span>}
+              {index < steps.length - 1 && <span className="text-slate-600">/</span>}
             </li>
           )
         })}
       </ol>
 
       <Card>
-        {step === 0 && <CompanyStep draft={draft} patch={patch} />}
-        {step === 1 && <WhatsAppStep draft={draft} patch={patch} />}
-        {step === 2 && <BrandStep draft={draft} patch={patch} />}
-        {step === 3 && <CapabilitiesStep draft={draft} patch={patch} />}
-        {step === 4 && <DomainStep draft={draft} patch={patch} />}
-        {step === 5 && <NotificationsStep draft={draft} patch={patch} />}
-        {step === 6 && <GuardrailsStep draft={draft} patch={patch} />}
-        {step === 7 && <ReviewStep draft={draft} onEdit={setStep} />}
+        {stepId === 'tenant' && <TenantStep draft={draft} tenants={tenants} onPick={pickTenant} />}
+        {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
+        {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
+        {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
+        {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
+        {stepId === 'notifications' && <NotificationsStep draft={draft} patch={patch} />}
+        {stepId === 'guardrails' && <GuardrailsStep draft={draft} patch={patch} />}
+        {stepId === 'review' && (
+          <ReviewStep
+            draft={draft}
+            onEdit={setStep}
+            approvalMode={!isSuperAdmin}
+            companyEditable={isSuperAdmin}
+          />
+        )}
 
         {action.error && (
           <div className="px-5 pb-4">
@@ -154,7 +242,7 @@ export function RegisterWizard() {
             Back
           </Button>
 
-          {step < STEPS.length - 1 ? (
+          {step < steps.length - 1 ? (
             <Button
               variant="primary"
               disabled={Boolean(error)}
@@ -170,16 +258,16 @@ export function RegisterWizard() {
               onClick={submit}
               icon={<Rocket className="h-4 w-4" />}
             >
-              Create and publish
+              {isSuperAdmin ? 'Create tenant' : 'Submit for approval'}
             </Button>
           )}
         </div>
       </Card>
 
-      {error && step < STEPS.length - 1 && (
+      {error && step < steps.length - 1 && (
         <p className="mt-3 text-xs text-amber-700/80">{error}</p>
       )}
-      {tenantIdTaken && step === 0 && (
+      {isSuperAdmin && tenantIdTaken && stepId === 'company' && (
         <Alert tone="warning" className="mt-4">
           A tenant with this id already exists. Pick another id, or cancel and edit the existing tenant instead.
         </Alert>
@@ -189,6 +277,66 @@ export function RegisterWizard() {
 }
 
 // ── steps ──────────────────────────────────────────────────────────────────
+
+/**
+ * Admin-only first step: pick one of the tenants the super admin registered.
+ * The company basics were entered by the super admin and are read-only here.
+ */
+function TenantStep({
+  draft,
+  tenants,
+  onPick,
+}: {
+  draft: WizardDraft
+  tenants: Tenant[]
+  onPick: (tenantId: string) => void
+}) {
+  return (
+    <StepShell
+      title="Which tenant are you completing?"
+      description="The super admin registered the company basics. Pick the tenant, then complete it from WhatsApp onwards — your data goes to a super admin for approval."
+      icon={<Building2 className="h-4 w-4" />}
+    >
+      <div className="space-y-2.5">
+        {tenants.length === 0 && (
+          <p className="text-sm text-slate-400">
+            No tenants yet. A super admin registers the company first from this same panel.
+          </p>
+        )}
+        {tenants.map((tenant) => {
+          const vertical = getVertical(tenant.vertical)
+          const active = draft.tenantId === tenant.id
+          return (
+            <button
+              key={tenant.id}
+              type="button"
+              onClick={() => onPick(tenant.id)}
+              className={`flex w-full items-center gap-3 rounded-lg p-3.5 text-left ring-1 ring-inset transition ${
+                active ? 'bg-accent-100 ring-accent-400' : 'bg-surface-panel ring-surface-line hover:bg-accent-50'
+              }`}
+            >
+              <VerticalGlyph
+                name={vertical.icon}
+                className={`h-5 w-5 shrink-0 ${active ? 'text-accent-700' : 'text-slate-500'}`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-slate-100">
+                  {tenant.display_name || tenant.id}
+                </span>
+                <span className="mt-0.5 block font-mono text-xs text-slate-500">
+                  {tenant.id} · {vertical.short}
+                </span>
+              </span>
+              <Badge tone={tenant.current_version ? 'success' : 'warning'}>
+                {tenant.current_version ? `live v${tenant.current_version}` : 'awaiting completion'}
+              </Badge>
+            </button>
+          )
+        })}
+      </div>
+    </StepShell>
+  )
+}
 
 function StepShell({
   title,
@@ -295,20 +443,28 @@ function WhatsAppStep({ draft, patch }: StepProps) {
       icon={<CalendarClock className="h-4 w-4" />}
     >
       <Input
-        label="WhatsApp phone number id"
+        label="WhatsApp phone number id *"
         value={draft.wabaPhoneId}
         onChange={(e) => patch({ wabaPhoneId: e.target.value })}
         placeholder="100012345678901"
-        hint="From the Meta Business account (WABA). Leave blank and bind it later — each number can only belong to one tenant."
+        inputMode="numeric"
+        hint="Digits only, from the Meta Business account (WABA). Each number belongs to exactly one tenant."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Input
-          label="Timezone"
+        <Select
+          label="Timezone *"
           value={draft.timezone}
           onChange={(e) => patch({ timezone: e.target.value })}
-          placeholder="Asia/Kolkata"
-        />
+          hint="Used by out-of-hours and callback logic."
+        >
+          <option value="">Select…</option>
+          {timezoneOptions(draft.timezone).map((tz) => (
+            <option key={tz} value={tz}>
+              {tz}
+            </option>
+          ))}
+        </Select>
         <Input
           label="Opens"
           type="time"
@@ -377,7 +533,7 @@ function BrandStep({ draft, patch }: StepProps) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Bot name"
+        label="Bot name *"
           value={draft.botName}
           onChange={(e) => patch({ botName: e.target.value })}
           placeholder="Asha"
@@ -408,17 +564,19 @@ function BrandStep({ draft, patch }: StepProps) {
           placeholder="— Team Leeway"
         />
         <Input
-          label="Support email"
+          label="Support email *"
           type="email"
           value={draft.supportEmail}
           onChange={(e) => patch({ supportEmail: e.target.value })}
           placeholder="support@example.com"
         />
         <Input
-          label="Support phone"
+          label="Support phone *"
           value={draft.supportPhone}
           onChange={(e) => patch({ supportPhone: e.target.value })}
           placeholder="+91 98765 43210"
+          inputMode="tel"
+          hint="Country code followed by a 10-digit number, e.g. +91 98765 43210."
         />
       </div>
 
@@ -434,59 +592,6 @@ function BrandStep({ draft, patch }: StepProps) {
         The bot will call your offerings <strong>{v.nouns.item}</strong> and your enquiries{' '}
         <strong>{v.nouns.lead}</strong>. You can override every one of these later in the profile editor.
       </Alert>
-    </StepShell>
-  )
-}
-
-function CapabilitiesStep({ draft, patch }: StepProps) {
-  const v = getVertical(draft.vertical)
-  const on = new Set(draft.features)
-  const toggle = (flag: FeatureFlag, next: boolean) =>
-    patch({
-      features: next ? [...draft.features, flag] : draft.features.filter((f) => f !== flag),
-    })
-
-  return (
-    <StepShell
-      title="What should the bot be able to do?"
-      description={`Pre-selected for ${v.short}. Switch off anything you do not want — menus, intents and services all follow these flags.`}
-      icon={<Sparkles className="h-4 w-4" />}
-    >
-      <div className="rounded-lg bg-accent-50 p-4 ring-1 ring-inset ring-accent-200">
-        <p className="text-xs font-medium text-accent-700">With these capabilities your bot will:</p>
-        <ul className="mt-2 space-y-1.5">
-          {v.capabilities.map((line) => (
-            <li key={line} className="flex gap-2 text-xs leading-relaxed text-slate-300">
-              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              {line}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="space-y-5">
-        {FEATURE_GROUPS.filter((g) => !v.hiddenGroups.includes(g.id)).map((group) => (
-          <div key={group.id}>
-            <SectionTitle hint={group.description}>{group.label}</SectionTitle>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {group.flags.map((flag) => {
-                const meta = FEATURE_LABELS[flag]
-                return (
-                  <div key={flag} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
-                    <Switch
-                      checked={on.has(flag)}
-                      onChange={(next) => toggle(flag, next)}
-                      label={meta.label}
-                      description={meta.help}
-                      size="sm"
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
     </StepShell>
   )
 }
@@ -560,10 +665,6 @@ function DomainStep({ draft, patch }: StepProps) {
 }
 
 function NotificationsStep({ draft, patch }: StepProps) {
-  const channels = draft.channels
-  const setChannel = (index: number, values: Partial<WizardDraft['channels'][number]>) =>
-    patch({ channels: channels.map((c, i) => (i === index ? { ...c, ...values } : c)) })
-
   return (
     <StepShell
       title="Where do enquiries go?"
@@ -572,7 +673,7 @@ function NotificationsStep({ draft, patch }: StepProps) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Sales / enquiries email"
+          label="Sales / enquiries email *"
           type="email"
           value={draft.salesEmail}
           onChange={(e) => patch({ salesEmail: e.target.value })}
@@ -586,55 +687,8 @@ function NotificationsStep({ draft, patch }: StepProps) {
           placeholder="support@example.com"
         />
       </div>
-      <Input
-        label="Brochure URL"
-        value={draft.brochureUrl}
-        onChange={(e) => patch({ brochureUrl: e.target.value })}
-        placeholder="https://example.com/brochure.pdf"
-        hint="Sent when a customer asks for the brochure. Leave blank to disable it."
-      />
 
-      <div>
-        <SectionTitle hint="Webhooks are signed with X-Signature-256 — the tenant's HMAC secret.">
-          Extra channels
-        </SectionTitle>
-        <div className="space-y-2.5">
-          {channels.map((channel, index) => (
-            <div key={index} className="grid items-end gap-2.5 rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line sm:grid-cols-[130px_1fr_1fr_auto]">
-              <Select
-                label="Type"
-                value={channel.type}
-                onChange={(e) => setChannel(index, { type: e.target.value as 'email' | 'webhook' })}
-              >
-                <option value="email">Email</option>
-                <option value="webhook">Webhook</option>
-              </Select>
-              <Input
-                label="Destination"
-                value={channel.to}
-                onChange={(e) => setChannel(index, { to: e.target.value })}
-                placeholder={channel.type === 'email' ? 'team@example.com' : 'https://crm.example.com/hook'}
-              />
-              <Input
-                label="Label"
-                value={channel.label}
-                onChange={(e) => setChannel(index, { label: e.target.value })}
-                placeholder="CRM"
-              />
-              <Button variant="ghost" size="sm" onClick={() => patch({ channels: channels.filter((_, i) => i !== index) })}>
-                Remove
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => patch({ channels: [...channels, { type: 'webhook', to: '', label: '' }] })}
-          >
-            Add channel
-          </Button>
-        </div>
-      </div>
+
     </StepShell>
   )
 }
@@ -693,9 +747,18 @@ function GuardrailsStep({ draft, patch }: StepProps) {
   )
 }
 
-function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: number) => void }) {
+function ReviewStep({
+  draft,
+  onEdit,
+  approvalMode,
+  companyEditable,
+}: {
+  draft: WizardDraft
+  onEdit: (step: number) => void
+  approvalMode: boolean
+  companyEditable: boolean
+}) {
   const v = getVertical(draft.vertical)
-  const on = new Set(draft.features)
   const answers = Object.entries(draft.answers).filter(([, value]) =>
     Array.isArray(value) ? value.length : Boolean(value),
   )
@@ -718,21 +781,6 @@ function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: numb
     { label: 'Support', value: [draft.supportEmail, draft.supportPhone].filter(Boolean).join(' · ') || '—', step: 2 },
     { label: 'Calls it', value: v.nouns.item, step: 2 },
     {
-      label: 'Capabilities',
-      value: (
-        <span className="flex flex-wrap gap-1.5">
-          {FEATURE_GROUPS.flatMap((g) => g.flags)
-            .filter((f) => on.has(f))
-            .map((f) => (
-              <span key={f} className="rounded bg-surface-panel px-1.5 py-0.5 text-xs text-slate-300">
-                {FEATURE_LABELS[f].label}
-              </span>
-            ))}
-        </span>
-      ),
-      step: 3,
-    },
-    {
       label: 'Business answers',
       value: answers.length ? (
         <ul className="space-y-1">
@@ -746,26 +794,30 @@ function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: numb
       ) : (
         '—'
       ),
-      step: 4,
+      step: 3,
     },
     {
       label: 'Notifications',
       value:
-        [draft.salesEmail, draft.notificationsSupportEmail, draft.brochureUrl].filter(Boolean).join(' · ') ||
+        [draft.salesEmail, draft.notificationsSupportEmail].filter(Boolean).join(' · ') ||
         'none configured',
-      step: 5,
+      step: 4,
     },
     {
       label: 'Never state',
       value: draft.neverState ? draft.neverState.split('\n').filter(Boolean).length + ' rule(s)' : '—',
-      step: 6,
+      step: 5,
     },
   ]
 
   return (
     <StepShell
-      title="Review and publish"
-      description="Creating the tenant registers it, saves this as the draft, then publishes version 1. If validation fails, nothing is published and you can fix it in the profile editor."
+      title={approvalMode ? 'Review and submit' : 'Review and publish'}
+      description={
+        approvalMode
+          ? 'Submitting sends everything you added to a super admin for approval. The company basics were set by the super admin and stay read-only. Nothing goes live until they accept it.'
+          : 'Creating the tenant registers it, saves this as the draft, then publishes version 1. If validation fails, nothing is published and you can fix it in the profile editor.'
+      }
       icon={<BadgeCheck className="h-4 w-4" />}
     >
       <div className="divide-y divide-surface-line rounded-lg ring-1 ring-inset ring-surface-line">
@@ -775,20 +827,22 @@ function ReviewStep({ draft, onEdit }: { draft: WizardDraft; onEdit: (step: numb
             <span className="min-w-0 flex-1 text-xs text-slate-200">
               {typeof row.value === 'string' ? row.value : row.value}
             </span>
-            <button
-              type="button"
-              onClick={() => onEdit(row.step)}
-              className="shrink-0 text-xs text-accent-700 hover:text-accent-700"
-            >
-              Edit
-            </button>
+            {(companyEditable || row.step > 0) && (
+              <button
+                type="button"
+                onClick={() => onEdit(row.step)}
+                className="shrink-0 text-xs text-accent-700 hover:text-accent-700"
+              >
+                Edit
+              </button>
+            )}
           </div>
         ))}
       </div>
 
-      <Alert tone="info" title="What publishing does">
-        The snapshot is merged over the {v.short} defaults, validated, stored as an immutable version, and the
-        runtime cache is purged — so the next message is answered by the profile above.
+      <Alert tone="info" title="What approval does">
+        On approval the snapshot is merged over the {v.short} defaults, validated, stored as an immutable
+        version, and the runtime cache is purged — so the next message is answered by the profile above.
       </Alert>
     </StepShell>
   )
@@ -807,32 +861,54 @@ function answerValue(draft: WizardDraft, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-function validationError(step: number, draft: WizardDraft, idTaken: boolean): string | null {
-  switch (step) {
-    case 0:
+function validationError(
+  stepId: StepId,
+  draft: WizardDraft,
+  idTaken: boolean,
+  tenantSelected: boolean,
+): string | null {
+  switch (stepId) {
+    case 'company':
       if (!draft.companyName.trim()) return 'A company name is required.'
       if (!draft.tenantId.trim()) return 'A tenant id is required.'
       if (idTaken) return 'That tenant id is already registered.'
       return null
-    case 1:
+    case 'tenant':
+      if (!tenantSelected) return 'Pick the tenant you are completing.'
+      return null
+    case 'whatsapp': {
+      if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number id is required.'
+      if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()))
+        return 'The WhatsApp phone number id must contain digits only.'
+      if (!draft.timezone.trim()) return 'Select a timezone.'
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null
-    case 2:
-      if (!draft.botName.trim() && !draft.companyName.trim())
-        return 'Give the bot a name or a company name.'
+    }
+    case 'brand': {
+      if (!draft.botName.trim()) return 'Give the bot a name.'
+      if (!draft.supportEmail.trim()) return 'A support email is required.'
+      if (!EMAIL_RE.test(draft.supportEmail.trim()))
+        return 'The support email does not look valid.'
+      if (!draft.supportPhone.trim()) return 'A support phone number is required.'
+      if (!isValidPhone(draft.supportPhone))
+        return 'The support phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210.'
       return null
-    case 4: {
+    }
+    case 'domain': {
       const v = getVertical(draft.vertical)
       const missing = v.questions.filter((q) => q.required && !answerValue(draft, q.key))
       if (missing.length) return `Still needed: ${missing.map((q) => q.label).join(', ')}.`
       return null
     }
-    case 5: {
-      const bad = draft.channels.find((c) => c.to.trim() && !c.to.includes('@') && !c.to.startsWith('http'))
-      if (bad) return `Channel destination looks wrong: ${bad.to}`
+    case 'notifications': {
+      if (!draft.salesEmail.trim()) return 'A sales / enquiries email is required — leads need a destination.'
+      if (!EMAIL_RE.test(draft.salesEmail.trim()))
+        return 'The sales / enquiries email does not look valid.'
+      if (draft.notificationsSupportEmail.trim() && !EMAIL_RE.test(draft.notificationsSupportEmail.trim()))
+        return 'The notifications support email does not look valid.'
       return null
     }
-    case 6:
+    case 'guardrails':
       if (draft.forbiddenTerms.some((t) => draft.neverState.toLowerCase().includes(t.toLowerCase())))
         return 'A forbidden term also appears in your "never state" list.'
       return null
