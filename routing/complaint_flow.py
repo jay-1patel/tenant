@@ -242,7 +242,6 @@ def handle_complaint_state(wa_id: str, user_text: str) -> bool:
         _send(wa_id, reply)
         logger.info(f"COMPLAINT_SUBMITTED | {wa_id} | ticket={ticket_id} | type={context.get('complaint_type')}")
         return True
-
     return False
 
 

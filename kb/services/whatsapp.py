@@ -212,8 +212,8 @@ async def send_text_message(contact_no: str, text: str) -> bool:
         logger.warning("Empty text message, skipping send")
         return False
 
-    # Normalize formatting + append signature
-    text = format_for_whatsapp(text)
+    # Normalize formatting + append the tenant's signature
+    text = format_for_whatsapp(text, contact_no)
 
     # FIX: Build payload with credentials included
     payload = {
@@ -317,8 +317,8 @@ async def send_button_message(
         logger.warning(f"Too many buttons ({len(buttons)}), limiting to 3")
         buttons = buttons[:3]
 
-    # Normalize formatting + append signature to the button message body
-    body_text = format_for_whatsapp(body_text)
+    # Normalize formatting + append the tenant's signature to the button message body
+    body_text = format_for_whatsapp(body_text, contact_no)
 
     # Primary path: session-msg-send Cloud interactive API — ONE call carrying
     # optional media header + body + footer + buttons together.
@@ -471,8 +471,8 @@ async def send_list_menu(
         logger.warning("No sections provided, cannot send list menu")
         return False
 
-    # Normalize formatting + append signature to the menu body text
-    body_text = format_for_whatsapp(body_text)
+    # Normalize formatting + append the tenant's signature to the menu body text
+    body_text = format_for_whatsapp(body_text, contact_no)
 
     # FIX: Transform sections structure to match OFFICIAL send2.digital API format
     # Based on official docs: sections use "title" and rows use "id", "title", "description"
@@ -623,14 +623,40 @@ async def send_quick_button_message(
 # UTILITY FUNCTIONS
 # ============================================
 
-def append_signature(text: str) -> str:
-    """Append the business signature to a message unless already present."""
-    if not SIGNATURE:
+def _tenant_signature(wa_id: str = "") -> str:
+    """The closing signature of the tenant that owns this conversation.
+
+    Resolved from the tenant's profile (the per-tenant data layer), keyed by
+    the recipient's WhatsApp number. The legacy env SIGNATURE is only a
+    fallback for deployments with no profile layer at all; when a profile
+    exists its value wins, including an empty one.
+    """
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        root = str(_Path(__file__).resolve().parents[2])
+        if root not in _sys.path:
+            _sys.path.insert(0, root)
+
+        from shared.tenancy import loader
+        from shared.tenancy.resolver import resolve_tenant_for_user
+
+        profile = loader.get_tenant_profile(resolve_tenant_for_user(wa_id))
+        return profile.brand.signature
+    except Exception:  # defensive: sending must never fail over branding
+        return SIGNATURE or ""
+
+
+def append_signature(text: str, wa_id: str = "") -> str:
+    """Append the owning tenant's signature to a message unless already present."""
+    signature = _tenant_signature(wa_id)
+    if not signature:
         return text or ""
     text = text or ""
-    if SIGNATURE in text:
+    if signature in text:
         return text
-    return text.rstrip() + f"\n\n--- 🌿 {SIGNATURE}"
+    return text.rstrip() + f"\n\n--- {signature}"
 
 
 def normalize_whatsapp_formatting(text: str) -> str:
@@ -652,12 +678,12 @@ def normalize_whatsapp_formatting(text: str) -> str:
     return text
 
 
-def format_for_whatsapp(text: str) -> str:
-    """Apply formatting normalization + signature to a message body."""
+def format_for_whatsapp(text: str, wa_id: str = "") -> str:
+    """Apply formatting normalization + the tenant's signature to a message body."""
     if not text:
         return ""
     text = normalize_whatsapp_formatting(text)
-    return append_signature(text)
+    return append_signature(text, wa_id)
 
 
 def _send2_response_ok(resp) -> bool:
@@ -907,7 +933,7 @@ def send_whatsapp_message(to, text, message_type="text"):
     if is_running:
         # If we're in an async context, we can't use run_until_complete
         # Fall back to sync implementation
-        text = format_for_whatsapp(text)
+        text = format_for_whatsapp(text, to)
         payload = {
             "user_name": SEND2_USERNAME,
             "password": SEND2_PASSWORD,
@@ -1398,7 +1424,7 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     import re
 
     # New button-based menu IDs
-    if selected_id in ("menu_catalogue", "menu_catalog"):
+    if selected_id in ("menu_catalogue", "menu_catalog", "menu_brochure"):
         return send_catalogue_pdf(wa_id)
     if selected_id == "menu_browse":
         return send_products_by_category(wa_id)

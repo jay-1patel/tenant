@@ -280,10 +280,19 @@ function DistributorForm({
     setForm((f) => ({ ...f, [key]: value }))
 
   const waIdMissing = touched && !initial && !form.wa_id.trim()
+  const nameMissing = touched && !form.name.trim()
+  const phoneMissing = touched && !form.phone.trim()
+  const regionMissing = touched && !form.region.trim()
+
+  const phoneValid = !form.phone.trim() || /^\+?\d{10,15}$/.test(form.phone.trim().replace(/\s+/g, ''))
 
   const submit = () => {
     setTouched(true)
     if (!initial && !form.wa_id.trim()) return
+    if (!form.name.trim()) return
+    if (!form.phone.trim()) return
+    if (!form.region.trim()) return
+    if (!phoneValid) return
     onSubmit({
       wa_id: form.wa_id.trim(),
       name: form.name.trim(),
@@ -318,10 +327,10 @@ function DistributorForm({
             disabled={Boolean(initial)}
             hint={initial ? 'The ID a distributor is keyed by — it cannot change.' : undefined}
           />
-          <Input label="Name" value={form.name} onChange={(e) => set('name', e.target.value)} />
-          <Input label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+          <Input label="Name" value={form.name} error={nameMissing ? 'Name is required' : undefined} onChange={(e) => set('name', e.target.value)} />
+          <Input label="Phone" value={form.phone} error={phoneMissing ? 'Phone number is required' : (!phoneValid ? 'Phone must be 10-15 digits (with optional +)' : undefined)} onChange={(e) => set('phone', e.target.value)} />
           <Input label="Email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-          <Input label="Region" value={form.region} onChange={(e) => set('region', e.target.value)} />
+          <Input label="Region" value={form.region} error={regionMissing ? 'Region is required' : undefined} onChange={(e) => set('region', e.target.value)} />
           <Select label="Tier" value={form.tier} onChange={(e) => set('tier', e.target.value)}>
             {DISTRIBUTOR_TIERS.map((t) => (
               <option key={t} value={t}>

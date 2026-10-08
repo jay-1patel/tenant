@@ -28,20 +28,58 @@ const CAMPAIGN_STATUSES = ['draft', 'scheduled', 'sent', 'cancelled']
 interface CampaignFormShape {
   name: string
   status: string
+  campaign_type: string
+  whatsapp_template: string
+  audience_type: string
+  template_variables: string
   message_template: string
   schedule_mode: string
-  scheduled_at: string
+  scheduled_date: string
+  scheduled_time: string
   timezone: string
+  media_filename: string
+  cta_button_text: string
+  cta_button_url: string
 }
 
 function toShape(campaign?: Campaign | null): CampaignFormShape {
+  let templateVars = ''
+  try {
+    if (campaign?.template_variables && Object.keys(campaign.template_variables).length > 0) {
+      templateVars = JSON.stringify(campaign.template_variables, null, 2)
+    }
+  } catch {
+    templateVars = ''
+  }
+
+  let scheduledDate = ''
+  let scheduledTime = ''
+  if (campaign?.scheduled_at) {
+    const dt = new Date(campaign.scheduled_at)
+    if (!Number.isNaN(dt.getTime())) {
+      const year = dt.getFullYear()
+      const month = String(dt.getMonth() + 1).padStart(2, '0')
+      const day = String(dt.getDate()).padStart(2, '0')
+      scheduledDate = `${year}-${month}-${day}`
+      scheduledTime = dt.toTimeString().slice(0, 5)
+    }
+  }
+
   return {
     name: campaign?.name ?? '',
     status: campaign?.status ?? 'draft',
+    campaign_type: campaign?.template_type ?? '',
+    whatsapp_template: campaign?.template_type ?? '',
+    audience_type: campaign?.audience_type ?? 'all',
+    template_variables: templateVars,
     message_template: campaign?.message_template ?? '',
     schedule_mode: campaign?.schedule_mode ?? 'now',
-    scheduled_at: campaign?.scheduled_at ?? '',
+    scheduled_date: scheduledDate,
+    scheduled_time: scheduledTime,
     timezone: campaign?.timezone ?? 'Asia/Kolkata',
+    media_filename: campaign?.media_filename ?? '',
+    cta_button_text: '',
+    cta_button_url: '',
   }
 }
 
@@ -258,20 +296,90 @@ function CampaignForm({
     setForm((f) => ({ ...f, [key]: value }))
 
   const nameMissing = touched && !form.name.trim()
-  const whenMissing = touched && form.schedule_mode === 'scheduled' && !form.scheduled_at.trim()
+  const campaignTypeMissing = touched && !form.campaign_type.trim()
+  const whatsappTemplateMissing = touched && !form.whatsapp_template.trim()
+  const audienceMissing = touched && !form.audience_type.trim()
+  const messageMissing = touched && !form.message_template.trim()
+  const scheduleDateMissing = touched && form.schedule_mode === 'scheduled' && !form.scheduled_date.trim()
+  const scheduleTimeMissing = touched && form.schedule_mode === 'scheduled' && !form.scheduled_time.trim()
+  
+  let templateVarsValid = true
+  let templateVarsError = ''
+  if (touched && form.template_variables.trim()) {
+    try {
+      const parsed = JSON.parse(form.template_variables)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
+        templateVarsValid = false
+        templateVarsError = 'Template variables must be a non-empty object (e.g. {"name":"value"})'
+      }
+    } catch {
+      templateVarsValid = false
+      templateVarsError = 'Template variables must be valid JSON'
+    }
+  } else if (touched && !form.template_variables.trim()) {
+    templateVarsValid = false
+    templateVarsError = 'Template variables are required'
+  }
+
+  let ctaValid = true
+  let ctaError = ''
+  if (form.cta_button_text.trim() || form.cta_button_url.trim()) {
+    if (!form.cta_button_text.trim() || !form.cta_button_url.trim()) {
+      ctaValid = false
+      ctaError = 'Both CTA text and URL are required'
+    } else if (!/^https?:\/\//i.test(form.cta_button_url.trim())) {
+      ctaValid = false
+      ctaError = 'CTA URL must be valid (http/https)'
+    }
+  }
 
   const submit = () => {
     setTouched(true)
     if (!form.name.trim()) return
-    if (form.schedule_mode === 'scheduled' && !form.scheduled_at.trim()) return
+    if (!form.campaign_type.trim()) return
+    if (!form.whatsapp_template.trim()) return
+    if (!form.audience_type.trim()) return
+    if (!form.message_template.trim()) return
+    if (!templateVarsValid) return
+    if (form.schedule_mode === 'scheduled' && (!form.scheduled_date.trim() || !form.scheduled_time.trim())) return
+    if (!ctaValid) return
+
+    let scheduledAt: string | null = null
+    if (form.schedule_mode === 'scheduled' && form.scheduled_date && form.scheduled_time) {
+      scheduledAt = `${form.scheduled_date}T${form.scheduled_time}:00`
+    }
+
+    let templateVariablesParsed: Record<string, unknown> = {}
+    if (form.template_variables.trim()) {
+      try {
+        templateVariablesParsed = JSON.parse(form.template_variables)
+      } catch {
+        templateVariablesParsed = {}
+      }
+    }
+
+    const buttons: unknown[] = []
+    if (form.cta_button_text.trim() && form.cta_button_url.trim()) {
+      buttons.push({
+        type: 'url',
+        text: form.cta_button_text.trim(),
+        url: form.cta_button_url.trim(),
+      })
+    }
+
     onSubmit({
       name: form.name.trim(),
-      status: form.status,
+      status: initial ? form.status : 'draft',
       message_template: form.message_template.trim(),
       schedule_mode: form.schedule_mode,
-      scheduled_at: form.schedule_mode === 'scheduled' ? form.scheduled_at.trim() : null,
+      scheduled_at: scheduledAt,
       timezone: form.timezone.trim() || 'Asia/Kolkata',
-    })
+      audience_type: form.audience_type,
+      template_type: form.whatsapp_template.trim() || form.campaign_type.trim(),
+      template_variables: templateVariablesParsed,
+      media_filename: form.media_filename.trim() || null,
+      buttons,
+    } as any)
   }
 
   return (
@@ -283,40 +391,86 @@ function CampaignForm({
       <CardBody className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
-            label="Name"
+            label="Campaign Name *"
             value={form.name}
-            error={nameMissing ? 'A name is required' : undefined}
+            error={nameMissing ? 'Campaign name is required' : undefined}
             onChange={(e) => set('name', e.target.value)}
             placeholder="Diwali restock offer"
           />
-          <Select label="Status" value={form.status} onChange={(e) => set('status', e.target.value)}>
-            {CAMPAIGN_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
+          <Input
+            label="Campaign Type *"
+            value={form.campaign_type}
+            error={campaignTypeMissing ? 'Campaign type is required' : undefined}
+            onChange={(e) => set('campaign_type', e.target.value)}
+            placeholder="promotional / transactional"
+          />
+          <Input
+            label="WhatsApp Template *"
+            value={form.whatsapp_template}
+            error={whatsappTemplateMissing ? 'WhatsApp template is required' : undefined}
+            onChange={(e) => set('whatsapp_template', e.target.value)}
+            placeholder="template_name"
+          />
+          <Select
+            label="Audience *"
+            value={form.audience_type}
+            error={audienceMissing ? 'Audience is required' : undefined}
+            onChange={(e) => set('audience_type', e.target.value)}
+          >
+            <option value="">Select audience</option>
+            <option value="all">All</option>
+            <option value="distributors">Distributors</option>
+            <option value="customers">Customers</option>
+            <option value="segment">Segment</option>
           </Select>
+          {initial && (
+            <Select label="Status (auto-managed)" value={form.status} onChange={(e) => set('status', e.target.value)}>
+              <option value="draft">draft</option>
+              <option value="scheduled">scheduled</option>
+              <option value="sent">sent</option>
+              <option value="cancelled">cancelled</option>
+            </Select>
+          )}
         </div>
 
         <Textarea
-          label="Message"
+          label="Message/Template Variables *"
+          rows={4}
+          value={form.template_variables}
+          error={!templateVarsValid ? templateVarsError : undefined}
+          onChange={(e) => set('template_variables', e.target.value)}
+          hint="Enter template variables as JSON object (e.g. {&quot;name&quot;: &quot;{name}&quot;})"
+          placeholder='{"name": "John"}'
+        />
+
+        <Textarea
+          label="Message *"
           rows={4}
           value={form.message_template}
+          error={messageMissing ? 'Message is required' : undefined}
           onChange={(e) => set('message_template', e.target.value)}
           hint="Sent as-is. Use *bold* WhatsApp formatting; variables like {name} resolve at send time."
         />
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Select label="Send" value={form.schedule_mode} onChange={(e) => set('schedule_mode', e.target.value)}>
-            <option value="now">Immediately</option>
+        <div className="grid gap-4 sm:grid-cols-4">
+          <Select label="Schedule Mode" value={form.schedule_mode} onChange={(e) => set('schedule_mode', e.target.value)}>
+            <option value="now">Now</option>
             <option value="scheduled">Scheduled</option>
           </Select>
           <Input
-            label="Send at"
-            value={form.scheduled_at}
-            error={whenMissing ? 'Pick a date and time' : undefined}
-            onChange={(e) => set('scheduled_at', e.target.value)}
-            placeholder="2026-10-05 18:00:00"
+            label="Schedule Date *"
+            type="date"
+            value={form.scheduled_date}
+            error={scheduleDateMissing ? 'Schedule date is required' : undefined}
+            onChange={(e) => set('scheduled_date', e.target.value)}
+            disabled={form.schedule_mode !== 'scheduled'}
+          />
+          <Input
+            label="Schedule Time *"
+            type="time"
+            value={form.scheduled_time}
+            error={scheduleTimeMissing ? 'Schedule time is required' : undefined}
+            onChange={(e) => set('scheduled_time', e.target.value)}
             disabled={form.schedule_mode !== 'scheduled'}
           />
           <Input
@@ -324,6 +478,32 @@ function CampaignForm({
             value={form.timezone}
             onChange={(e) => set('timezone', e.target.value)}
             placeholder="Asia/Kolkata"
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Media (optional)"
+            value={form.media_filename}
+            onChange={(e) => set('media_filename', e.target.value)}
+            placeholder="image.jpg or video.mp4"
+            hint="Media file name/path if attached"
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="CTA Button Text (optional)"
+            value={form.cta_button_text}
+            onChange={(e) => set('cta_button_text', e.target.value)}
+            placeholder="Shop Now"
+          />
+          <Input
+            label="CTA Button URL (optional)"
+            value={form.cta_button_url}
+            error={!ctaValid ? ctaError : undefined}
+            onChange={(e) => set('cta_button_url', e.target.value)}
+            placeholder="https://example.com"
           />
         </div>
 

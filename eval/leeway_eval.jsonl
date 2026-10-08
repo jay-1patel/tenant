@@ -15,9 +15,9 @@
 {"utterance": "can I see a demo", "expected": "demo_request", "expect_flow": "get_quote"}
 {"utterance": "book a demo call", "expected": "demo_request", "expect_flow": "get_quote"}
 {"utterance": "can you show me a live demo of your platform", "expected": "demo_request", "expect_flow": "get_quote"}
-{"utterance": "show me your portfolio", "expected": "portfolio"}
-{"utterance": "who have you built for", "expected": "portfolio"}
-{"utterance": "do you have case studies", "expected": "portfolio"}
+{"utterance": "show me your portfolio", "expected": "projects"}
+{"utterance": "who have you built for", "expected": "projects"}
+{"utterance": "do you have case studies", "expected": "projects"}
 {"utterance": "how do you work with clients", "expected": "engagement_model"}
 {"utterance": "what are your engagement models", "expected": "engagement_model"}
 {"utterance": "what is your development process", "expected": "engagement_model"}

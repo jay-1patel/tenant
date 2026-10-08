@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Layers, Package, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
+import { contentWritePerms } from '@/lib/permissions'
 import { offeringsApi, useOfferings } from '@/lib/offerings'
 import { useTenants } from '@/lib/tenants'
 import { getVertical } from '@/lib/verticals'
@@ -32,7 +33,12 @@ export function OfferingsPanel({ tenantId }: { tenantId: string }) {
 
   const content = getVertical(active?.vertical).content
   const canRead = can('view_products')
-  const canEdit = can('edit_delete_products')
+  // Add/edit/remove are granted separately per vertical — see contentWritePerms.
+  const { add: addPerms, edit: editPerms, remove: removePerms } = contentWritePerms(active?.vertical)
+  const canAdd = addPerms.some(can)
+  const canEditRow = editPerms.some(can)
+  const canRemove = removePerms.some(can)
+  const canEdit = canAdd || canEditRow || canRemove
 
   const [showInactive, setShowInactive] = useState(false)
   const { offerings, loading, error, reload } = useOfferings(tenantId, showInactive)
@@ -77,7 +83,7 @@ export function OfferingsPanel({ tenantId }: { tenantId: string }) {
         title={content.label}
         description={`Add, edit and delete what ${active?.display_name || 'this tenant'} offers. The bot answers from these — a ${content.singular} listed here is one the bot can describe, price and quote.`}
         actions={
-          canEdit ? (
+          canAdd ? (
             <Button
               variant="primary"
               icon={<Plus className="h-4 w-4" />}
@@ -97,7 +103,8 @@ export function OfferingsPanel({ tenantId }: { tenantId: string }) {
       )}
       {!canEdit && (
         <Alert tone="warning" title="Read-only" className="mb-4">
-          Adding, editing and deleting needs the <strong>edit_delete_products</strong> permission.
+          Adding, editing and deleting needs the catalogue write permissions for
+          this tenant's vertical.
         </Alert>
       )}
 
@@ -204,17 +211,19 @@ export function OfferingsPanel({ tenantId }: { tenantId: string }) {
                           </div>
                         )}
                       </div>
-                      {canEdit && (
+                      {(canEditRow || canRemove) && (
                         <div className="flex shrink-0 items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            icon={<Pencil className="h-3.5 w-3.5" />}
-                            onClick={() => setEditing(item)}
-                          >
-                            Edit
-                          </Button>
-                          {item.is_active &&
+                          {canEditRow && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              icon={<Pencil className="h-3.5 w-3.5" />}
+                              onClick={() => setEditing(item)}
+                            >
+                              Edit
+                            </Button>
+                          )}
+                          {canRemove && item.is_active &&
                             (confirmDelete === item.id ? (
                               <>
                                 <Button
@@ -243,7 +252,7 @@ export function OfferingsPanel({ tenantId }: { tenantId: string }) {
                                 Remove
                               </Button>
                             ))}
-                          {!item.is_active && (
+                          {canEditRow && !item.is_active && (
                             <Button
                               size="sm"
                               variant="ghost"

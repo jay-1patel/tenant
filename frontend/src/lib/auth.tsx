@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api'
+import { navigate } from './router'
 import type { AdminIdentity } from './types'
 
 interface AuthState {
@@ -74,6 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
     setNeedsSetup(false)
+    // Tenant-scoped admins land straight in their own tenant; only super
+    // admins start from the tenant list.
+    if (me.role !== 'super_admin' && me.tenant_id) {
+      navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
+    }
   }, [])
 
   const setup = useCallback(async (username: string, password: string, email?: string) => {
@@ -96,6 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const can = useCallback(
     (permission: string) => {
       if (!identity) return false
+      // Only a super admin bypasses the switch list; admins and sub admins
+      // are granted exactly what /api/auth/me reports (the stored set).
       if (identity.role === 'super_admin') return true
       return Boolean(identity.permissions?.[permission])
     },

@@ -54,15 +54,15 @@ def tenant_id_from_scope(scope: str) -> Optional[str]:
 
 def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
                   waba_phone_id: str = "", display_name: str = "",
-                  status: str = "active") -> bool:
+                  status: str = "active", conn=None) -> bool:
     """Idempotent upsert. Never clobbers an existing waba_phone_id with blank.
 
     An unbound tenant stores NULL rather than '' so the partial unique index on
     waba_phone_id excludes it and any number of clients can be registered before
     their numbers are bound.
     """
-    with _db().get_db_context() as conn:
-        conn.execute(
+    def _write(connection):
+        connection.execute(
             """INSERT INTO tenants (id, slug, waba_phone_id, vertical, status, display_name)
                VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
@@ -76,6 +76,12 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
                    updated_at = CURRENT_TIMESTAMP""",
             (tenant_id, slug or tenant_id, waba_phone_id or None, vertical, status, display_name),
         )
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            _write(own_conn)
+    else:
+        _write(conn)
     invalidate(tenant_id)
     return True
 
@@ -103,13 +109,13 @@ def list_tenants(status: Optional[str] = None) -> List[dict]:
     return [dict(r) for r in rows]
 
 
-def set_waba_phone_id(tenant_id: str, phone_id: str) -> bool:
+def set_waba_phone_id(tenant_id: str, phone_id: str, conn=None) -> bool:
     """Bind a WABA phone-id to a tenant. Refuses to steal an existing binding."""
     phone_id = str(phone_id or "").strip()
     if not phone_id:
         return False
-    with _db().get_db_context() as conn:
-        clash = conn.execute(
+    def _bind(connection):
+        clash = connection.execute(
             "SELECT id FROM tenants WHERE waba_phone_id = ? AND id != ?", (phone_id, tenant_id)
         ).fetchone()
         if clash:
@@ -118,12 +124,20 @@ def set_waba_phone_id(tenant_id: str, phone_id: str) -> bool:
                 phone_id, clash["id"], tenant_id,
             )
             return False
-        conn.execute(
+        connection.execute(
             "UPDATE tenants SET waba_phone_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (phone_id, str(tenant_id)),
         )
-    invalidate(tenant_id)
-    return True
+        return True
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            ok = _bind(own_conn)
+    else:
+        ok = _bind(conn)
+    if ok:
+        invalidate(tenant_id)
+    return ok
 
 
 def find_tenant_by_phone_id(phone_id: str) -> Optional[str]:
@@ -156,12 +170,18 @@ def tenant_id_for_user(wa_id: str) -> Optional[str]:
     return tid or None
 
 
-def delete_tenant(tenant_id: str) -> bool:
-    with _db().get_db_context() as conn:
-        conn.execute("DELETE FROM tenant_profile_versions WHERE tenant_id = ?", (str(tenant_id),))
-        conn.execute("DELETE FROM draft_config WHERE scope = ?", (profile_scope(tenant_id),))
-        conn.execute("DELETE FROM published_config WHERE scope = ?", (profile_scope(tenant_id),))
-        conn.execute("DELETE FROM tenants WHERE id = ?", (str(tenant_id),))
+def delete_tenant(tenant_id: str, conn=None) -> bool:
+    def _delete(connection):
+        connection.execute("DELETE FROM tenant_profile_versions WHERE tenant_id = ?", (str(tenant_id),))
+        connection.execute("DELETE FROM draft_config WHERE scope = ?", (profile_scope(tenant_id),))
+        connection.execute("DELETE FROM published_config WHERE scope = ?", (profile_scope(tenant_id),))
+        connection.execute("DELETE FROM tenants WHERE id = ?", (str(tenant_id),))
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            _delete(own_conn)
+    else:
+        _delete(conn)
     invalidate(tenant_id)
     return True
 
@@ -255,7 +275,7 @@ def _set_current(conn, tenant_id: str, version: int) -> None:
     )
 
 
-def publish_version(tenant_id: str, payload: dict, published_by: str = "") -> int:
+def publish_version(tenant_id: str, payload: dict, published_by: str = "", conn=None) -> int:
     """Append a new version and make it current. Returns the new version number.
 
     The caller is responsible for validating the merged profile *before* this —
@@ -263,8 +283,8 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "") -> in
     """
     tid = str(tenant_id)
     body = json.dumps(payload, ensure_ascii=False)
-    with _db().get_db_context() as conn:
-        row = conn.execute(
+    def _publish(connection):
+        row = connection.execute(
             "SELECT COALESCE(MAX(version), 0) AS v FROM tenant_profile_versions WHERE tenant_id = ?",
             (tid,),
         ).fetchone()
@@ -273,15 +293,15 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "") -> in
         # ux_tenant_profile_current only allows ONE current row per tenant, so
         # _set_current must clear the previous one first. Inserting as current
         # straight away violates the index on every publish after the first.
-        conn.execute(
+        connection.execute(
             """INSERT INTO tenant_profile_versions
                    (tenant_id, version, payload, published_by, created_at, is_current)
                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 0)""",
             (tid, next_version, body, published_by or ""),
         )
-        _set_current(conn, tid, next_version)
+        _set_current(connection, tid, next_version)
         # Mirror into published_config so the generic config surfaces stay consistent.
-        conn.execute(
+        connection.execute(
             """INSERT INTO published_config (scope, snapshot_json, published_by, published_at)
                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(scope) DO UPDATE SET
@@ -290,27 +310,34 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "") -> in
                    published_at = CURRENT_TIMESTAMP""",
             (profile_scope(tid), body, published_by or ""),
         )
-        conn.execute(
+        connection.execute(
             "INSERT INTO publish_history (scope, snapshot_json, published_by, published_at) "
             "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
             (profile_scope(tid), body, published_by or ""),
         )
+        return next_version
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            next_version = _publish(own_conn)
+    else:
+        next_version = _publish(conn)
     invalidate(tid)
     return next_version
 
 
-def rollback(tenant_id: str, version: int) -> bool:
+def rollback(tenant_id: str, version: int, conn=None) -> bool:
     """Re-point is_current at an earlier version. Nothing is deleted."""
     tid = str(tenant_id)
-    with _db().get_db_context() as conn:
-        row = conn.execute(
+    def _rollback(connection):
+        row = connection.execute(
             "SELECT payload FROM tenant_profile_versions WHERE tenant_id = ? AND version = ?",
             (tid, int(version)),
         ).fetchone()
         if not row:
             return False
-        _set_current(conn, tid, int(version))
-        conn.execute(
+        _set_current(connection, tid, int(version))
+        connection.execute(
             """INSERT INTO published_config (scope, snapshot_json, published_by, published_at)
                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(scope) DO UPDATE SET
@@ -319,13 +346,21 @@ def rollback(tenant_id: str, version: int) -> bool:
                    published_at = CURRENT_TIMESTAMP""",
             (profile_scope(tid), row["payload"], "rollback"),
         )
-        conn.execute(
+        connection.execute(
             "INSERT INTO publish_history (scope, snapshot_json, published_by, published_at) "
             "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
             (profile_scope(tid), row["payload"], "rollback"),
         )
-    invalidate(tid)
-    return True
+        return True
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            ok = _rollback(own_conn)
+    else:
+        ok = _rollback(conn)
+    if ok:
+        invalidate(tid)
+    return ok
 
 
 # ── draft (working copy) ──────────────────────────────────────────────────
@@ -334,8 +369,8 @@ def get_draft(tenant_id: str) -> Optional[dict]:
     return _db().get_draft_config(profile_scope(tenant_id), default=None)
 
 
-def save_draft(tenant_id: str, payload: dict, updated_by: str = "") -> bool:
-    return _db().save_draft_config(profile_scope(tenant_id), payload, updated_by=updated_by)
+def save_draft(tenant_id: str, payload: dict, updated_by: str = "", conn=None) -> bool:
+    return _db().save_draft_config(profile_scope(tenant_id), payload, updated_by=updated_by, conn=conn)
 
 
 def get_published_mirror(tenant_id: str) -> Optional[dict]:
@@ -363,22 +398,32 @@ def get_tenant_token(token_hash: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def create_tenant_token(tenant_id: str, token_hash: str, label: str = "", created_by: str = "") -> int:
-    with _db().get_db_context() as conn:
-        cur = conn.execute(
+def create_tenant_token(tenant_id: str, token_hash: str, label: str = "", created_by: str = "", conn=None) -> int:
+    def _create(connection):
+        cur = connection.execute(
             "INSERT INTO tenant_tokens (tenant_id, token_hash, label, created_by) VALUES (?, ?, ?, ?)",
             (str(tenant_id), token_hash, label, created_by),
         )
         return int(cur.lastrowid)
 
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            return _create(own_conn)
+    return _create(conn)
 
-def revoke_tenant_token(token_id: int) -> bool:
-    with _db().get_db_context() as conn:
-        cur = conn.execute(
+
+def revoke_tenant_token(token_id: int, conn=None) -> bool:
+    def _revoke(connection):
+        cur = connection.execute(
             "UPDATE tenant_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL",
             (int(token_id),),
         )
         return cur.rowcount > 0
+
+    if conn is None:
+        with _db().get_db_context() as own_conn:
+            return _revoke(own_conn)
+    return _revoke(conn)
 
 
 def get_tenant_webhook_secret(tenant_id: str) -> str:

@@ -5,7 +5,7 @@ from ..database import (
     get_recent_history, save_chat, update_session_inbound,
     search_products, get_products_by_category,
 )
-from .brain import process_with_brain_async, generate_ollama_dynamic_response, _build_system_prompt, _retrieve_context
+from .brain import process_with_brain_async, generate_ollama_dynamic_response, _build_system_prompt, _retrieve_context, get_brand_name
 from .orchestrator import (
     get_conversation_context, update_conversation_context,
     enhance_query_with_context, should_trigger_fallback_menu,
@@ -794,7 +794,7 @@ async def handle_kb_query(
         history = get_recent_history(wa_id, limit=5, ttl_minutes=get_response_settings().get("memory_ttl_minutes", 30))
 
         # Override the user message to focus on company info
-        company_query = "Tell me about TrooGood company - who founded it, when was it founded, what's their mission, and what makes them special?"
+        company_query = f"Tell me about {get_brand_name(wa_id)} company - who founded it, when was it founded, what's their mission, and what makes them special?"
         brain_result = await process_with_brain_async(company_query, wa_id=wa_id, history=history)
 
         response_text = _clean_response(brain_result.get("answer", ""))
@@ -1001,7 +1001,7 @@ async def handle_kb_query(
                         {"id": "b2c_view_cart", "title": "View Cart"},
                         {"id": "b2c_checkout", "title": "Checkout"},
                     ],
-                    footer_text="TrooGood",
+                    footer_text=get_brand_name(wa_id),
                     header_media=({"type": "image", "image": {"link": pub_img}} if pub_img else None),
                 ))
             except Exception as e:
@@ -1030,7 +1030,7 @@ async def handle_kb_query(
                     to=wa_id,
                     body_text=response_text,
                     buttons=buttons,
-                    footer_text="TrooGood",
+                    footer_text=get_brand_name(wa_id),
                 ))
             except Exception as e:
                 logger.error(f"Failed to send cart view to {wa_id}: {e}")
@@ -1070,7 +1070,7 @@ async def handle_kb_query(
                         {"id": "b2c_view_cart", "title": "View Cart"},
                         {"id": "main_menu", "title": "Main Menu"},
                     ],
-                    footer_text="TrooGood",
+                    footer_text=get_brand_name(wa_id),
                 ))
             except Exception as e:
                 logger.error(f"Failed to send checkout summary to {wa_id}: {e}")
@@ -1171,7 +1171,7 @@ async def handle_kb_query(
                     to=wa_id,
                     body_text=response_text,
                     buttons=[{"id": "main_menu", "title": "Main Menu"}],
-                    footer_text="TrooGood",
+                    footer_text=get_brand_name(wa_id),
                 ))
             except Exception as e:
                 logger.error(f"Failed to send order confirmation to {wa_id}: {e}")
@@ -1195,7 +1195,7 @@ async def handle_kb_query(
                     buttons=[
                         {"id": "main_menu", "title": "Main Menu"},
                     ],
-                    footer_text="TrooGood",
+                    footer_text=get_brand_name(wa_id),
                 ))
                 if not sent:
                     # Fallback: plain text if interactive send fails.
@@ -1284,8 +1284,8 @@ async def handle_kb_query(
         enhanced_dynamic_query = enhance_query_with_context(dynamic_query, wa_id)
 
         # Call Ollama with the dynamic action context
-        system_prompt = _build_system_prompt()
-        retrieved_context, sources = _retrieve_context(enhanced_dynamic_query)
+        system_prompt = _build_system_prompt(wa_id=wa_id)
+        retrieved_context, sources = _retrieve_context(enhanced_dynamic_query, wa_id=wa_id)
 
         ollama_result = await generate_ollama_dynamic_response(
             system_prompt=system_prompt,
@@ -1428,8 +1428,8 @@ async def handle_kb_query(
     # ============================================
 
     # Build system prompt and retrieve context for Ollama
-    system_prompt = _build_system_prompt()
-    retrieved_context, sources = _retrieve_context(enhanced_query)
+    system_prompt = _build_system_prompt(wa_id=wa_id)
+    retrieved_context, sources = _retrieve_context(enhanced_query, wa_id=wa_id)
 
     # ============================================
     # AUTO-ESCALATION: suppress RAG answer when confidence is too low or the

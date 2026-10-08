@@ -162,10 +162,10 @@ class ButtonRegistry:
             },
 
             # Company information / careers buttons
-            'portfolio': {
-                'id': 'portfolio',
-                'title': 'Portfolio',
-                'action': 'show_portfolio',
+            'projects': {
+                'id': 'projects',
+                'title': 'Projects',
+                'action': 'show_projects',
                 'category': 'information',
                 'description': 'View our past work and projects',
                 'applicable': ['it', 'technology', 'software', 'generic']
@@ -560,7 +560,8 @@ class ButtonRegistry:
             'order': ['orders', 'place_order', 'track_order'],
             'customer': ['customers'],
             'campaign': ['campaigns'],
-            'portfolio': ['portfolio'],
+            'portfolio': ['projects'],
+            'project': ['projects'],
             'technolog': ['technologies'],
             'career': ['careers'],
             'job': ['careers'],

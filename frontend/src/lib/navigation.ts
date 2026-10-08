@@ -50,13 +50,13 @@ export interface NavItem {
 
 /**
  * Info pages for the software & IT vertical. Advertised in the navigation —
- * the panel behind each is listed in `PENDING_VIEWS` in App.tsx.
+ * the panel behind each is `InfoPagePanel` (info-page-panel.tsx).
  */
 const IT_INFO_ITEMS: NavItem[] = [
-  { id: 'portfolio', label: 'Portfolio', icon: FolderOpen },
-  { id: 'technologies', label: 'Technologies', icon: Cpu },
-  { id: 'careers', label: 'Careers', icon: Briefcase },
-  { id: 'benefits', label: 'Benefits', icon: Gift },
+  { id: 'projects', label: 'Projects', icon: FolderOpen, permissions: ['manage_projects'] },
+  { id: 'technologies', label: 'Technologies', icon: Cpu, permissions: ['manage_technologies'] },
+  { id: 'careers', label: 'Careers', icon: Briefcase, permissions: ['manage_careers'] },
+  { id: 'benefits', label: 'Benefits', icon: Gift, permissions: ['manage_benefits'] },
 ]
 
 /**

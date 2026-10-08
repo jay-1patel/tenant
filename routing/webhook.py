@@ -149,12 +149,33 @@ def _find_doc_by_source(source_stem: str):
     return None
 
 
+def _handover_blocked(wa_id: str):
+    """Refusal payload when this user's tenant has human_handover switched off.
+
+    Returns None when the feature is on (or tenancy is unavailable), so the
+    legacy single-tenant behaviour is untouched.
+    """
+    try:
+        from shared.tenancy.gating import guard_result
+        return guard_result(wa_id, "human_handover")
+    except Exception as exc:
+        logger.debug(f"handover gate unavailable: {exc}")
+        return None
+
+
 async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, start_time: float) -> bool:
     """Execute a registry button action directly. Returns True if handled."""
     kind = action.get("kind")
     payload = action.get("payload", "")
 
     if kind == "handover":
+        blocked = _handover_blocked(wa_id)
+        if blocked:
+            save_chat(wa_id, sender_name, action["title"], blocked["message"], "refusal")
+            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                send_whatsapp_message(wa_id, blocked["message"])
+            logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
+            return True
         _set_human_handover(wa_id, enabled=True)
         save_chat(wa_id, sender_name, action["title"], HANDOVER_CONFIRMATION, "human_handover")
         if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -245,6 +266,15 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
 
         # ── CHECK IF USER WANTS A HUMAN AGENT ───────────────────────────
         if _wants_human_agent(user_text):
+            blocked = _handover_blocked(wa_id)
+            if blocked:
+                # The tenant switched human handover off: refuse politely and
+                # let the bot keep the conversation.
+                save_chat(wa_id, sender_name, user_text, blocked["message"], "refusal")
+                if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    send_whatsapp_message(wa_id, blocked["message"])
+                logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
+                return
             _set_human_handover(wa_id, enabled=True)
             save_chat(wa_id, sender_name, user_text, HANDOVER_CONFIRMATION, "human_handover")
             if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -323,6 +353,33 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                         return
             except Exception as e:
                 logger.error(f"Profile flow start failed for button {pressed_id}: {e}")
+
+        # ── PROFILE-DEFINED INFORMATIONAL PANELS (Phase 3) ────────────
+        # A tapped menu row whose profile entry names an intent (Technologies,
+        # Portfolio, Careers, Benefits...) answers from the tenant's own
+        # configured text. Only a found answer consumes the tap — everything
+        # else falls through to the pipeline below unchanged.
+        if pressed_id:
+            try:
+                from backend.services import intent_answers
+                # Menu rows resolve via the profile button's intent field;
+                # registry buttons carry the intent name as their id directly.
+                panel_answer = (intent_answers.answer_for_button(wa_id, pressed_id, tenant_id)
+                                or intent_answers.answer_for_intent(wa_id, pressed_id, tenant_id))
+                if panel_answer:
+                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        send_whatsapp_message(wa_id, panel_answer)
+                    save_chat(wa_id, sender_name, user_text, panel_answer, "intent")
+                    await log_outgoing_message(wa_id, panel_answer, "text")
+                    logger.info(f"PANEL_REPLY | {wa_id} | button={pressed_id}")
+                    response_time_ms = int((time.time() - start_time) * 1000)
+                    log_webhook("outgoing", "/webhook/panel", json.dumps({
+                        "to": wa_id, "button_id": pressed_id
+                    }), 200, f"Panel {pressed_id} answered",
+                        response_time_ms=response_time_ms)
+                    return
+            except Exception as e:
+                logger.error(f"Panel answer failed for button {pressed_id}: {e}")
 
         # ── ROUTE REGISTRY BUTTON PRESSES BY ID ─────────────────────────
         # Buttons generated from the button registry carry a machine id that

@@ -128,7 +128,42 @@ def _require_record_access(perm: str):
 
 
 read_access = _require_record_access("view_products")
-write_access = _require_record_access("edit_delete_products")
+
+
+def _require_write_access(action: str):
+    """Write access, honouring the vertical-specific catalogue permissions.
+
+    ``edit_delete_products`` remains the all-in-one legacy grant. Tenants whose
+    vertical splits the work (products for a shop) can instead grant
+    add/edit/delete separately; an IT/software tenant's catalogue is its
+    services, so ``manage_services`` covers all three actions there.
+    """
+    def dependency(
+        request: Request,
+        tenant_id: str,
+        principal: dict = Depends(require_tenant_access()),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+    ) -> dict:
+        if principal.get("type") == "tenant":
+            return principal
+        admin = get_current_admin(request, credentials)
+        if has_permission(admin, "edit_delete_products"):
+            return principal
+        vertical = _vertical(tenant_id)
+        if vertical == "it_software":
+            if has_permission(admin, "manage_services"):
+                return principal
+        elif action == "create" and has_permission(admin, "add_product"):
+            return principal
+        elif action == "update" and has_permission(admin, "edit_product"):
+            return principal
+        elif action == "delete" and has_permission(admin, "delete_product"):
+            return principal
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to perform this action",
+        )
+    return dependency
 schema_access = _require_record_access("manage_operations")
 
 
@@ -214,14 +249,36 @@ def _prepare_values(
     return clean, attrs_json
 
 
+#: Presentation columns (price, link, image) that the forms also send as
+#: top-level record fields. Seed them into the cells so a column the admin
+#: marked required validates, whatever path the value arrived by.
+_SHARED_TOP_FIELDS = ("price", "detail_url", "media_url")
+
+
+def _cell_values(values: Optional[Dict[str, Any]], body) -> Dict[str, Any]:
+    merged = dict(values or {})
+    for field in _SHARED_TOP_FIELDS:
+        value = getattr(body, field, None)
+        if value is not None and field not in merged:
+            merged[field] = value
+    return merged
+
+
 def _write_cells(tenant_id: str, offering_id: int, columns: List[Dict[str, Any]], clean: Dict[str, Any]):
     """Push coerced values into the physical columns the admin created."""
     dynamic = {c["key"] for c in columns if not c["is_system"]}
     updates = {k: v for k, v in clean.items() if k in dynamic}
     if not updates:
         return
-    assignments = ", ".join(f'"{k}" = ?' for k in updates)
     with get_db_context() as conn:
+        # A registered column can drift from the physical table (schema seeded
+        # before the column existed). The value still reaches the bot through
+        # the attrs_json mirror, so skip the dead column rather than 500.
+        physical = set(record_schema.existing_columns(conn))
+        updates = {k: v for k, v in updates.items() if k in physical}
+        if not updates:
+            return
+        assignments = ", ".join(f'"{k}" = ?' for k in updates)
         conn.execute(
             f"UPDATE products SET {assignments} WHERE id = ? AND tenant_id = ?",
             list(updates.values()) + [offering_id, tenant_id],
@@ -334,9 +391,9 @@ def list_offering_categories(tenant_id: str, principal: dict = Depends(read_acce
 
 
 @router.post("/offerings")
-def create_offering(tenant_id: str, body: OfferingIn, principal: dict = Depends(write_access)):
+def create_offering(tenant_id: str, body: OfferingIn, principal: dict = Depends(_require_write_access("create"))):
     columns = _columns(tenant_id)
-    clean, attrs_json = _prepare_values(columns, body.values, body.attrs)
+    clean, attrs_json = _prepare_values(columns, _cell_values(body.values, body), body.attrs)
 
     offering_id = save_product(
         name=body.name.strip(),
@@ -361,7 +418,7 @@ def create_offering(tenant_id: str, body: OfferingIn, principal: dict = Depends(
 
 
 @router.put("/offerings/{offering_id}")
-def patch_offering(tenant_id: str, offering_id: int, body: OfferingPatch, principal: dict = Depends(write_access)):
+def patch_offering(tenant_id: str, offering_id: int, body: OfferingPatch, principal: dict = Depends(_require_write_access("update"))):
     if not get_product(offering_id, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="Record not found for this tenant")
 
@@ -380,7 +437,7 @@ def patch_offering(tenant_id: str, offering_id: int, body: OfferingPatch, princi
         updates["media_url"] = None
 
     if body.values is not None or body.attrs is not None:
-        clean, attrs_json = _prepare_values(columns, body.values or {}, body.attrs or {})
+        clean, attrs_json = _prepare_values(columns, _cell_values(body.values, body), body.attrs or {})
         updates["attrs_json"] = attrs_json
     else:
         clean = {}
@@ -399,7 +456,7 @@ def remove_offering(
     tenant_id: str,
     offering_id: int,
     hard: bool = False,
-    principal: dict = Depends(write_access),
+    principal: dict = Depends(_require_write_access("delete")),
 ):
     if not get_product(offering_id, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="Record not found for this tenant")

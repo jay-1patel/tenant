@@ -25,19 +25,27 @@ import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
 import { UploadsPanel } from '@/components/tenants/uploads-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
 import { IntentsAndFlows } from '@/components/tenants/intents-and-flows'
+import { InfoPagePanel } from '@/components/tenants/info-page-panel'
 import { VersionsPanel } from '@/components/tenants/versions-panel'
 import { LayersPanel } from '@/components/tenants/layers-panel'
 import { TokensPanel } from '@/components/tenants/tokens-panel'
 import { TestAndSmoke } from '@/components/tenants/test-and-smoke'
 import { TeamScreen } from '@/components/team/team-screen'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
+import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
+import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
+import { AuditHistory } from '@/components/team/audit-history'
+import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
 
 function Router() {
   const route = parseRoute(useRoute())
-  const { canManageTenants, canManageTeam } = usePermissions()
+  const { canManageTenants, canManageTeam, isSuperAdmin, can } = usePermissions()
+  const { identity } = useAuth()
 
   if (route.view === 'register') {
-    if (!canManageTenants) return <NotPermitted what="register tenants" />
+    // Admins can view and edit the registration panel; their submission goes
+    // to the super admin approval queue instead of publishing directly.
+    if (!canManageTenants && identity?.role !== 'admin') return <NotPermitted what="register tenants" />
     return (
       <AppShell route={route}>
         <RegisterWizard />
@@ -45,11 +53,47 @@ function Router() {
     )
   }
 
+  if (route.view === 'tenant-requests') {
+    if (isSuperAdmin) {
+      return (
+        <AppShell route={route}>
+          <TenantChangeReview />
+        </AppShell>
+      )
+    }
+    if (identity && (identity.role === 'admin' || identity.role === 'sub_admin') && canManageTenants) {
+      return (
+        <AppShell route={route}>
+          <MyTenantChangeRequests />
+        </AppShell>
+      )
+    }
+    return <NotPermitted what="view tenant change requests" />
+  }
+
   if (route.view === 'team') {
     if (!canManageTeam) return <NotPermitted what="manage the team" />
     return (
       <AppShell route={route}>
         <TeamScreen />
+      </AppShell>
+    )
+  }
+
+  if (route.view === 'api-requests') {
+    if (!isSuperAdmin) return <NotPermitted what="review API access requests" />
+    return (
+      <AppShell route={route}>
+        <ApiOnboardingReview />
+      </AppShell>
+    )
+  }
+
+  if (route.view === 'audit-history') {
+    if (!isSuperAdmin) return <NotPermitted what="view audit history" />
+    return (
+      <AppShell route={route}>
+        <AuditHistory />
       </AppShell>
     )
   }
@@ -63,6 +107,17 @@ function Router() {
   }
 
   const writeViews = new Set(['profile', 'menu-edit', 'versions', 'tokens'])
+  if (route.view === 'api-access') {
+    if (isSuperAdmin || !identity?.tenant_id || route.tenantId !== identity.tenant_id || !can('manage_operations')) {
+      return <AppShell route={route}><NotPermitted what="request API access for this tenant" /></AppShell>
+    }
+    return (
+      <AppShell route={route}>
+        <ApiOnboardingPanel />
+      </AppShell>
+    )
+  }
+
   if (writeViews.has(route.view) && !canManageTenants) {
     return (
       <AppShell route={route}>
@@ -86,6 +141,10 @@ function Router() {
       {route.view === 'campaigns' && <CampaignsPanel tenantId={route.tenantId} />}
       {route.view === 'distributors' && <DistributorsPanel tenantId={route.tenantId} />}
       {route.view === 'offerings' && <OfferingsPanel tenantId={route.tenantId} />}
+      {route.view === 'projects' && <InfoPagePanel tenantId={route.tenantId} page="projects" />}
+      {route.view === 'technologies' && <InfoPagePanel tenantId={route.tenantId} page="technologies" />}
+      {route.view === 'careers' && <InfoPagePanel tenantId={route.tenantId} page="careers" />}
+      {route.view === 'benefits' && <InfoPagePanel tenantId={route.tenantId} page="benefits" />}
       {route.view === 'chat-history' && <ChatHistoryPanel tenantId={route.tenantId} />}
       {route.view === 'inbox' && <LiveInboxPanel tenantId={route.tenantId} />}
       {route.view === 'complaints' && <ComplaintsPanel tenantId={route.tenantId} />}
@@ -109,14 +168,9 @@ function Router() {
  * Views the sidebar advertises before their screens are built. Keeping them
  * listed (rather than hidden) is deliberate: the navigation is the contract,
  * and a dead link with an honest label beats a silently missing capability.
+ * Every info page now has its panel — this stays empty until the next one.
  */
-const PENDING_VIEWS = new Set<string>([
-  // IT/software vertical info pages — nav first, panels next.
-  'portfolio',
-  'technologies',
-  'careers',
-  'benefits',
-])
+const PENDING_VIEWS = new Set<string>([])
 
 const KNOWN_VIEWS = [
   'overview',
@@ -130,7 +184,7 @@ const KNOWN_VIEWS = [
   'orders',
   'campaigns',
   'distributors',
-  'portfolio',
+  'projects',
   'technologies',
   'careers',
   'benefits',
@@ -143,6 +197,10 @@ const KNOWN_VIEWS = [
   'layers',
   'tokens',
   'test',
+  'api-access',
+  'tenant-requests',
+  'api-requests',
+  'audit-history',
 ]
 
 function ComingSoon({ view }: { view: string }) {
