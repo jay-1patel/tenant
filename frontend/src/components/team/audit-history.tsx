@@ -20,7 +20,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+<<<<<<< HEAD
+import { Alert, EmptyState, LoadingBlock, Toast } from '@/components/ui/feedback'
+=======
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 import { PageHeader } from '@/components/layout/page-header'
 import { Switch } from '@/components/ui/switch' 
 
@@ -244,7 +248,11 @@ const ExportMenu = ({
             <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2">
               {allColumns.map(column => {
                 const isSelected = selectedColumns.includes(column)
+<<<<<<< HEAD
+                const columnLabel = LABELS[column] || column.replace(/_/g, ' ')
+=======
                 const columnLabel = (LABELS[column as keyof typeof LABELS] || column).toString().replace(/_/g, ' ')
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                 return (
                   <label key={column} className="flex items-center gap-2 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer">
                     <input 
@@ -374,7 +382,11 @@ const StatisticsDashboard = ({
               {topActions.map(([action, count]) => (
                 <div key={action} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50">
                   <div className="flex items-center gap-3">
+<<<<<<< HEAD
+                    <span className="text-slate-300">{LABELS[action] || action}</span>
+=======
                     <span className="text-slate-300">{(LABELS[action as keyof typeof LABELS] || action).toString()}</span>
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400">{count.toLocaleString()}</span>
@@ -429,8 +441,13 @@ const TableView = ({
           bValue = new Date(b.created_at).getTime()
           break
         case 'action':
+<<<<<<< HEAD
+          aValue = LABELS[a.action] || a.action
+          bValue = LABELS[b.action] || b.action
+=======
             aValue = (LABELS[a.action as keyof typeof LABELS] || a.action).toString()
             bValue = (LABELS[b.action as keyof typeof LABELS] || b.action).toString()
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
           break
         case 'actor_username':
           aValue = a.actor_username || ''
@@ -517,7 +534,11 @@ const TableView = ({
                   <span className={`px-2 py-1 rounded text-xs ${getCategoryColorClass(event.category || '')}`}>
                     {event.category ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'}
                   </span>
+<<<<<<< HEAD
+                  {LABELS[event.action] || event.action}
+=======
                   {(LABELS[event.action as keyof typeof LABELS] || event.action).toString()}
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                 </div>
               </td>
               <td className="py-3 pr-4 text-slate-300">{event.actor_username || '—'}</td>
@@ -538,6 +559,188 @@ const TableView = ({
 
 //Timeline View Component
 const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
+<<<<<<< HEAD
+  // Group events by date
+  const eventsByDate = useMemo(() => {
+    const grouped: Record<string, AuditEventExtended[]> = {}
+    events.forEach(event => {
+      const date = new Date(event.created_at).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      if (!grouped[date]) {
+        grouped[date] = []
+      }
+      grouped[date].push(event)
+    })
+    return grouped
+  }, [events])
+
+  // Format time from ISO string
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+  }
+
+  return (
+    <div className="relative">
+      {/* Vertical timeline line */}
+      <div className="absolute left-6 top-4 bottom-4 w-0.5 bg-gradient-to-b from-slate-600 to-slate-700" />
+      
+      <div className="space-y-8 ml-12">
+        {Object.entries(eventsByDate).map(([date, dateEvents], dateIndex) => (
+          <div key={date} className="relative">
+            {/* Date header */}
+            <div className="relative mb-6">
+              <div className="absolute left-0 top-3 w-12 h-0.5 bg-slate-600" />
+              <div className="ml-12">
+                <div className="text-lg font-semibold text-slate-200 bg-slate-800/80 px-4 py-2 rounded-lg border border-slate-700 inline-block">
+                  {date}
+                </div>
+                <div className="text-xs text-slate-500 mt-1 text-center">
+                  {dateEvents.length} {dateEvents.length === 1 ? 'event' : 'events'}
+                </div>
+              </div>
+            </div>
+
+            {/* Events for this date */}
+            <div className="space-y-4">
+              {dateEvents.map((event, eventIndex) => {
+                const categoryLabel = event.category 
+                  ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label 
+                  : 'Unknown'
+                const categoryColor = getCategoryColorClass(event.category || '')
+                const outcomeColor = getOutcomeColorClass(event.outcome)
+                const isLatest = dateIndex === 0 && eventIndex === 0
+                
+                return (
+                  <div key={event.id} className="relative group">
+                    {/* Latest indicator for the most recent event */}
+                    {isLatest && (
+                      <div className="absolute -top-8 left-0 ml-4">
+                        <span className="bg-accent-600 text-white text-xs font-medium px-2 py-1 rounded-full animate-pulse shadow-lg">
+                          Latest
+                        </span>
+                      </div>
+                    )}
+                    {/* Timeline connector dot with category-based colors and pulse for latest */}
+                    <div className={`absolute -left-12 top-6 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 shadow-lg transition-all duration-300 ${isLatest ? 'ring-2 ring-accent-500 ring-opacity-50' : ''}`} 
+                         style={{
+                           backgroundColor: event.outcome === 'success' ? '#22c55e' : event.outcome === 'failure' ? '#ef4444' : '#64748b'
+                         }} />
+                    
+                    {/* Timeline vertical connector for non-first events */}
+                    {eventIndex > 0 && (
+                      <div className="absolute -left-10 top-10 bottom-0 w-0.5 bg-slate-600" 
+                           style={{ height: 'calc(100% - 2rem)' }} />
+                    )}
+                    
+                    {/* Event card with enhanced styling */}
+                    <div className="group relative transition-all duration-200 hover:translate-x-1 hover:-translate-y-0.5">
+                      <Card className="border-l-4 border-transparent hover:border-slate-600 transition-all duration-200 group-hover:shadow-lg group-hover:border-l-accent-500">
+                        <CardHeader
+                          title={
+                            <div className="flex items-center gap-3">
+                              <span className={categoryColor + ' px-3 py-1 rounded-full text-xs font-medium'}>
+                                {categoryLabel}
+                              </span>
+                              <span className="text-slate-100 font-semibold flex-1">
+                                {LABELS[event.action] || event.action}
+                              </span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${outcomeColor}`}>
+                                {event.outcome}
+                              </span>
+                            </div>
+                          }
+                          description={
+                            <div className="flex items-center justify-between text-xs text-slate-400 mt-2">
+                              <div className="flex items-center gap-4">
+                                <span className="flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  {formatTime(event.created_at)}
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                  </svg>
+                                  {event.actor_username || 'System'}
+                                </span>
+                              </div>
+                              {event.relative_time && (
+                                <span className="text-slate-500 italic">{event.relative_time}</span>
+                              )}
+                            </div>
+                          }
+                        />
+                        <CardBody className="space-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {event.target_username && event.target_username !== event.actor_username && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.124-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.124-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Target:</span>
+                                  <span className="text-slate-200 ml-1">{event.target_username}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.tenant_id && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Tenant:</span>
+                                  <span className="text-slate-200 ml-1">{event.tenant_id}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.ip_address && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">IP:</span>
+                                  <span className="text-slate-200 ml-1">{event.ip_address}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.resource_type && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Resource:</span>
+                                  <span className="text-slate-200 ml-1">{event.resource_type}{event.resource_id ? `/${event.resource_id}` : ''}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {describeDetails(event.details || {}) && (
+                            <div className="pt-3 border-t border-slate-700/50">
+                              <span className="text-sm text-slate-400 font-medium">Details: </span>
+                              <span className="text-sm text-slate-300">{describeDetails(event.details || {})}</span>
+                            </div>
+                          )}
+                        </CardBody>
+                      </Card>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+=======
   return (
     <div className="relative">
       <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-600" />
@@ -587,6 +790,7 @@ const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
                 )}
               </CardBody>
             </Card>
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
           </div>
         ))}
       </div>
@@ -866,7 +1070,11 @@ export function AuditHistory() {
             >
               <option value="">All actions</option>
               {Object.entries(LABELS).map(([value, label]) => (
+<<<<<<< HEAD
+                <option key={value} value={value}>{label}</option>
+=======
                 <option key={value} value={value}>{String(label)}</option>
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
               ))}
             </Select>
             <Select 
@@ -918,7 +1126,11 @@ export function AuditHistory() {
           <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
             <span>Showing {start}–{end} of {page.total.toLocaleString()} events</span>
             <div className="flex items-center gap-4">
+<<<<<<< HEAD
+              <span>Sort: {filters.sort_by ? LABELS[filters.sort_by] || filters.sort_by : 'Date'} ({filters.sort_order})</span>
+=======
               <span>Sort: {filters.sort_by ? (LABELS[filters.sort_by as keyof typeof LABELS] || filters.sort_by) : 'Date'} ({filters.sort_order})</span>
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
             </div>
           </div>
 
@@ -939,7 +1151,11 @@ export function AuditHistory() {
               {formattedEvents.map((event) => (
                 <Card key={event.id}>
                   <CardHeader
+<<<<<<< HEAD
+                    title={LABELS[event.action] ?? event.action.replace(/_/g, ' ')}
+=======
                     title={(LABELS[event.action as keyof typeof LABELS] ?? event.action).toString().replace(/_/g, ' ')}
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
                     description={`${event.actor_username || event.target_username || 'Unknown account'}${event.actor_role ? ` · ${event.actor_role.replace(/_/g, ' ')}` : ''} · ${formatDate(event.created_at)}`}
                     actions={
                       <div className="flex gap-2">
