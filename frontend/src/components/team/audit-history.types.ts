@@ -57,7 +57,7 @@ export interface AuditStatistics {
   by_action: Record<string, number>
   by_actor: Record<string, number>
   by_date: Record<string, number>
-  by.category: Record<string, number>
+  by_category: Record<string, number>
 }
 
 // Export options

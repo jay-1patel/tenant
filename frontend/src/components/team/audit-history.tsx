@@ -538,55 +538,186 @@ const TableView = ({
 
 //Timeline View Component
 const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
+  // Group events by date
+  const eventsByDate = useMemo(() => {
+    const grouped: Record<string, AuditEventExtended[]> = {}
+    events.forEach(event => {
+      const date = new Date(event.created_at).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      if (!grouped[date]) {
+        grouped[date] = []
+      }
+      grouped[date].push(event)
+    })
+    return grouped
+  }, [events])
+
+  // Format time from ISO string
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+  }
+
   return (
     <div className="relative">
-      <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-600" />
-      <div className="space-y-6 ml-8">
-        {events.map((event, index) => (
-          <div key={event.id} className="relative">
-            <div className="absolute -left-8 top-2 w-4 h-4 bg-slate-600 rounded-full border-2 border-white dark:border-slate-800" />
-            {index === 0 && (
-              <div className="absolute -left-8 top-6 text-xs text-slate-400">Latest</div>
-            )}
-            <Card>
-              <CardHeader
-                title={LABELS[event.action] || event.action}
-                description={
-                  <div className="flex items-center gap-4 text-xs text-slate-400">
-                    <span>{formatDate(event.created_at)}</span>
-                    <span className={`px-2 py-1 rounded ${getOutcomeColorClass(event.outcome)}`}>
-                      {event.outcome}
-                    </span>
-                    <span className={`px-2 py-1 rounded text-xs ${getCategoryColorClass(event.category || '')}`}>
-                      {event.category ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'}
-                    </span>
-                  </div>
-                }
-              />
-              <CardBody className="space-y-2">
-                <div>
-                  <span className="font-medium text-slate-300">Actor:</span> 
-                  <span className="text-slate-200">{event.actor_username || 'Unknown'}</span>
+      {/* Vertical timeline line */}
+      <div className="absolute left-6 top-4 bottom-4 w-0.5 bg-gradient-to-b from-slate-600 to-slate-700" />
+      
+      <div className="space-y-8 ml-12">
+        {Object.entries(eventsByDate).map(([date, dateEvents], dateIndex) => (
+          <div key={date} className="relative">
+            {/* Date header */}
+            <div className="relative mb-6">
+              <div className="absolute left-0 top-3 w-12 h-0.5 bg-slate-600" />
+              <div className="ml-12">
+                <div className="text-lg font-semibold text-slate-200 bg-slate-800/80 px-4 py-2 rounded-lg border border-slate-700 inline-block">
+                  {date}
                 </div>
-                {event.target_username && event.target_username !== event.actor_username && (
-                  <div>
-                    <span className="font-medium text-slate-300">Target:</span> 
-                    <span className="text-slate-200">{event.target_username}</span>
+                <div className="text-xs text-slate-500 mt-1 text-center">
+                  {dateEvents.length} {dateEvents.length === 1 ? 'event' : 'events'}
+                </div>
+              </div>
+            </div>
+
+            {/* Events for this date */}
+            <div className="space-y-4">
+              {dateEvents.map((event, eventIndex) => {
+                const categoryLabel = event.category 
+                  ? ACTION_CATEGORIES[event.category as keyof typeof ACTION_CATEGORIES]?.label 
+                  : 'Unknown'
+                const categoryColor = getCategoryColorClass(event.category || '')
+                const outcomeColor = getOutcomeColorClass(event.outcome)
+                const isLatest = dateIndex === 0 && eventIndex === 0
+                
+                return (
+                  <div key={event.id} className="relative group">
+                    {/* Latest indicator for the most recent event */}
+                    {isLatest && (
+                      <div className="absolute -top-8 left-0 ml-4">
+                        <span className="bg-accent-600 text-white text-xs font-medium px-2 py-1 rounded-full animate-pulse shadow-lg">
+                          Latest
+                        </span>
+                      </div>
+                    )}
+                    {/* Timeline connector dot with category-based colors and pulse for latest */}
+                    <div className={`absolute -left-12 top-6 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 shadow-lg transition-all duration-300 ${isLatest ? 'ring-2 ring-accent-500 ring-opacity-50' : ''}`} 
+                         style={{
+                           backgroundColor: event.outcome === 'success' ? '#22c55e' : event.outcome === 'failure' ? '#ef4444' : '#64748b'
+                         }} />
+                    
+                    {/* Timeline vertical connector for non-first events */}
+                    {eventIndex > 0 && (
+                      <div className="absolute -left-10 top-10 bottom-0 w-0.5 bg-slate-600" 
+                           style={{ height: 'calc(100% - 2rem)' }} />
+                    )}
+                    
+                    {/* Event card with enhanced styling */}
+                    <div className="group relative transition-all duration-200 hover:translate-x-1 hover:-translate-y-0.5">
+                      <Card className="border-l-4 border-transparent hover:border-slate-600 transition-all duration-200 group-hover:shadow-lg group-hover:border-l-accent-500">
+                        <CardHeader
+                          title={
+                            <div className="flex items-center gap-3">
+                              <span className={categoryColor + ' px-3 py-1 rounded-full text-xs font-medium'}>
+                                {categoryLabel}
+                              </span>
+                              <span className="text-slate-100 font-semibold flex-1">
+                                {LABELS[event.action] || event.action}
+                              </span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${outcomeColor}`}>
+                                {event.outcome}
+                              </span>
+                            </div>
+                          }
+                          description={
+                            <div className="flex items-center justify-between text-xs text-slate-400 mt-2">
+                              <div className="flex items-center gap-4">
+                                <span className="flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  {formatTime(event.created_at)}
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                  </svg>
+                                  {event.actor_username || 'System'}
+                                </span>
+                              </div>
+                              {event.relative_time && (
+                                <span className="text-slate-500 italic">{event.relative_time}</span>
+                              )}
+                            </div>
+                          }
+                        />
+                        <CardBody className="space-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {event.target_username && event.target_username !== event.actor_username && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.124-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.124-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Target:</span>
+                                  <span className="text-slate-200 ml-1">{event.target_username}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.tenant_id && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Tenant:</span>
+                                  <span className="text-slate-200 ml-1">{event.tenant_id}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.ip_address && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">IP:</span>
+                                  <span className="text-slate-200 ml-1">{event.ip_address}</span>
+                                </div>
+                              </div>
+                            )}
+                            {event.resource_type && (
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                <div>
+                                  <span className="font-medium text-slate-400">Resource:</span>
+                                  <span className="text-slate-200 ml-1">{event.resource_type}{event.resource_id ? `/${event.resource_id}` : ''}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {describeDetails(event.details || {}) && (
+                            <div className="pt-3 border-t border-slate-700/50">
+                              <span className="text-sm text-slate-400 font-medium">Details: </span>
+                              <span className="text-sm text-slate-300">{describeDetails(event.details || {})}</span>
+                            </div>
+                          )}
+                        </CardBody>
+                      </Card>
+                    </div>
                   </div>
-                )}
-                {event.tenant_id && (
-                  <div>
-                    <span className="font-medium text-slate-300">Tenant:</span> 
-                    <span className="text-slate-200">{event.tenant_id}</span>
-                  </div>
-                )}
-                {describeDetails(event.details || {}) && (
-                  <div className="text-xs text-slate-400 mt-2">
-                    {describeDetails(event.details || {})}
-                  </div>
-                )}
-              </CardBody>
-            </Card>
+                )
+              })}
+            </div>
           </div>
         ))}
       </div>

@@ -1021,6 +1021,9 @@ def _init_admin_audit_tables(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_action ON admin_audit_events(action, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_tenant ON admin_audit_events(tenant_id, created_at DESC)")
     conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
+    
+    # Initialize new audit_logs table
+    _init_audit_logs_table(conn)
 
 
 _AUDIT_SENSITIVE_KEY_PARTS = (
@@ -2855,3 +2858,57 @@ def get_all_admins_except(current_username: str) -> list:
             (current_username,),
         ).fetchall()
         return [r["username"] for r in rows]
+
+
+def _init_audit_logs_table(conn):
+    """Initialize the dedicated audit_logs table for Healthy Earth theme."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            category TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed', 'pending')),
+            description TEXT,
+            metadata TEXT DEFAULT '{}'
+        )"""
+    )
+    
+    # Create indexes for performance
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_created ON audit_logs(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_actor ON audit_logs(actor, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_action ON audit_logs(action, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_category ON audit_logs(category, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_status ON audit_logs(status, created_at DESC)")
+
+
+def record_audit_log_event(
+    conn,
+    actor: str,
+    action: str,
+    category: str,
+    status: str = "success",
+    description: str = "",
+    metadata: dict = None
+):
+    """Record an audit log event for the Healthy Earth audit system."""
+    if status not in ("success", "failed", "pending"):
+        raise ValueError("Status must be success, failed, or pending")
+    
+    import json
+    conn.execute(
+        """INSERT INTO audit_logs 
+           (created_at, actor, action, category, status, description, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            datetime.now(timezone.utc).isoformat(),
+            actor,
+            action,
+            category,
+            status,
+            description,
+            json.dumps(metadata or {})
+        )
+    )
+    return conn.total_changes
