@@ -992,6 +992,92 @@ def _init_tenant_change_tables(conn):
         """CREATE INDEX IF NOT EXISTS ix_tenant_change_events_request
            ON tenant_change_request_events(request_id, id)"""
     )
+        "CREATE INDEX IF NOT EXISTS ix_tenant_change_events_request ON tenant_change_request_events(request_id, id)"
+    )
+
+
+def _init_admin_audit_tables(conn):
+    """Create the durable, append-only admin audit log retained for one year."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS admin_audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            actor_id INTEGER,
+            actor_username TEXT,
+            actor_role TEXT,
+            action TEXT NOT NULL,
+            outcome TEXT NOT NULL DEFAULT 'success' CHECK (outcome IN ('success', 'failure')),
+            resource_type TEXT NOT NULL DEFAULT '',
+            resource_id TEXT NOT NULL DEFAULT '',
+            target_username TEXT,
+            tenant_id TEXT,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            ip_address TEXT,
+            user_agent TEXT
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_created ON admin_audit_events(created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_actor ON admin_audit_events(actor_username, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_action ON admin_audit_events(action, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_tenant ON admin_audit_events(tenant_id, created_at DESC)")
+    conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
+
+
+_AUDIT_SENSITIVE_KEY_PARTS = (
+    "password", "otp", "token", "secret", "credential", "authorization", "api_key", "payload", "body",
+)
+
+
+def safe_audit_details(value):
+    """Remove secret-like keys recursively before storing or returning details."""
+    if isinstance(value, dict):
+        return {
+            str(key): safe_audit_details(item)
+            for key, item in value.items()
+            if not any(part in str(key).lower().replace('-', '_') for part in _AUDIT_SENSITIVE_KEY_PARTS)
+        }
+    if isinstance(value, (list, tuple)):
+        return [safe_audit_details(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def record_admin_audit_event(
+    conn,
+    *,
+    action: str,
+    actor: dict | None = None,
+    outcome: str = "success",
+    resource_type: str = "",
+    resource_id: str | int | None = None,
+    target_username: str | None = None,
+    tenant_id: str | None = None,
+    details: dict | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> int:
+    """Record an audit event using the caller's transaction."""
+    if outcome not in {"success", "failure"}:
+        raise ValueError("Audit outcome must be success or failure")
+    actor = actor or {}
+    conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
+    cursor = conn.execute(
+        """INSERT INTO admin_audit_events
+           (created_at, actor_id, actor_username, actor_role, action, outcome,
+            resource_type, resource_id, target_username, tenant_id, details_json,
+            ip_address, user_agent)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            datetime.now(timezone.utc).isoformat(), actor.get("id"), actor.get("username"),
+            actor.get("role"), action, outcome, resource_type,
+            "" if resource_id is None else str(resource_id), target_username,
+            tenant_id or actor.get("tenant_id"),
+            json.dumps(safe_audit_details(details or {}), ensure_ascii=False),
+            ip_address, user_agent
+        ),
+    )
+    return int(cursor.lastrowid)
 
 
 def _init_integration_tables(conn):
