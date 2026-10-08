@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from database import get_db, get_db_context
+from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import get_current_admin, has_permission
 
 router = APIRouter(tags=["api-onboarding"])
@@ -174,6 +174,15 @@ def _create_request(body: OnboardingRequestCreate, current_admin: dict):
             old_status=None,
             new_status="pending",
         )
+        record_admin_audit_event(
+            conn,
+            action="api_access_request_submitted",
+            actor=current_admin,
+            resource_type="api_access_request",
+            resource_id=request_id,
+            tenant_id=tenant_id,
+            details={"api_type": body.api_type, "environment": body.environment},
+        )
         row = conn.execute(
             """SELECT r.*, 0 AS eligible FROM api_onboarding_requests r WHERE r.id = ?""",
             (request_id,),
@@ -307,6 +316,18 @@ async def decide_request(
             old_status="pending",
             new_status=body.decision,
             note=body.note,
+        )
+        request_meta = conn.execute(
+            "SELECT tenant_id, api_type FROM api_onboarding_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+        record_admin_audit_event(
+            conn,
+            action="api_access_request_reviewed",
+            actor=current_admin,
+            resource_type="api_access_request",
+            resource_id=request_id,
+            tenant_id=request_meta["tenant_id"],
+            details={"decision": body.decision, "api_type": request_meta["api_type"]},
         )
         result = conn.execute(
             """SELECT r.*, CASE WHEN e.request_id IS NULL THEN 0 ELSE 1 END AS eligible

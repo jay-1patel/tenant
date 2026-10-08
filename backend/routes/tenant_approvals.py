@@ -27,7 +27,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from database import get_db, get_db_context
+from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import get_current_admin, has_permission
 
 logger = logging.getLogger("tenant-approvals")
@@ -265,6 +265,15 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
             new_status="pending",
             note=body.note,
         )
+        record_admin_audit_event(
+            conn,
+            action="tenant_change_request_submitted",
+            actor=current_admin,
+            resource_type="tenant_change_request",
+            resource_id=request_id,
+            tenant_id=tenant_id,
+            details={"request_type": body.request_type},
+        )
         row = conn.execute(
             "SELECT * FROM tenant_change_requests WHERE id = ?",
             (request_id,),
@@ -360,14 +369,25 @@ def _apply_request(row: dict) -> int:
                 detail=f"tenant '{tenant_id}' already exists — reject this request",
             )
         tenant_fields = payload.get("tenant") or {}
-        tenancy_store.ensure_tenant(
-            tenant_id,
-            slug=tenant_fields.get("slug") or tenant_id,
-            vertical=tenant_fields.get("vertical") or "generic",
-            waba_phone_id=tenant_fields.get("waba_phone_id") or "",
-            display_name=tenant_fields.get("display_name") or "",
-            status=tenant_fields.get("status") or "active",
-        )
+        with get_db_context() as conn:
+            tenancy_store.ensure_tenant(
+                tenant_id,
+                slug=tenant_fields.get("slug") or tenant_id,
+                vertical=tenant_fields.get("vertical") or "generic",
+                waba_phone_id=tenant_fields.get("waba_phone_id") or "",
+                display_name=tenant_fields.get("display_name") or "",
+                status=tenant_fields.get("status") or "active",
+                conn=conn,
+            )
+            record_admin_audit_event(
+                conn,
+                action="tenant_created",
+                actor={"id": row.get("reviewer_id"), "username": row.get("reviewer_username"), "role": "super_admin"},
+                resource_type="tenant",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"approved_request": True, "request_type": row["request_type"]},
+            )
         snapshot = payload.get("snapshot") or {}
     else:
         if not tenancy_store.get_tenant(tenant_id):
@@ -448,6 +468,15 @@ async def decide_request(
             old_status="pending",
             new_status=body.decision,
             note=body.note,
+        )
+        record_admin_audit_event(
+            conn,
+            action="tenant_change_request_reviewed",
+            actor=current_admin,
+            resource_type="tenant_change_request",
+            resource_id=request_id,
+            tenant_id=row["tenant_id"],
+            details={"decision": body.decision, "request_type": row["request_type"]},
         )
         result = conn.execute(
             "SELECT * FROM tenant_change_requests WHERE id = ?",

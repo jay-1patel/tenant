@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, PlusCircle, ScrollText, Send, UserRound, Users, ShieldCheck, KeyRound } from 'lucide-react'
+import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, PlusCircle, Send, UserRound, Users, ShieldCheck, KeyRound, ScrollText } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { useTenantFeatures, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
@@ -179,20 +180,24 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           {(identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && can('manage_operations'))) && (
             <div className="border-t border-surface-line pt-3">
               {identity?.role === 'super_admin' ? (
+<<<<<<< HEAD
                 <div>
+=======
+                <>
                   <button
                     type="button"
                     onClick={() => navigate('/tenant-requests')}
-                    className={cn(
-                      'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                      route.view === 'tenant-requests'
-                        ? 'bg-accent-100 font-medium text-accent-800'
-                        : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
-                    )}
-                  >
-                    <ClipboardCheck className="h-4 w-4 shrink-0" />
-                    Tenant change review
-                  </button>
+                  className={cn(
+                    'mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                    route.view === 'tenant-requests'
+                      ? 'bg-accent-100 font-medium text-accent-800'
+                      : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                  )}
+                >
+                  <ClipboardCheck className="h-4 w-4 shrink-0" />
+                  Tenant change review
+                </button>
+>>>>>>> 6121b3f (Update tenant features)
                 <button
                   type="button"
                   onClick={() => navigate('/api-requests')}
@@ -204,6 +209,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                   )}
                 >
                   <ShieldCheck className="h-4 w-4 shrink-0" />
+<<<<<<< HEAD
                   API access review
                 </button>
                 <button
@@ -220,6 +226,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                   Audit history
                 </button>
                 </div>
+=======
+                    API access review
+                  </button>
+                </>
+>>>>>>> 6121b3f (Update tenant features)
               ) : (
                 <>
                   {identity?.tenant_id && (
