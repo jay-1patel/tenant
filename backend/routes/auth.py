@@ -18,12 +18,10 @@ REVOKED_TOKENS = set()
 from routing.config import ADMIN_SECRET_KEY, ADMIN_JWT_EXPIRY_HOURS, OTP_EXPIRY_MINUTES
 from database import (
     get_db_context,
+    record_admin_audit_event,
     get_admin_record,
     list_admin_records,
     count_admins_by_role,
-    update_admin_record,
-    update_admin_email,
-    delete_admin,
     set_admin_otp,
     get_admin_otp,
     clear_admin_otp,
@@ -417,9 +415,18 @@ async def create_first_admin(request: Request, body: FirstAdminRequest):
     role = "super_admin"
     email = (body.email or "").strip() or None
     with get_db_context() as conn:
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
             (body.username, hashed, role, json.dumps(SUPER_ADMIN_PERMISSIONS), email, None),
+        )
+        record_admin_audit_event(
+            conn,
+            action="first_admin_created",
+            actor={"id": cur.lastrowid, "username": body.username, "role": role},
+            resource_type="admin",
+            resource_id=cur.lastrowid,
+            target_username=body.username,
+            details={"role": role},
         )
 
     token = _create_token(body.username)
@@ -446,9 +453,29 @@ async def admin_login(request: Request, body: LoginRequest):
         ).fetchone()
 
     if not admin or not _verify_password(body.password, admin["password_hash"]):
+        with get_db_context() as conn:
+            record_admin_audit_event(
+                conn,
+                action="login",
+                actor={"username": body.username[:100], "role": admin["role"] if admin else None},
+                outcome="failure",
+                resource_type="admin_session",
+                target_username=body.username[:100],
+                tenant_id=admin["tenant_id"] if admin else None,
+                details={"reason": "invalid_credentials"},
+            )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     admin_dict = dict(admin)
+    with get_db_context() as conn:
+        record_admin_audit_event(
+            conn,
+            action="login",
+            actor={**admin_dict, "username": admin_dict["username"][:100]},
+            resource_type="admin_session",
+            target_username=admin_dict["username"][:100],
+            tenant_id=admin_dict.get("tenant_id"),
+        )
     token = _create_token(admin_dict["username"])
     logger.info(f"Admin logged in: {admin_dict['username']}")
     return {
@@ -517,14 +544,24 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         tenant_id = current_admin.get("tenant_id")
     # If super_admin creating super_admin, tenant_id is None
 
-    with get_db_context() as conn:
-        try:
-            conn.execute(
+    try:
+        with get_db_context() as conn:
+            cur = conn.execute(
                 "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
                 (body.username, _hash_password(body.password), role, json.dumps(permissions), email, tenant_id),
             )
-        except Exception:
-            raise HTTPException(status_code=409, detail="Username already taken")
+            record_admin_audit_event(
+                conn,
+                action="admin_created",
+                actor=current_admin,
+                resource_type="admin",
+                resource_id=cur.lastrowid,
+                target_username=body.username,
+                tenant_id=tenant_id,
+                details={"role": role},
+            )
+    except Exception:
+        raise HTTPException(status_code=409, detail="Username already taken")
 
     logger.info(f"Admin created by {current_admin['username']}: {body.username} ({role})")
     return {"status": "ok", "username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id, "created_by": current_admin["username"]}
@@ -602,11 +639,52 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     # else tenant_id is left untouched (None means "no change" here).
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
 
-    update_admin_record(username, new_role, permissions, tenant_id=tenant_id)
-
-    if body.email is not None:
-        email = body.email.strip() or None
-        update_admin_email(username, email)
+    before = {
+        "role": target.get("role"),
+        "permissions": target.get("permissions") or {},
+        "tenant_id": target.get("tenant_id"),
+        "email": target.get("email"),
+    }
+    email = body.email.strip() or None if body.email is not None else before["email"]
+    with get_db_context() as conn:
+        updates = {"role": new_role, "permissions": json.dumps(permissions)}
+        if tenant_id is not None:
+            updates["tenant_id"] = tenant_id
+        if body.email is not None:
+            updates["email"] = email
+        conn.execute(
+            f"UPDATE admins SET {', '.join(f'{field} = ?' for field in updates)}, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+            [*updates.values(), username],
+        )
+        after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
+        changed_permissions = sorted(
+            key for key in set(before["permissions"]) | set(permissions)
+            if bool(before["permissions"].get(key)) != bool(permissions.get(key))
+        )
+        record_admin_audit_event(
+            conn,
+            action="admin_updated",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=target.get("id"),
+            target_username=username,
+            tenant_id=after_tenant,
+            details={
+                "changed_fields": [
+                    field for field, old, new in (
+                        ("role", before["role"], new_role),
+                        ("permissions", before["permissions"], permissions),
+                        ("tenant_id", before["tenant_id"], after_tenant),
+                        ("email", before["email"], email),
+                    ) if old != new and (field != "email" or body.email is not None)
+                ],
+                "role_before": before["role"],
+                "role_after": new_role,
+                "tenant_id_before": before["tenant_id"],
+                "tenant_id_after": after_tenant,
+                "permission_keys_changed": changed_permissions,
+            },
+        )
 
     logger.info(f"Admin updated by {current_admin['username']}: {username} ({new_role})")
     return {"status": "ok", "username": username, "role": new_role, "permissions": permissions}
@@ -628,7 +706,18 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if target["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
 
-    delete_admin(username)
+    with get_db_context() as conn:
+        conn.execute("DELETE FROM admins WHERE username = ?", (username,))
+        record_admin_audit_event(
+            conn,
+            action="admin_deleted",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=target.get("id"),
+            target_username=username,
+            tenant_id=target.get("tenant_id"),
+            details={"role": target.get("role")},
+        )
     logger.info(f"Admin deleted by {current_admin['username']}: {username}")
     return {"status": "ok", "username": username}
 
@@ -667,6 +756,15 @@ def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current
         conn.execute(
             "UPDATE admins SET password_hash = ? WHERE username = ?",
             (hashed, username,),
+        )
+        record_admin_audit_event(
+            conn,
+            action="admin_password_reset",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=target.get("id"),
+            target_username=username,
+            tenant_id=target.get("tenant_id"),
         )
 
     logger.info(f"Password reset for admin {username} by {current_admin['username']}")
@@ -707,6 +805,14 @@ def change_password(body: ChangePasswordRequest, current_admin: dict = Depends(g
         conn.execute(
             "UPDATE admins SET password_hash = ? WHERE username = ?",
             (hashed, current_admin["username"],),
+        )
+        record_admin_audit_event(
+            conn,
+            action="password_changed",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=current_admin.get("id"),
+            target_username=current_admin["username"],
         )
 
     logger.info(f"Password changed for admin: {current_admin['username']}")
@@ -825,6 +931,23 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
         conn.execute(
             "UPDATE admins SET password_hash = ? WHERE username = ?",
             (hashed, body.username,),
+        )
+        target = conn.execute(
+            "SELECT id, role, tenant_id FROM admins WHERE username = ?", (body.username,)
+        ).fetchone()
+        record_admin_audit_event(
+            conn,
+            action="admin_password_reset_via_otp",
+            actor={
+                "id": target["id"] if target else None,
+                "username": body.username,
+                "role": target["role"] if target else None,
+                "tenant_id": target["tenant_id"] if target else None,
+            },
+            resource_type="admin",
+            resource_id=target["id"] if target else None,
+            target_username=body.username,
+            tenant_id=target["tenant_id"] if target else None,
         )
     clear_admin_otp(body.username)
 

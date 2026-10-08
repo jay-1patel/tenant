@@ -74,6 +74,7 @@ class ApiOnboardingTests(unittest.TestCase):
             );
             """
         )
+        database._init_admin_audit_tables(conn)
         conn.commit()
         conn.close()
         self.db_patch = patch.object(api_onboarding, "get_db", side_effect=self._connect)

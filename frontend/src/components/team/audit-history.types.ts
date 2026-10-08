@@ -148,3 +148,18 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
 
 // Filter persistence key
 export const FILTER_STORAGE_KEY = 'audit_history_filters'
+<<<<<<< HEAD
+=======
+
+// Labels for display
+export const LABELS = {
+  created_at: 'Date/Time',
+  action: 'Action',
+  actor_username: 'Actor',
+  target_username: 'Target',
+  tenant_id: 'Tenant',
+  outcome: 'Outcome',
+  ip_address: 'IP Address',
+  resource_type: 'Resource Type',
+} as const;
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e

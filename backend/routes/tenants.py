@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
+from database import get_db_context, record_admin_audit_event
 from routes.auth import (
     get_current_admin,
     has_permission,
@@ -141,14 +142,28 @@ def create_tenant(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
-    tenancy_store.ensure_tenant(
-        tid,
-        slug=body.slug or tid,
-        vertical=body.vertical,
-        waba_phone_id=body.waba_phone_id,
-        display_name=body.display_name,
-        status=body.status,
-    )
+    with get_db_context() as conn:
+        if conn.execute("SELECT 1 FROM tenants WHERE id = ?", (tid,)).fetchone():
+            raise HTTPException(status_code=409, detail=f"tenant '{tid}' already exists")
+        tenancy_store.ensure_tenant(
+            tid,
+            slug=body.slug or tid,
+            vertical=body.vertical,
+            waba_phone_id=body.waba_phone_id,
+            display_name=body.display_name,
+            status=body.status,
+            conn=conn,
+        )
+        record_admin_audit_event(
+            conn,
+            action="tenant_created",
+            actor=current_admin,
+            resource_type="tenant",
+            resource_id=tid,
+            tenant_id=tid,
+            details={"vertical": body.vertical, "status": body.status},
+        )
+    tenancy_cache.purge(tid)
     logger.info("TENANT_CREATED | tenant=%s | vertical=%s | by=%s",
                 tid, body.vertical, current_admin.get("username"))
     return {"ok": True, "tenant": _public_tenant(tenancy_store.get_tenant(tid))}
@@ -162,8 +177,17 @@ def delete_tenant(
     _admin_only(principal)
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
+    with get_db_context() as conn:
+        tenancy_store.delete_tenant(tenant_id, conn=conn)
+        record_admin_audit_event(
+            conn,
+            action="tenant_deleted",
+            actor={"username": principal.get("username"), "role": principal.get("role"), "tenant_id": tenant_id},
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+        )
     tenancy_cache.purge(tenant_id)
-    tenancy_store.delete_tenant(tenant_id)
     logger.info("TENANT_DELETED | tenant=%s | by=%s", tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id}
 
@@ -278,7 +302,18 @@ def save_profile_draft(    tenant_id: str,
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
     merged = merge_drafts(draft, body.snapshot)
-    tenancy_store.save_draft(tenant_id, merged, updated_by=by)
+    with get_db_context() as conn:
+        tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_draft_saved",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"changed_sections": sorted(body.snapshot.keys())},
+            )
 
     warnings: list = []
     try:
@@ -371,7 +406,18 @@ def save_intent_draft(
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
     merged = deep_merge(draft, {"intents": [override]})
-    tenancy_store.save_draft(tenant_id, merged, updated_by=by)
+    with get_db_context() as conn:
+        tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_intent_draft_saved",
+                actor=principal,
+                resource_type="tenant_intent",
+                resource_id=intent_name,
+                tenant_id=tenant_id,
+                details={"changed_fields": sorted(k for k in override if k != "name")},
+            )
 
     warnings: list = []
     try:
@@ -405,7 +451,18 @@ def publish_profile(
         )
 
     by = principal.get("username") or principal.get("label", "")
-    version = tenancy_store.publish_version(tenant_id, draft, published_by=by)
+    with get_db_context() as conn:
+        version = tenancy_store.publish_version(tenant_id, draft, published_by=by, conn=conn)
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_published",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"version": version},
+            )
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_PROFILE_PUBLISHED | tenant=%s | version=%s | by=%s", tenant_id, version, by)
     return {
@@ -458,8 +515,19 @@ def rollback_profile(
     principal: dict = Depends(require_tenant_access()),
 ):
     """Re-point is_current at an earlier version. Nothing is deleted."""
-    if not tenancy_store.rollback(tenant_id, body.version):
-        raise HTTPException(status_code=404, detail=f"version {body.version} not found")
+    with get_db_context() as conn:
+        if not tenancy_store.rollback(tenant_id, body.version, conn=conn):
+            raise HTTPException(status_code=404, detail=f"version {body.version} not found")
+        if principal.get("type") == "admin":
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_rolled_back",
+                actor=principal,
+                resource_type="tenant_profile",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"version": body.version},
+            )
     tenancy_cache.purge(tenant_id)
     profile = tenancy_loader.get_tenant_profile(tenant_id)
     logger.info("TENANT_PROFILE_ROLLBACK | tenant=%s | to=v%s | by=%s",
@@ -484,10 +552,20 @@ def bind_phone(
     _admin_only(principal)
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
-    if not tenancy_store.set_waba_phone_id(tenant_id, body.waba_phone_id):
-        raise HTTPException(
-            status_code=409,
-            detail=f"phone id already bound to another tenant",
+    with get_db_context() as conn:
+        if not tenancy_store.set_waba_phone_id(tenant_id, body.waba_phone_id, conn=conn):
+            raise HTTPException(
+                status_code=409,
+                detail="phone id already bound to another tenant",
+            )
+        record_admin_audit_event(
+            conn,
+            action="tenant_phone_id_bound",
+            actor=principal,
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"configured": bool(body.waba_phone_id.strip())},
         )
     return {"ok": True, "tenant_id": tenant_id, "waba_phone_id": body.waba_phone_id}
 
@@ -500,8 +578,6 @@ def set_webhook_secret(
 ):
     """Per-tenant HMAC secret for outbound CRM webhooks."""
     _admin_only(principal)
-    from database import get_db_context
-
     with get_db_context() as conn:
         cur = conn.execute(
             "UPDATE tenants SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -509,6 +585,15 @@ def set_webhook_secret(
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="tenant not found")
+        record_admin_audit_event(
+            conn,
+            action="tenant_webhook_secret_configured",
+            actor=principal,
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"configured": True},
+        )
     logger.info("TENANT_WEBHOOK_SECRET_SET | tenant=%s | by=%s",
                 tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id, "configured": True}
@@ -530,9 +615,19 @@ def create_token(
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
     raw = secrets.token_urlsafe(40)
-    token_id = tenancy_store.create_tenant_token(
-        tenant_id, hash_tenant_token(raw), label=body.label, created_by=by
-    )
+    with get_db_context() as conn:
+        token_id = tenancy_store.create_tenant_token(
+            tenant_id, hash_tenant_token(raw), label=body.label, created_by=by, conn=conn
+        )
+        record_admin_audit_event(
+            conn,
+            action="tenant_token_created",
+            actor=principal,
+            resource_type="tenant_token",
+            resource_id=token_id,
+            tenant_id=tenant_id,
+            details={},
+        )
     logger.info("TENANT_TOKEN_CREATED | tenant=%s | id=%s | by=%s", tenant_id, token_id, by)
     return {
         "ok": True,
@@ -556,8 +651,22 @@ def revoke_token(
     principal: dict = Depends(require_tenant_access()),
 ):
     _admin_only(principal)
-    if not tenancy_store.revoke_tenant_token(token_id):
-        raise HTTPException(status_code=404, detail="token not found or already revoked")
+    with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT id, label FROM tenant_tokens WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL",
+            (token_id, tenant_id),
+        ).fetchone()
+        if not row or not tenancy_store.revoke_tenant_token(token_id, conn=conn):
+            raise HTTPException(status_code=404, detail="token not found or already revoked")
+        record_admin_audit_event(
+            conn,
+            action="tenant_token_revoked",
+            actor=principal,
+            resource_type="tenant_token",
+            resource_id=token_id,
+            tenant_id=tenant_id,
+            details={},
+        )
     return {"ok": True, "id": token_id}
 
 

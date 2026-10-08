@@ -14,6 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from database import (
+    get_db_context,
+    record_admin_audit_event,
     get_published_config,
     get_draft_config,
     save_draft_config,
@@ -119,10 +121,30 @@ def save_config(
         tid = _require_tenant(scope, tenant_id)
         from shared.tenancy import store as tenancy_store
 
-        tenancy_store.save_draft(tid, snapshot, updated_by=username)
+        with get_db_context() as conn:
+            tenancy_store.save_draft(tid, snapshot, updated_by=username, conn=conn)
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_draft_saved",
+                actor=current_admin,
+                resource_type="tenant_profile",
+                resource_id=tid,
+                tenant_id=tid,
+                details={"changed_sections": sorted(snapshot.keys())},
+            )
         logger.info(f"TENANT_PROFILE_DRAFT_SAVED | tenant={tid} | by={username}")
         return {"ok": True, "scope": scope, "tenant_id": tid, "has_draft": True}
-    ok = save_draft_config(scope, snapshot, updated_by=username)
+    with get_db_context() as conn:
+        ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+        if ok:
+            record_admin_audit_event(
+                conn,
+                action="config_draft_saved",
+                actor=current_admin,
+                resource_type="configuration",
+                resource_id=scope,
+                details={"scope": scope},
+            )
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save draft")
     logger.info(f"DRAFT_SAVED | scope={scope} | by={username}")
@@ -144,7 +166,17 @@ def build_draft(
         )
     snapshot = build_products_snapshot()
     username = current_admin.get("username", "")
-    ok = save_draft_config(scope, snapshot, updated_by=username)
+    with get_db_context() as conn:
+        ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+        if ok:
+            record_admin_audit_event(
+                conn,
+                action="config_draft_built",
+                actor=current_admin,
+                resource_type="configuration",
+                resource_id=scope,
+                details={"scope": scope},
+            )
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save draft")
     logger.info(f"DRAFT_BUILT | scope={scope} | by={username}")
@@ -162,14 +194,26 @@ def publish(
     username = current_admin.get("username", "")
 
     if scope in TENANT_SCOPED:
-        return _publish_tenant_profile(scope, tenant_id, username)
+        return _publish_tenant_profile(scope, tenant_id, username, actor=current_admin)
 
     # For products, the canonical draft is auto-generated from the products table.
     if scope == "products":
         snapshot = build_products_snapshot()
-        save_draft_config(scope, snapshot, updated_by=username)
 
-    ok = publish_config(scope, published_by=username)
+    with get_db_context() as conn:
+        if scope == "products":
+            save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+        ok = publish_config(scope, published_by=username, conn=conn)
+        if ok:
+            record_admin_audit_event(
+                conn,
+                action="config_published",
+                actor=current_admin,
+                resource_type="configuration",
+                resource_id=scope,
+                tenant_id=tenant_id,
+                details={"scope": scope},
+            )
     if not ok:
         raise HTTPException(
             status_code=400,
@@ -179,7 +223,7 @@ def publish(
     return {"ok": True, "scope": scope, "published": True}
 
 
-def _publish_tenant_profile(scope: str, tenant_id: Optional[str], username: str) -> dict:
+def _publish_tenant_profile(scope: str, tenant_id: Optional[str], username: str, actor: dict | None = None) -> dict:
     """Validate the merged profile, then append a new version and go live.
 
     Validation runs against defaults + file + draft BEFORE the write, so an
@@ -206,7 +250,18 @@ def _publish_tenant_profile(scope: str, tenant_id: Optional[str], username: str)
             detail=f"Profile failed validation, nothing published: {exc}",
         )
 
-    version = tenancy_store.publish_version(tid, draft, published_by=username)
+    with get_db_context() as conn:
+        version = tenancy_store.publish_version(tid, draft, published_by=username, conn=conn)
+        if actor:
+            record_admin_audit_event(
+                conn,
+                action="tenant_profile_published",
+                actor=actor,
+                resource_type="tenant_profile",
+                resource_id=tid,
+                tenant_id=tid,
+                details={"version": version},
+            )
     tenancy_cache.purge(tid)
     logger.info(f"TENANT_PROFILE_PUBLISHED | tenant={tid} | version={version} | by={username}")
     return {

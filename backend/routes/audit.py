@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
-from database import _safe_audit_details, get_db
+from database import get_db, safe_audit_details
 from routes.auth import get_current_admin
 
 router = APIRouter(tags=["audit-history"])
@@ -132,7 +132,7 @@ def list_audit_history(
     for row in rows:
         event = dict(row)
         try:
-            event["details"] = _safe_audit_details(json.loads(event.pop("details_json") or "{}"))
+            event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
         except (json.JSONDecodeError, TypeError):
             event["details"] = {}
         events.append(event)

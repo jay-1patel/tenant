@@ -12,14 +12,23 @@ import {
   Sparkles,
   Webhook,
 } from 'lucide-react'
+<<<<<<< HEAD
 import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, type WizardDraft } from '@/lib/profile'
+=======
+import { applyVertical, draftFromProfile, draftToSnapshot, emptyDraft, slugify, timezoneOptions, type WizardDraft } from '@/lib/profile'
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
 import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
+<<<<<<< HEAD
 import { FEATURE_GROUPS, FEATURE_LABELS, VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
 import type { FeatureFlag, Tenant } from '@/lib/types'
+=======
+import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
+import type { Tenant } from '@/lib/types'
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -43,6 +52,7 @@ const DAYS = [
 ]
 
 /** Dropdown for the working-hours timezone — free text invited typos. */
+<<<<<<< HEAD
 const TIMEZONES = [
   'Asia/Kolkata',
   'Asia/Dubai',
@@ -65,6 +75,8 @@ const TIMEZONES = [
   'Africa/Johannesburg',
   'UTC',
 ]
+=======
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // Country code (+91…) followed by a 10-digit number, spaces/dashes allowed.
@@ -106,7 +118,6 @@ const ADMIN_STEPS = [
   { id: 'tenant', label: 'Tenant' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'brand', label: 'Brand & voice' },
-  { id: 'capabilities', label: 'Capabilities' },
   { id: 'domain', label: 'Your business' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'guardrails', label: 'Guardrails' },
@@ -235,7 +246,10 @@ export function RegisterWizard() {
         {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
         {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
         {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
+<<<<<<< HEAD
         {stepId === 'capabilities' && <CapabilitiesStep draft={draft} patch={patch} />}
+=======
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
         {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
         {stepId === 'notifications' && <NotificationsStep draft={draft} patch={patch} />}
         {stepId === 'guardrails' && <GuardrailsStep draft={draft} patch={patch} />}
@@ -483,7 +497,11 @@ function WhatsAppStep({ draft, patch }: StepProps) {
           hint="Used by out-of-hours and callback logic."
         >
           <option value="">Select…</option>
+<<<<<<< HEAD
           {(TIMEZONES.includes(draft.timezone) || !draft.timezone ? TIMEZONES : [draft.timezone, ...TIMEZONES]).map((tz) => (
+=======
+          {timezoneOptions(draft.timezone).map((tz) => (
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
             <option key={tz} value={tz}>
               {tz}
             </option>
@@ -620,6 +638,7 @@ function BrandStep({ draft, patch }: StepProps) {
   )
 }
 
+<<<<<<< HEAD
 function CapabilitiesStep({ draft, patch }: StepProps) {
   const v = getVertical(draft.vertical)
   const on = new Set(draft.features)
@@ -673,6 +692,8 @@ function CapabilitiesStep({ draft, patch }: StepProps) {
   )
 }
 
+=======
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
 function DomainStep({ draft, patch }: StepProps) {
   const v = getVertical(draft.vertical)
   const missingRequired = v.questions.filter((q) => q.required && !answerValue(draft, q.key))
@@ -836,7 +857,6 @@ function ReviewStep({
   companyEditable: boolean
 }) {
   const v = getVertical(draft.vertical)
-  const on = new Set(draft.features)
   const answers = Object.entries(draft.answers).filter(([, value]) =>
     Array.isArray(value) ? value.length : Boolean(value),
   )
@@ -859,6 +879,7 @@ function ReviewStep({
     { label: 'Support', value: [draft.supportEmail, draft.supportPhone].filter(Boolean).join(' · ') || '—', step: 2 },
     { label: 'Calls it', value: v.nouns.item, step: 2 },
     {
+<<<<<<< HEAD
       label: 'Capabilities',
       value: (
         <span className="flex flex-wrap gap-1.5">
@@ -874,6 +895,8 @@ function ReviewStep({
       step: 3,
     },
     {
+=======
+>>>>>>> ad059aece57ef10c6e324d3f82e86b193f7ce21e
       label: 'Business answers',
       value: answers.length ? (
         <ul className="space-y-1">
@@ -887,19 +910,19 @@ function ReviewStep({
       ) : (
         '—'
       ),
-      step: 4,
+      step: 3,
     },
     {
       label: 'Notifications',
       value:
         [draft.salesEmail, draft.notificationsSupportEmail].filter(Boolean).join(' · ') ||
         'none configured',
-      step: 5,
+      step: 4,
     },
     {
       label: 'Never state',
       value: draft.neverState ? draft.neverState.split('\n').filter(Boolean).length + ' rule(s)' : '—',
-      step: 6,
+      step: 5,
     },
   ]
 

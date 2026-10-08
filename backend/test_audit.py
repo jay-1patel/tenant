@@ -111,7 +111,7 @@ class AuditHistoryTests(unittest.TestCase):
         conn = self._connect()
         conn.execute("BEGIN")
         conn.execute("INSERT INTO audit_test_mutations (id, value) VALUES (1, 'changed')")
-        with patch.object(database, "_safe_audit_details", side_effect=RuntimeError("audit failed")):
+        with patch.object(database, "safe_audit_details", side_effect=RuntimeError("audit failed")):
             with self.assertRaises(RuntimeError):
                 database.record_admin_audit_event(conn, action="test_mutation", actor=self.current_admin)
         conn.rollback()
