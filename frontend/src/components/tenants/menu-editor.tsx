@@ -36,6 +36,7 @@ const blankButton = (index: number): ButtonDraft => ({
   section: 'General',
   icon: '',
   sort_order: index,
+  enabled: true,
   requires_feature: null,
   out_of_hours_only: false,
   flow: null,
@@ -413,12 +414,34 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                     }}
                     placeholder="Get a Quote"
                   />
-                  <Input
-                    label="Section"
-                    value={draft.section}
-                    onChange={(e) => setDraft({ ...draft, section: e.target.value })}
-                    placeholder="🛠️ Services"
-                  />
+                  <div className="space-y-3">
+                    <Select
+                      label="Add to section"
+                      value={sections.includes(draft.section) ? draft.section : '__new_section__'}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (value === '__new_section__') {
+                          setDraft({ ...draft, section: sections.includes(draft.section) ? '' : draft.section })
+                        } else {
+                          setDraft({ ...draft, section: value })
+                        }
+                      }}
+                      hint="Pick an existing section or add a new section."
+                    >
+                      {sections.map((section) => (
+                        <option key={section} value={section}>{section}</option>
+                      ))}
+                      <option value="__new_section__">+ New section</option>
+                    </Select>
+                    {(!sections.length || !sections.includes(draft.section)) && (
+                      <Input
+                        label="New section name"
+                        value={draft.section}
+                        onChange={(e) => setDraft({ ...draft, section: e.target.value })}
+                        placeholder="🛠️ Services"
+                      />
+                    )}
+                  </div>
                   <Input
                     label="Icon"
                     value={draft.icon}
@@ -432,6 +455,12 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                   rows={2}
+                />
+                <Switch
+                  checked={draft.enabled}
+                  onChange={(enabled) => setDraft({ ...draft, enabled })}
+                  label="Menu option enabled"
+                  description="When off, this option is hidden from customers. Service feature permissions remain unchanged."
                 />
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Select
@@ -593,6 +622,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 {button.flow && <Badge tone="accent">flow: {button.flow}</Badge>}
                                 {button.intent && <Badge tone="neutral">intent: {button.intent}</Badge>}
                                 {button.out_of_hours_only && <Badge tone="warning">out of hours only</Badge>}
+                                {!button.enabled && <Badge tone="muted">disabled</Badge>}
                                 {button.requires_feature && (
                                   <Badge tone={gated ? 'danger' : 'muted'}>
                                     needs {FEATURE_LABELS[button.requires_feature as FeatureFlag]?.label}

@@ -275,4 +275,12 @@ def get_greeting_menu(wa_id: str) -> Dict[str, Any]:
         if menu.button_text:
             button_text = menu.button_text
 
+    if not items:
+        return {
+            "type": "text",
+            "header": _safe_truncate(header, LIST_HEADER_MAX),
+            "body": "There are no menu options available right now. Please type your question and I’ll help.",
+            "button_text": _safe_truncate(button_text, LIST_ROW_TITLE_MAX),
+            "sections": [],
+        }
     return build_list_menu(header, body, button_text, items)

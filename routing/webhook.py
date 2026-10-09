@@ -392,7 +392,29 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         # runner. Only a SUCCESSFUL start consumes the tap — a refused flow
         # (feature off, unknown) falls through to the pipeline below unchanged.
         pressed_id = _extract_pressed_id(message)
-        if pressed_id:
+        if pressed_id and pressed_id.startswith("menu_"):
+            try:
+                from backend.services.menu_catalog import profile_button_status
+                exists, available = profile_button_status(
+                    pressed_id, wa_id=wa_id, tenant_id=tenant_id
+                )
+                if exists and not available:
+                    note = "That menu option is no longer available. Please choose another option or ask our team for help."
+                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        send_whatsapp_message(wa_id, note)
+                    save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
+                    await log_outgoing_message(wa_id, note, "text")
+                    return
+                if not exists and pressed_id.startswith("menu_") and not pressed_id.startswith(("menu_faq", "menu_human", "menu_view_cart", "menu_new_arrivals")):
+                    note = "That menu option is no longer available. Please type your question or ask our team for help."
+                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        send_whatsapp_message(wa_id, note)
+                    save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
+                    await log_outgoing_message(wa_id, note, "text")
+                    return
+            except Exception as e:
+                logger.warning(f"Could not validate menu option {pressed_id}: {e}")
+
             try:
                 from backend.services import flow_runner
                 flow_name = flow_runner.flow_for_button(wa_id, pressed_id)
@@ -459,7 +481,7 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         # Log incoming message to company API
         await log_incoming_message(wa_id, user_text, msg_type)
 
-        response = await process_message(user_text, wa_id, raw_message=message)
+        response = await process_message(user_text, wa_id, raw_message=message, tenant_id=tenant_id)
         response_text = response.get("answer", "")
 
         # Log outgoing response to company API

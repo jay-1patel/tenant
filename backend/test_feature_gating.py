@@ -91,6 +91,24 @@ class FeatureGatingTests(unittest.TestCase):
         self.assertFalse(is_enabled("gate-test", "kb"))
         self.assertFalse(is_enabled("gate-test", "human_handover"))
 
+    def test_menu_button_enabled_is_independent_of_feature_flags(self):
+        # Missing `enabled` in older profile layers keeps the row visible.
+        profile, _ = self._publish()
+        live = get_tenant_profile("gate-test")
+        self.assertTrue(next(b for b in live.menu.buttons if b.id == "menu_offerings").enabled)
+
+        tenancy_store.save_draft("gate-test", {"menu": {"buttons": [{"id": "menu_offerings", "enabled": False}]}})
+        self._publish()
+        disabled = get_tenant_profile("gate-test")
+        visible = {b.id for b in disabled.menu.visible_buttons(disabled.features)}
+        self.assertNotIn("menu_offerings", visible)
+        self.assertIn("menu_callback", visible)
+
+        tenancy_store.save_draft("gate-test", {"menu": {"buttons": [{"id": "menu_offerings", "enabled": True}]}})
+        self._publish()
+        enabled = get_tenant_profile("gate-test")
+        self.assertIn("menu_offerings", {b.id for b in enabled.menu.visible_buttons(enabled.features)})
+
     def test_enabled_handover_keeps_the_button_and_intent(self):
         tenancy_store.save_draft(
             "gate-test",

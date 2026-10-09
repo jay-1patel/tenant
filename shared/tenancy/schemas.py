@@ -394,6 +394,8 @@ class MenuButton(_Base):
     section: str = "General"
     icon: str = ""
     sort_order: int = 0
+    # Independently controls whether this option appears in the customer menu.
+    enabled: bool = True
     # Button only renders when this feature flag is on (None = always).
     requires_feature: Optional[str] = None
     # Button only renders outside business hours when True.
@@ -415,9 +417,11 @@ class MenuSpec(_Base):
     def visible_buttons(
         self, features: Features, *, in_business_hours: bool = True
     ) -> List[MenuButton]:
-        """Menus only HIDE buttons. Services remain the real gate."""
+        """Filter menu visibility. Services remain the real entitlement gate."""
         out = []
         for b in self.buttons:
+            if not b.enabled:
+                continue
             if b.requires_feature and not features.is_on(b.requires_feature):
                 continue
             if b.out_of_hours_only and in_business_hours:

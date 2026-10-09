@@ -312,14 +312,33 @@ def get_profile_for(wa_id: str = "", tenant_id: Optional[str] = None):
         return None
 
 
+def profile_button_status(button_id: str, wa_id: str = "", tenant_id: Optional[str] = None):
+    """Return (exists, enabled) for a profile menu button and its feature gate."""
+    profile = get_profile_for(wa_id, tenant_id)
+    if profile is None:
+        return False, False
+    button = next((b for b in profile.menu.buttons if b.id == button_id), None)
+    if button is None:
+        return False, False
+    enabled = button.enabled and (
+        not button.requires_feature or profile.features.is_on(button.requires_feature)
+    )
+    if button.intent:
+        intent = profile.intent(button.intent)
+        enabled = enabled and bool(
+            intent and intent.enabled
+            and (not intent.requires_feature or profile.features.is_on(intent.requires_feature))
+        )
+    return True, enabled
+
+
 def get_profile_menu(
     profile, *, in_business_hours: bool = True
 ) -> List[MenuItem]:
     """Menu items for a tenant, from the profile's own button list.
 
-    Buttons whose feature flag is off are omitted. That is presentation only:
-    the services behind those buttons still refuse, so a stale button id typed
-    by hand still gets a polite refusal rather than a cart.
+    Disabled buttons and buttons whose feature flag is off are omitted. These
+    are presentation rules only: each service still enforces its own entitlement.
     """
     buttons = profile.menu.visible_buttons(
         profile.features, in_business_hours=in_business_hours
@@ -350,13 +369,9 @@ def get_kb_main_menu(
     """
     profile = get_profile_for(wa_id, tenant_id)
     if profile is not None:
-        items = get_profile_menu(profile)
-        if items:
-            return items
-        logger.warning(
-            "profile %s produced no menu buttons - falling back to code defaults",
-            profile.tenant_id,
-        )
+        # The resolved profile already includes vertical defaults. Never revive
+        # legacy defaults when this tenant intentionally has no visible rows.
+        return get_profile_menu(profile)
 
     entries = [e for e in _merge_entries("kb_main") if e["is_active"]]
 

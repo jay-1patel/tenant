@@ -101,6 +101,7 @@ export const resolved: ResolvedProfile = {
         section: 'main',
         icon: 'help',
         sort_order: 0,
+        enabled: true,
         requires_feature: null,
         out_of_hours_only: false,
         flow: null,

@@ -65,11 +65,12 @@ export function MenuPreview({ tenantId }: { tenantId: string }) {
                   .filter((b) => (b.section || 'General') === section)
                   .map((button) => {
                     const gated = button.requires_feature ? !data.features[button.requires_feature as FeatureFlag] : false
+                    const hidden = !button.enabled || gated
                     return (
                       <div
                         key={button.id}
                         className={`rounded-lg p-3 ring-1 ring-inset ${
-                          gated ? 'bg-surface-panel ring-surface-line/60 opacity-70' : 'bg-surface-panel ring-surface-line'
+                          hidden ? 'bg-surface-panel ring-surface-line/60 opacity-70' : 'bg-surface-panel ring-surface-line'
                         }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
@@ -81,6 +82,7 @@ export function MenuPreview({ tenantId }: { tenantId: string }) {
                           {button.flow && <Badge tone="accent">flow: {button.flow}</Badge>}
                           {button.intent && <Badge tone="neutral">intent: {button.intent}</Badge>}
                           {button.out_of_hours_only && <Badge tone="warning">out of hours only</Badge>}
+                          {!button.enabled && <Badge tone="muted">disabled</Badge>}
                           {gated && (
                             <Badge tone="danger">
                               <EyeOff className="h-3 w-3" />

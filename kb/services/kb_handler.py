@@ -673,7 +673,8 @@ async def handle_kb_query(
             logger.info(f"SENDING_CATALOGUE | to={wa_id} | action=CATALOG")
             try:
                 from .whatsapp import send_catalogue_pdf
-                sent = bool(send_catalogue_pdf(wa_id))
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                sent = bool(send_catalogue_pdf(wa_id, tenant_id=resolve_tenant_for_user(wa_id)))
             except Exception as e:
                 logger.error(f"Failed to send catalogue PDF to {wa_id}: {e}")
         response_text = "📄 Sent you the brochure."
@@ -714,6 +715,20 @@ async def handle_kb_query(
         if can_send_whatsapp:
             send_whatsapp_message(wa_id, response_text)
         return _result(response_text, route="new_arrivals", interactive=build_main_menu_buttons(), whatsapp_sent=bool(can_send_whatsapp))
+
+    if action == "SERVICE_ENQUIRY":
+        set_state(wa_id, UserState.MAIN_MENU)
+        try:
+            from backend.services.service_answers import answer_for_text
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            response_text = answer_for_text(wa_id, "our services", tenant_id=resolve_tenant_for_user(wa_id))
+        except Exception as e:
+            logger.error(f"Failed to list tenant services for {wa_id}: {e}")
+            response_text = None
+        response_text = response_text or "We don't have any services listed right now. Please contact our team for details."
+        if can_send_whatsapp:
+            send_whatsapp_message(wa_id, response_text)
+        return _result(response_text, route="service_enquiry", interactive=None, whatsapp_sent=bool(can_send_whatsapp))
 
     # ── CATALOG_FAQ: Show catalogue from FAQ ──────────────────────────────────
     if action == "CATALOG_FAQ":

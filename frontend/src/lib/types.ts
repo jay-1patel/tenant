@@ -110,6 +110,7 @@ export interface MenuButton {
   section: string
   icon: string
   sort_order: number
+  enabled: boolean
   requires_feature: string | null
   out_of_hours_only: boolean
   flow: string | null
