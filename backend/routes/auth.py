@@ -521,8 +521,8 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         raise HTTPException(status_code=403, detail="Only a super admin can create another super admin")
     if role == "admin" and current_role not in ("super_admin", "admin"):
         raise HTTPException(status_code=403, detail="Only super admin or admin can create an admin")
-    if role == "sub_admin" and current_role != "admin":
-        raise HTTPException(status_code=403, detail="Sub-admin can only be created by admin")
+    if role == "sub_admin" and current_role not in ("super_admin", "admin"):
+        raise HTTPException(status_code=403, detail="Only an admin or super admin can create a sub admin")
 
     # A new admin starts with every permission on (default_all=True); the
     # super admin can then edit the switches. Sub admins start with none.

@@ -219,8 +219,8 @@ export function TeamScreen() {
                     <Input
                       label="New password"
                       type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
+                      value={draft.password}
+                      onChange={(e) => setDraft({ ...draft, password: e.target.value })}
                       placeholder="Enter new password"
                       hint="At least 12 chars with upper/lower/digit/special char"
                     />
