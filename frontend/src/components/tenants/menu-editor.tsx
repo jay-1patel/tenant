@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ListPlus, Pencil, Save, Send, Trash2, X } from 'lucide-react'
 import { tenantsApi } from '@/lib/tenants'
 import { useAction } from '@/lib/hooks'
@@ -15,7 +15,6 @@ import { TagInput } from '@/components/ui/tags'
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
-import { useAuth } from '@/lib/auth'
 import { useTenantDetail } from './hooks'
 
 type ButtonDraft = Omit<MenuButton, 'sort_order'> & { sort_order: number }
@@ -55,9 +54,6 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const detail = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
-  const { identity } = useAuth()
-  const isSuperAdmin = identity?.role === 'super_admin'
-
   const [menu, setMenu] = useState<MenuSpec | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [draft, setDraft] = useState<ButtonDraft | null>(null)
@@ -80,6 +76,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   const [newIntents, setNewIntents] = useState<string[]>([])
   const [newIntentName, setNewIntentName] = useState('')
   const [newNameTouched, setNewNameTouched] = useState(false)
+  /** The open option form, so opening it scrolls it into view. */
+  const formRef = useRef<HTMLDivElement | null>(null)
 
   const effective = detail.data?.pending ?? detail.data?.effective ?? null
 
@@ -93,6 +91,15 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
       setNewIntents([])
     }
   }, [effective])
+
+  // Opening the option form (add, edit, or ?focus) brings it into view instead
+  // of leaving it sitting above the operator's scroll position.
+  const formOpen = draft !== null
+  useEffect(() => {
+    if (formOpen && formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [formOpen, editingIndex])
 
   // Arriving from the sidebar with ?focus=<button id> opens that option directly.
   useEffect(() => {
@@ -229,7 +236,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   })
 
   const startAdd = () => {
-    setDraft(blankButton(buttons.length))
+    setDraft({ ...blankButton(buttons.length), section: sections[0] ?? 'General' })
     setEditingIndex(-1)
     setNewIntentName('')
     setNewNameTouched(false)
@@ -315,7 +322,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
               Save draft
             </Button>
             <Button size="sm" variant="primary" loading={action.busy} icon={<Send className="h-4 w-4" />} onClick={() => commit(true)}>
-              {isSuperAdmin ? 'Save & publish' : 'Submit for approval'}
+              Save & publish
             </Button>
           </>
         }
@@ -385,6 +392,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
 
         <div className="space-y-4 lg:col-span-2">
           {draft && (
+            <div ref={formRef}>
             <Card>
               <CardHeader
                 title={editingIndex === -1 ? 'New menu option' : `Edit "${buttons[editingIndex ?? 0]?.title}"`}
@@ -581,6 +589,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                 </div>
               </CardBody>
             </Card>
+            </div>
           )}
 
           {!buttons.length && !draft ? (
@@ -610,7 +619,12 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                       const gated =
                         button.requires_feature && !effective.features?.[button.requires_feature as FeatureFlag]
                       return (
-                        <div key={button.id} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
+                        <div
+                          key={button.id}
+                          className={`rounded-lg bg-surface-panel p-3 ring-1 ring-inset ${
+                            editingIndex === index ? 'ring-accent-400' : 'ring-surface-line'
+                          }`}
+                        >
                           <div className="flex flex-wrap items-start gap-3">
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
@@ -678,7 +692,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                     Save draft
                   </Button>
                   <Button variant="primary" loading={action.busy} icon={<Send className="h-4 w-4" />} onClick={() => commit(true)}>
-                    {isSuperAdmin ? 'Save & publish' : 'Submit for approval'}
+                    Save & publish
                   </Button>
                 </div>
               </CardBody>

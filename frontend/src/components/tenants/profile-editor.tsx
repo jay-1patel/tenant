@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
-import { useAuth } from '@/lib/auth'
 import { tenantsApi } from '@/lib/tenants'
 import { editorContactErrors, editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
 import { getVertical } from '@/lib/verticals'
@@ -20,8 +19,6 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
-  const { identity } = useAuth()
-  const isSuperAdmin = identity?.role === 'super_admin'
   const [form, setForm] = useState<EditorForm | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [dirty, setDirty] = useState(false)
@@ -107,11 +104,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     <div>
       <PageHeader
         title="Profile"
-        description={
-          isSuperAdmin
-            ? "This form is the tenant's data layer. Saving writes a draft; publishing validates it, versions it and swaps the live profile. Publishing is the only thing the bot ever sees."
-            : "This form is the tenant's data layer. Your edits are saved as a draft and submitted to a super admin — nothing goes live until they approve."
-        }
+        description="This form is the tenant's data layer. Saving writes a draft; publishing validates it, versions it and swaps the live profile. Publishing is the only thing the bot ever sees."
         actions={
           editing ? (
             <>
@@ -128,28 +121,16 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               >
                 Discard changes
               </Button>
-              {isSuperAdmin ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    loading={action.busy}
-                    icon={<Save className="h-4 w-4" />}
-                    onClick={() => saveDraft(false)}
-                  >
-                    Save draft
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    loading={action.busy}
-                    icon={<Send className="h-4 w-4" />}
-                    onClick={() => saveDraft(true)}
-                  >
-                    Save & publish
-                  </Button>
-                </>
-              ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={action.busy}
+                  icon={<Save className="h-4 w-4" />}
+                  onClick={() => saveDraft(false)}
+                >
+                  Save draft
+                </Button>
                 <Button
                   size="sm"
                   variant="primary"
@@ -157,9 +138,9 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
                   icon={<Send className="h-4 w-4" />}
                   onClick={() => saveDraft(true)}
                 >
-                  Submit for approval
+                  Save & publish
                 </Button>
-              )}
+              </>
               <Button
                 size="sm"
                 variant="ghost"
@@ -399,9 +380,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         <TriangleAlert className="h-3.5 w-3.5" />
         {current === baseline
           ? 'No changes yet.'
-          : isSuperAdmin
-            ? 'Unsaved changes will be written as a draft, not published.'
-            : 'Unsaved changes stay a draft until you submit them for approval.'}
+          : 'Unsaved changes stay a draft until you publish them.'}
       </p>
     </div>
   )

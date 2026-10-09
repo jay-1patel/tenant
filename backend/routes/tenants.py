@@ -440,36 +440,18 @@ def save_intent_draft(
 @router.post("/{tenant_id}/publish")
 def publish_profile(
     tenant_id: str,
-    request: Request,
     principal: dict = Depends(require_tenant_access()),
-    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Validate the merged profile, append a version, go live, purge the cache.
 
-    Publishing is direct for super admins (and tenant-scoped tokens, whose
-    one capability is publishing their own tenant). Any other admin's
-    profile edit does not go live: it is queued as a pending request only a
-    super admin can approve — the same gate as the Register a tenant panel.
+    Publishing is direct for every principal that clears
+    require_tenant_access() — super admins, tenant admins and sub admins
+    holding the right permission, and tenant-scoped tokens. Each publish is
+    audit-logged below, so who made a profile live is always answerable.
     """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
-
-    if principal.get("type") == "admin" and principal.get("role") != "super_admin":
-        from routes.tenant_approvals import queue_publish_for_approval
-
-        current_admin = get_current_admin(request, credentials)
-        result = queue_publish_for_approval(tenant_id, current_admin)
-        return {
-            "ok": True,
-            "tenant_id": tenant_id,
-            "status": "pending_approval",
-            "request": result["request"],
-            "message": (
-                "Profile change sent for super admin approval — "
-                "it goes live only once approved."
-            ),
-        }
 
     try:
         profile = tenancy_loader.validate_merged_profile(tenant_id, draft)
