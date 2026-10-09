@@ -2017,6 +2017,14 @@ def save_product(name: str, slug: str, category: str = "general",
         )
         product_id = cur.lastrowid
         
+        try:
+            from backend.services.audit_context import actor_from_context
+        except ImportError:
+            try:
+                from services.audit_context import actor_from_context
+            except ImportError:
+                actor_from_context = lambda explicit=None: explicit
+        actor = actor_from_context(actor)
         # Record audit event for product creation
         if actor:
             record_admin_audit_event(
@@ -2114,7 +2122,15 @@ def update_product(product_id: int, tenant_id: str = None, **kwargs) -> bool:
     values = list(updates.values()) + [product_id, _resolve_tenant(tenant_id)]
     
     actor = kwargs.pop("actor", None)
-    
+    try:
+        from backend.services.audit_context import actor_from_context
+    except ImportError:
+        try:
+            from services.audit_context import actor_from_context
+        except ImportError:
+            actor_from_context = lambda explicit=None: explicit
+    actor = actor_from_context(actor)
+
     with get_db_context() as conn:
         before = conn.execute(
             "SELECT name, slug, category, price, is_active, sort_order FROM products WHERE id = ? AND tenant_id = ?",
@@ -2149,6 +2165,14 @@ def update_product(product_id: int, tenant_id: str = None, **kwargs) -> bool:
 
 
 def delete_product(product_id: int, hard: bool = False, tenant_id: str = None, actor: dict = None) -> bool:
+    try:
+        from backend.services.audit_context import actor_from_context
+    except ImportError:
+        try:
+            from services.audit_context import actor_from_context
+        except ImportError:
+            actor_from_context = lambda explicit=None: explicit
+    actor = actor_from_context(actor)
     with get_db_context() as conn:
         # Get product details before deletion for audit logging
         product_row = conn.execute(
@@ -2917,6 +2941,14 @@ def save_admin_file(name: str, ext: str, module: str, size: int,
         file_id = cur.lastrowid
         
         # Record audit event for file upload
+        try:
+            from backend.services.audit_context import actor_from_context
+        except ImportError:
+            try:
+                from services.audit_context import actor_from_context
+            except ImportError:
+                actor_from_context = lambda explicit=None: explicit
+        actor = actor_from_context(actor)
         if actor:
             record_admin_audit_event(
                 conn,
@@ -2984,6 +3016,14 @@ def delete_admin_file(name: str, tenant_id: str = None, actor: dict = None) -> b
             ).fetchone()
             conn.execute("DELETE FROM admin_files WHERE name = ?", (name,))
         
+        try:
+            from backend.services.audit_context import actor_from_context
+        except ImportError:
+            try:
+                from services.audit_context import actor_from_context
+            except ImportError:
+                actor_from_context = lambda explicit=None: explicit
+        actor = actor_from_context(actor)
         # Record audit event for file deletion
         if actor and file_row:
             file_details = dict(file_row)

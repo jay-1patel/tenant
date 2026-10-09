@@ -140,6 +140,11 @@ export const ACTION_CATEGORIES = {
     ],
     color: 'purple'
   },
+  menus: {
+    label: 'Menus & schema',
+    actions: ['menu_settings_updated', 'menu_item_updated', 'menu_item_created', 'menu_item_deleted', 'menu_reordered', 'menu_reset', 'record_schema_column_created', 'record_schema_column_updated', 'record_schema_column_deleted', 'record_schema_reset'],
+    color: 'purple'
+  },
   api_access: {
     label: 'API access',
     actions: ['api_access_request_submitted', 'api_access_request_reviewed'],

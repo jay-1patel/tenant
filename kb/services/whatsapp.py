@@ -1880,3 +1880,22 @@ def make_kb_response(answer: str, media_url: str = None) -> dict:
         result["media_url"] = media_url
         result["media_type"] = "image"
     return result
+
+
+def send_document_with_caption(to: str, document_url: str, filename: str, 
+                             caption: str = "") -> bool:
+    """Send a document with a caption as an interactive message."""
+    header_media = {
+        "type": "document",
+        "document": {"link": document_url, "filename": filename},
+    }
+    
+    # Send with caption
+    button = build_button(id="main_menu", title="Main Menu")
+    return send_interactive_buttons(
+        to=to,
+        body_text=caption,
+        buttons=[button],
+        header_media=header_media,
+        footer_text="",
+    )

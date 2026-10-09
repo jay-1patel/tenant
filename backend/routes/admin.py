@@ -3,8 +3,9 @@ import json
 import base64
 import logging
 import aiohttp
+from typing import List
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request, Form
 from fastapi.responses import JSONResponse, FileResponse, Response
 from pydantic import BaseModel
 from database import (
@@ -1064,8 +1065,14 @@ def get_menu_settings_api(menu_key: str, current_admin: dict = Depends(get_curre
 def set_menu_settings_api(
     menu_key: str,
     data: dict,
+    request: Request,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     before = get_menu_settings(menu_key)
@@ -1084,6 +1091,7 @@ def update_menu_item_api(
     menu_key: str,
     item_id: str,
     data: dict,
+    request: Request,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
     """Edit any field of a menu item, including item_id.
@@ -1094,6 +1102,11 @@ def update_menu_item_api(
     item's other fields, and editing/renaming an item that has never been
     saved to the DB works too (it used to 404 for renames).
     """
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
 
@@ -1166,10 +1179,16 @@ def update_menu_item_api(
 def create_menu_item_api(
     menu_key: str,
     data: dict,
+    request: Request,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
     """Add a brand-new item to the menu (stored as a DB row; it is not part
     of the code defaults, so Reset removes it)."""
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
 
@@ -1202,6 +1221,7 @@ def create_menu_item_api(
 def reorder_menu_items_api(
     menu_key: str,
     data: dict,
+    request: Request,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
     """Set the display order for the whole menu in one call.
@@ -1213,6 +1233,11 @@ def reorder_menu_items_api(
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
 
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     item_ids = data.get("item_ids")
     if not isinstance(item_ids, list) or not item_ids:
         raise HTTPException(status_code=400, detail="item_ids (non-empty list) is required")
@@ -1231,6 +1256,7 @@ def reorder_menu_items_api(
 def delete_menu_item_api(
     menu_key: str,
     item_id: str,
+    request: Request,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
     """Remove an item from the menu.
@@ -1239,6 +1265,11 @@ def delete_menu_item_api(
     - Code-default items: cannot be removed (they live in code), so they are
       hidden with an inactive override row — they come back on Reset.
     """
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
 
@@ -1273,8 +1304,13 @@ def delete_menu_item_api(
 
 
 @router.post("/menus/{menu_key}/reset")
-def reset_menu_api(menu_key: str, current_admin: dict = Depends(require_permission("edit_delete_products"))):
+def reset_menu_api(menu_key: str, request: Request, current_admin: dict = Depends(require_permission("edit_delete_products"))):
     """Delete DB overrides (items + settings) for one menu; code defaults take effect again."""
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     removed = reset_menu(menu_key)
@@ -1282,3 +1318,312 @@ def reset_menu_api(menu_key: str, current_admin: dict = Depends(require_permissi
         record_admin_audit_event(conn, action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "removed": removed}
+
+
+# ============================================================================
+# BROCHURE MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class BrochureInfo(BaseModel):
+    name: str
+    module: str
+    description: str = ""
+    category: str = ""
+    tags: List[str] = []
+
+
+@router.get("/brochures", dependencies=[Depends(get_current_admin)])
+async def list_brochures(tenant_id: str = Query(None)):
+    """List all brochures for a tenant or globally."""
+    from backend.services.brochure_service import BrochureService
+    
+    service = BrochureService()
+    brochures = service.get_all_brochures(tenant_id)
+    
+    result = []
+    for brochure in brochures:
+        result.append({
+            "id": brochure.file_id,
+            "tenant_id": brochure.tenant_id,
+            "module": brochure.module,
+            "name": brochure.name,
+            "filename": brochure.filename,
+            "url": brochure.url,
+            "size": brochure.size,
+            "keywords": brochure.keywords,
+            "metadata": brochure.metadata,
+            "created_at": brochure.created_at,
+        })
+    
+    return {"ok": True, "brochures": result, "count": len(result)}
+
+
+@router.get("/brochures/{brochure_id}", dependencies=[Depends(get_current_admin)])
+async def get_brochure(brochure_id: int):
+    """Get information about a specific brochure."""
+    from backend.services.brochure_service import BrochureService
+    
+    service = BrochureService()
+    
+    try:
+        with get_db_context() as conn:
+            row = conn.execute(
+                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
+            ).fetchone()
+            
+            if row:
+                brochure = service.Brochure(
+                    file_id=row["id"],
+                    tenant_id=row["tenant_id"] or "",
+                    module=row["module"] or "general",
+                    name=row["name"] or "",
+                    filename=row["name"] or row.get("filename", ""),
+                    url=row["url"] or "",
+                    file_path=row["file_path"] or "",
+                    ext=row["ext"] or "",
+                    size=row["size"] or 0,
+                    doc_id=row["doc_id"] or None,
+                    created_at=row["created_at"] or "",
+                )
+                return {
+                    "ok": True,
+                    "brochure": {
+                        "id": brochure.file_id,
+                        "tenant_id": brochure.tenant_id,
+                        "module": brochure.module,
+                        "name": brochure.name,
+                        "filename": brochure.filename,
+                        "url": brochure.url,
+                        "size": brochure.size,
+                        "keywords": brochure.keywords,
+                        "metadata": brochure.metadata,
+                        "created_at": brochure.created_at,
+                    }
+                }
+    except Exception as e:
+        logger.error(f"Failed to get brochure {brochure_id}: {e}")
+    
+    return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+
+
+@router.delete("/brochures/{brochure_id}", dependencies=[Depends(get_current_admin)])
+async def delete_brochure(brochure_id: int, current_admin: dict = Depends(get_current_admin)):
+    """Delete a specific brochure."""
+    try:
+        with get_db_context() as conn:
+            # Get brochure info first for audit
+            row = conn.execute(
+                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
+            ).fetchone()
+            
+            if not row:
+                return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+            
+            # Delete the brochure
+            conn.execute("DELETE FROM admin_files WHERE id = ?", (brochure_id,))
+            
+            # Record audit event
+            record_admin_audit_event(
+                conn, 
+                action="brochure_delete", 
+                actor=current_admin, 
+                resource_type="brochure", 
+                resource_id=brochure_id,
+                details={"filename": row.get("name", "Unknown"), "module": row.get("module", "unknown")}
+            )
+        
+        return {"ok": True, "deleted": brochure_id}
+        
+    except Exception as e:
+        logger.error(f"Failed to delete brochure {brochure_id}: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/brochures/upload", dependencies=[Depends(get_current_admin)])
+async def upload_brochure(
+    file: UploadFile = File(...),
+    module: str = Form("catalogue"),
+    name: str = Form(""),
+    description: str = Form(""),
+    category: str = Form(""),
+    tags: str = Form(""),
+    tenant_id: str = Form(None),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Upload a new brochure file."""
+    from backend.services.brochure_service import extract_file_metadata
+    from backend.services.audit_context import set_audit_actor
+    
+    # Ensure we have admin permissions
+    if not has_permission(current_admin, "upload_files"):
+        raise HTTPException(status_code=403, detail="You do not have permission to upload brochures")
+    
+    if module not in ["catalogue", "new_arrival", "product_brochure", "service_brochure", 
+                     "company_profile", "technical_brochure", "pricing", "customer_case_study",
+                     "industry_brochure", "general"]:
+        return {"ok": False, "error": f"Invalid module. Must be one of: {BROCHURE_MODULES}"}
+    
+    try:
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
+    
+    # Read file content
+    content = await file.read()
+    filename = file.filename or "brochure"
+    ext = os.path.splitext(filename)[1].lower()
+    
+    # Validate file type
+    if ext not in SUPPORTED:
+        return {"ok": False, "error": f"Unsupported file type: {ext}. Supported: {SUPPORTED}"}
+    
+    # Save the file
+    try:
+        # Create upload directory if it doesn't exist
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        
+        # Generate unique filename
+        import hashlib
+        import time
+        timestamp = int(time.time())
+        file_hash = hashlib.md5(content[:1024]).hexdigest()[:8]
+        unique_filename = f"{timestamp}_{file_hash}_{filename}"
+        filepath = os.path.join(UPLOAD_DIR, unique_filename)
+        
+        with open(filepath, "wb") as f:
+            f.write(content)
+        
+        # Extract metadata
+        if not name:
+            name = filename
+        metadata = extract_file_metadata(filename)
+        if description:
+            metadata['description'] = description
+        if category:
+            metadata['category'] = category
+        if tags:
+            metadata['tags'] = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        
+        # Save to database
+        save_admin_file(
+            name=name,
+            ext=ext.lstrip("."),
+            module=module,
+            size=len(content),
+            file_path=filepath,
+            url=None,  # No direct URL, will use file path
+            tenant_id=tenant_id,
+            actor=current_admin
+        )
+        
+        # Record audit event
+        with get_db_context() as conn:
+            record_admin_audit_event(
+                conn,
+                action="brochure_upload",
+                actor=current_admin,
+                resource_type="brochure",
+                resource_id=filename,
+                details={
+                    "filename": filename,
+                    "module": module,
+                    "size": len(content),
+                    "metadata": metadata
+                }
+            )
+        
+        return {
+            "ok": True,
+            "message": "Brochure uploaded successfully",
+            "filename": filename,
+            "module": module,
+            "path": filepath,
+            "metadata": metadata
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to upload brochure: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/brochures/extract-metadata", dependencies=[Depends(get_current_admin)])
+async def extract_brochure_metadata(
+    file: UploadFile = File(...),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Extract metadata from a brochure file for preview."""
+    from backend.services.brochure_service import extract_file_metadata
+    
+    if not has_permission(current_admin, "upload_files"):
+        raise HTTPException(status_code=403, detail="You do not have permission to extract metadata")
+    
+    try:
+        # For now, we only extract from filename
+        # Could be extended to parse PDF/DOCX content
+        filename = file.filename or "brochure"
+        metadata = extract_file_metadata(filename)
+        
+        return {
+            "ok": True,
+            "filename": filename,
+            "metadata": metadata
+        }
+    except Exception as e:
+        logger.error(f"Failed to extract metadata: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/brochures/relevant", dependencies=[Depends(get_current_admin)])
+async def find_relevant_brochures(
+    query: str = Query(""),
+    tenant_id: str = Query(None),
+    module: str = Query(None)
+):
+    """Find brochures relevant to a specific query."""
+    from backend.services.brochure_service import BrochureService, categorize_query
+    
+    service = BrochureService()
+    
+    if module:
+        # Get by specific module
+        brochure = service.get_brochure_by_module(module, tenant_id)
+        relevant_brochures = [brochure] if brochure else []
+    elif query:
+        # Categorize query and get relevant brochures
+        category = categorize_query(query)
+        relevant_brochures = service.get_brochures_by_category(category, tenant_id)
+        if not relevant_brochures:
+            # Fallback to general search
+            relevant_brochures = service.get_all_brochures(tenant_id)
+    else:
+        # Return all brochures
+        relevant_brochures = service.get_all_brochures(tenant_id)
+    
+    result = []
+    for brochure in relevant_brochures:
+        result.append({
+            "id": brochure.file_id,
+            "tenant_id": brochure.tenant_id,
+            "module": brochure.module,
+            "name": brochure.name,
+            "filename": brochure.filename,
+            "url": brochure.url,
+            "keywords": brochure.keywords,
+            "metadata": brochure.metadata,
+        })
+    
+    return {
+        "ok": True, 
+        "query": query,
+        "category": module or (categorize_query(query) if query else "unknown"),
+        "brochures": result,
+        "count": len(result)
+    }
+
+
+# Available brochure modules for the frontend
+BROCHURE_MODULES = [
+    "catalogue", "new_arrival", "product_brochure", "service_brochure",
+    "company_profile", "technical_brochure", "pricing", "customer_case_study",
+    "industry_brochure", "general"
+]

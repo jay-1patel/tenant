@@ -518,12 +518,18 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             result["query_type"] = "menu_unavailable"
             return result
         try:
-            from kb.services.whatsapp import send_catalogue_pdf
-            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+            # Use the new brochure service with button_id to find relevant brochure
+            from backend.services.brochure_service import send_relevant_brochure
+            sent = send_relevant_brochure(wa_id, button_id=interactive_id, tenant_id=tid)
         except Exception as exc:
             logger.exception("Brochure menu action failed for tenant %s: %s", tid, exc)
-            sent = False
-        result["answer"] = "📄 Here is the latest brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
+            # Fallback to original method
+            try:
+                from kb.services.whatsapp import send_catalogue_pdf
+                sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+            except:
+                sent = False
+        result["answer"] = "📄 Here is the relevant brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
         result["query_type"] = "catalog_pdf"
         result["whatsapp_sent"] = bool(sent)
         return result
@@ -565,12 +571,18 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             result["query_type"] = "brochure_unavailable"
             return result
         try:
-            from kb.services.whatsapp import send_catalogue_pdf
-            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+            # Use the new brochure service to find the most relevant brochure
+            from backend.services.brochure_service import send_relevant_brochure
+            sent = send_relevant_brochure(wa_id, user_text, tenant_id=tid)
         except Exception as exc:
             logger.exception("Typed brochure request failed for tenant %s: %s", tid, exc)
-            sent = False
-        result["answer"] = "📄 Here is the latest brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
+            # Fallback to original method
+            try:
+                from kb.services.whatsapp import send_catalogue_pdf
+                sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+            except:
+                sent = False
+        result["answer"] = "📄 Here is the relevant brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
         result["query_type"] = "catalog_pdf"
         result["whatsapp_sent"] = bool(sent)
         return result
@@ -582,7 +594,17 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
     # None and the webhook falls through to the original PDF behaviour.
     if not is_btn_reply and is_direct_media_query(user_text):
         if _wants_new_arrivals(user_text):
-            sent = _try_send_new_arrivals_pdf(wa_id)
+            enabled, tid = _tenant_feature_enabled(wa_id or "", "brochure_pdf", tenant_id)
+            if enabled:
+                try:
+                    from backend.services.brochure_service import send_relevant_brochure
+                    sent = send_relevant_brochure(wa_id, user_text, tenant_id=tid)
+                except Exception as exc:
+                    logger.exception("New arrivals brochure request failed for tenant %s: %s", tid, exc)
+                    sent = _try_send_new_arrivals_pdf(wa_id)
+            else:
+                sent = _try_send_new_arrivals_pdf(wa_id)
+            
             if sent:
                 result["answer"] = "📄 Here is the latest new releases PDF."
                 result["query_type"] = "new_arrivals_pdf"
@@ -613,13 +635,22 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             result["query_type"] = "brochure_unavailable"
             return result
         try:
-            from kb.services.whatsapp import send_catalogue_pdf
-        except Exception as e:
-            logger.debug(f"send_catalogue_pdf import failed: {e}")
-            send_catalogue_pdf = None
-        if send_catalogue_pdf is not None:
-            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
-            result["answer"] = "📄 Sending you the catalogue PDF…"
+            from backend.services.brochure_service import send_relevant_brochure
+            sent = send_relevant_brochure(wa_id, user_text, tenant_id=tid)
+            result["answer"] = "📄 Sending you the relevant brochure…"
+            result["query_type"] = "catalog_pdf"
+            result["whatsapp_sent"] = bool(sent)
+        except Exception as exc:
+            logger.exception("PDF brochure request failed for tenant %s: %s", tid, exc)
+            # Fallback to original
+            try:
+                from kb.services.whatsapp import send_catalogue_pdf
+                sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+                result["answer"] = "📄 Sending you the catalogue PDF…"
+            except Exception as e:
+                logger.debug(f"send_catalogue_pdf import/failed: {e}")
+                sent = False
+                result["answer"] = "Sorry, the brochure isn't available right now. Please contact our team."
             result["query_type"] = "catalog_pdf"
             result["whatsapp_sent"] = bool(sent)
             logger.info(f"CATALOG_PDF_SENT | {wa_id} | sent={sent}")

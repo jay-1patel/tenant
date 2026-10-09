@@ -14,6 +14,13 @@ export interface AuditEvent {
   resource_id: string
   target_username: string | null
   tenant_id: string | null
+  tenant_name?: string | null
+  tenant_slug?: string | null
+  tenant_label?: string
+  actor_kind?: string | null
+  actor_label?: string | null
+  ip_address?: string
+  user_agent?: string
   details: Record<string, unknown>
 }
 

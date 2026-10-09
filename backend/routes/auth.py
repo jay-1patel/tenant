@@ -322,8 +322,11 @@ def require_tenant_access():
                     status_code=403,
                     detail=f"Token is scoped to tenant '{principal['tenant_id']}'",
                 )
-            return {"type": "tenant", "tenant_id": target,
-                    "label": principal.get("label", "")}
+            return {
+                "type": "tenant", "tenant_id": target,
+                "token_id": principal.get("token_id"),
+                "label": principal.get("label", ""),
+            }
 
         admin = get_current_admin(request, credentials)
         try:

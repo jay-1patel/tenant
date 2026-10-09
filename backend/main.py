@@ -159,6 +159,14 @@ app = FastAPI(
     https_redirect=FORCE_HTTPS,
 )
 
+try:
+    from services.audit_context import install_writer_context
+except ImportError:
+    from backend.services.audit_context import install_writer_context
+import database as _audit_database
+install_writer_context(_audit_database)
+
+
 @app.middleware("http")
 async def audit_request_context(request: Request, call_next):
     """Provide trusted network metadata to audit writes for this request."""

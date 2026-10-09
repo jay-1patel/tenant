@@ -47,6 +47,11 @@ export const LABELS: Record<string, string> = {
   menu_item_deleted: 'Menu option hidden/deleted',
   menu_reordered: 'Menu reordered',
   menu_settings_updated: 'Menu settings updated',
+  menu_reset: 'Menu reset',
+  record_schema_column_created: 'Record field created',
+  record_schema_column_updated: 'Record field updated',
+  record_schema_column_deleted: 'Record field deleted',
+  record_schema_reset: 'Record fields reset',
 }
 
 // Get category for action

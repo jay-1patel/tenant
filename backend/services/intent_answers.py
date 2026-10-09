@@ -204,7 +204,7 @@ def _format_technologies_content(text: str) -> str:
         stripped = line.strip()
         if stripped:
             # Check if already starts with bullet or number
-            if not re.match(r'^[•⋅⋅*-\d\.]+', stripped) and not _is_header_line(stripped):
+            if not re.match(r'^[•\-*\d\.]+', stripped) and not _is_header_line(stripped):
                 stripped = f"• {stripped}"
             formatted_lines.append(stripped)
         else:
