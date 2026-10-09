@@ -464,12 +464,6 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                   rows={2}
                 />
-                <Switch
-                  checked={draft.enabled}
-                  onChange={(enabled) => setDraft({ ...draft, enabled })}
-                  label="Menu option enabled"
-                  description="When off, this option is hidden from customers. Service feature permissions remain unchanged."
-                />
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Select
                     label="Requires feature"
@@ -647,18 +641,23 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 <p className="mt-1 text-xs leading-relaxed text-slate-500">{button.description}</p>
                               )}
                             </div>
-                            <div className="flex shrink-0 items-center gap-3">
-                              <Switch
-                                checked={button.enabled}
-                                onChange={(enabled) => {
-                                  const next = [...buttons]
-                                  next[index] = { ...button, enabled }
-                                  setButtons(next)
-                                }}
-                                label={button.enabled ? 'Active' : 'Inactive'}
-                                description="Shown in the customer WhatsApp menu after publishing."
-                                size="sm"
-                              />
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 rounded-full border border-surface-line bg-surface-raised px-2 py-1">
+                                <Switch
+                                  checked={button.enabled}
+                                  onChange={(enabled) => {
+                                    const next = [...buttons]
+                                    next[index] = { ...button, enabled }
+                                    setButtons(next)
+                                  }}
+                                  ariaLabel={`${button.enabled ? 'Deactivate' : 'Activate'} ${button.title}`}
+                                  className="w-auto items-center"
+                                  size="sm"
+                                />
+                                <span className={`text-xs font-medium ${button.enabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                  {button.enabled ? 'Active' : 'Inactive'}
+                                </span>
+                              </div>
                               <Button size="sm" variant="ghost" onClick={() => move(index, -1)} title="Move up" icon={<ArrowUp className="h-4 w-4" />} />
                               <Button size="sm" variant="ghost" onClick={() => move(index, 1)} title="Move down" icon={<ArrowDown className="h-4 w-4" />} />
                               <Button size="sm" variant="secondary" onClick={() => startEdit(index)} icon={<Pencil className="h-4 w-4" />}>

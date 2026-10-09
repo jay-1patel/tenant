@@ -112,8 +112,3 @@ Kindly list the team members who will have access to the Admin Dashboard & Live 
 ---
 
 For any questions or assistance, please reach out to our support team.
-
-
-
-
-

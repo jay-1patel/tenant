@@ -8,6 +8,8 @@ export function Switch({
   description,
   disabled,
   size = 'md',
+  className,
+  ariaLabel,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
@@ -15,6 +17,8 @@ export function Switch({
   description?: ReactNode
   disabled?: boolean
   size?: 'sm' | 'md'
+  className?: string
+  ariaLabel?: string
 }) {
   const track = size === 'sm' ? 'h-4.5 w-8' : 'h-5 w-9'
   const knob = size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
@@ -25,11 +29,13 @@ export function Switch({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'group flex w-full items-start gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50',
-        label ? '' : 'w-auto',
+        'group flex items-start gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50',
+        label ? 'w-full' : 'w-auto',
+        className,
       )}
     >
       <span
