@@ -109,20 +109,43 @@ export const ACTION_CATEGORIES = {
     actions: ['login', 'first_admin_created', 'admin_password_reset', 'admin_password_reset_via_otp', 'password_changed'],
     color: 'blue'
   },
-  files: {
-    label: 'Files',
-    actions: ['file_uploaded', 'file_deleted'],
-    color: 'orange'
+  menus: {
+    label: 'Menus & schema',
+    actions: [
+      'menu_settings_updated', 'menu_item_updated', 'menu_item_created',
+      'menu_item_deleted', 'menu_reordered', 'menu_reset',
+      'tenant_profile_draft_saved', 'tenant_intent_draft_saved', 'tenant_profile_published',
+      'tenant_profile_rolled_back',
+      'record_schema_column_created', 'record_schema_column_updated',
+      'record_schema_column_deleted', 'record_schema_reset'
+    ],
+    color: 'purple'
   },
   products: {
     label: 'Products & services',
     actions: ['product_created', 'product_updated', 'product_deleted', 'product_deleted_hard'],
     color: 'green'
   },
+  files: {
+    label: 'Files & brochures',
+    actions: ['file_uploaded', 'file_deleted', 'brochure_delete', 'brochure_uploaded'],
+    color: 'orange'
+  },
   operations: {
     label: 'Operations',
-    actions: ['order_updated', 'order_deleted', 'campaign_created', 'campaign_updated', 'campaign_deleted', 'complaint_updated', 'complaint_deleted', 'complaint_resolved', 'complaint_replied'],
+    actions: [
+      'order_updated', 'order_deleted', 'order_created',
+      'campaign_created', 'campaign_updated', 'campaign_deleted',
+      'complaint_created', 'complaint_updated', 'complaint_deleted',
+      'complaint_resolved', 'complaint_replied',
+      'distributor_created', 'distributor_updated', 'distributor_deleted'
+    ],
     color: 'orange'
+  },
+  integrations: {
+    label: 'Integrations & API',
+    actions: ['integration_configured', 'integration_tested', 'api_access_request_submitted', 'api_access_request_reviewed'],
+    color: 'blue'
   },
   accounts: {
     label: 'Admin accounts',
@@ -139,16 +162,6 @@ export const ACTION_CATEGORIES = {
       'tenant_token_revoked', 'config_draft_saved', 'config_draft_built', 'config_published'
     ],
     color: 'purple'
-  },
-  menus: {
-    label: 'Menus & schema',
-    actions: ['menu_settings_updated', 'menu_item_updated', 'menu_item_created', 'menu_item_deleted', 'menu_reordered', 'menu_reset', 'record_schema_column_created', 'record_schema_column_updated', 'record_schema_column_deleted', 'record_schema_reset'],
-    color: 'purple'
-  },
-  api_access: {
-    label: 'API access',
-    actions: ['api_access_request_submitted', 'api_access_request_reviewed'],
-    color: 'orange'
   }
 } as const
 

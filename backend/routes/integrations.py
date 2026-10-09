@@ -8,7 +8,7 @@ from typing import Any, Dict, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from database import get_db, get_db_context
+from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import get_current_admin, has_permission, require_tenant_access
 from services.integrations import (
     BlueDartService,
@@ -171,6 +171,22 @@ async def save_integration_config(
                 now,
             ),
         )
+        record_admin_audit_event(
+            conn,
+            action="integration_configured",
+            actor=current_admin,
+            resource_type="integration",
+            resource_id=f"{tenant_id}/{prov}",
+            tenant_id=tenant_id,
+            details={
+                "provider": prov,
+                "api_type": body.api_type,
+                "environment": body.environment,
+                "is_active": body.is_active,
+                "has_webhook_secret": bool(body.webhook_secret),
+                "configured_keys": sorted(creds.keys()),
+            },
+        )
 
     return {
         "ok": True,
@@ -237,6 +253,22 @@ async def test_integration_connection(
                SET status = ?, last_tested_at = ?, last_error = ?, updated_at = ?
                WHERE tenant_id = ? AND LOWER(provider) = LOWER(?)""",
             (new_status, now, last_error, now, tenant_id, prov),
+        )
+
+        record_admin_audit_event(
+            conn,
+            action="integration_tested",
+            actor=current_admin,
+            outcome="success" if test_result.get("ok") else "failure",
+            resource_type="integration",
+            resource_id=f"{tenant_id}/{prov}",
+            tenant_id=tenant_id,
+            details={
+                "provider": prov,
+                "environment": env,
+                "test_status": new_status,
+                "error": last_error or None,
+            },
         )
 
     return {

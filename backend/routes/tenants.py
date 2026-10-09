@@ -319,6 +319,41 @@ def save_profile_draft(    tenant_id: str,
     with get_db_context() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
         if principal.get("type") == "admin":
+            audit_details: Dict[str, Any] = {
+                "changed_sections": sorted(body.snapshot.keys()),
+            }
+            menu_data = body.snapshot.get("menu")
+            if isinstance(menu_data, dict):
+                buttons = menu_data.get("buttons") or []
+                disabled_buttons = [
+                    b.get("id") or b.get("title")
+                    for b in buttons
+                    if isinstance(b, dict) and (b.get("enabled") is False or b.get("is_active") is False)
+                ]
+                enabled_buttons = [
+                    b.get("id") or b.get("title")
+                    for b in buttons
+                    if isinstance(b, dict) and b.get("enabled") is True and not b.get("__remove__")
+                ]
+                removed_buttons = [
+                    b.get("id")
+                    for b in buttons
+                    if isinstance(b, dict) and b.get("__remove__")
+                ]
+                if disabled_buttons:
+                    audit_details["disabled_menu_buttons"] = disabled_buttons
+                if enabled_buttons:
+                    audit_details["enabled_menu_buttons"] = enabled_buttons
+                if removed_buttons:
+                    audit_details["removed_menu_buttons"] = removed_buttons
+                if menu_data.get("header"):
+                    audit_details["menu_header"] = str(menu_data.get("header"))[:100]
+                if menu_data.get("body"):
+                    audit_details["menu_greeting"] = str(menu_data.get("body"))[:100]
+                if menu_data.get("button_text"):
+                    audit_details["menu_button_text"] = str(menu_data.get("button_text"))[:50]
+                audit_details["total_buttons"] = len(buttons)
+
             record_admin_audit_event(
                 conn,
                 action="tenant_profile_draft_saved",
@@ -326,7 +361,7 @@ def save_profile_draft(    tenant_id: str,
                 resource_type="tenant_profile",
                 resource_id=tenant_id,
                 tenant_id=tenant_id,
-                details={"changed_sections": sorted(body.snapshot.keys())},
+                details=audit_details,
             )
 
     warnings: list = []
@@ -430,7 +465,13 @@ def save_intent_draft(
                 resource_type="tenant_intent",
                 resource_id=intent_name,
                 tenant_id=tenant_id,
-                details={"changed_fields": sorted(k for k in override if k != "name")},
+                details={
+                    "intent_name": intent_name,
+                    "enabled": body.enabled,
+                    "changed_fields": sorted(k for k in override if k != "name"),
+                    "keywords": [str(k)[:50] for k in (body.keywords or [])][:20] if body.keywords is not None else None,
+                    "has_answer": bool(body.answer),
+                },
             )
 
     warnings: list = []
@@ -524,7 +565,13 @@ def publish_profile(
                 resource_type="tenant_profile",
                 resource_id=tenant_id,
                 tenant_id=tenant_id,
-                details={"version": version},
+                details={
+                    "version": version,
+                    "vertical": profile.vertical,
+                    "active_intents": profile.active_intent_names(),
+                    "visible_buttons": [b.id for b in profile.menu.buttons],
+                    "total_buttons": len(profile.menu.buttons),
+                },
             )
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_PROFILE_PUBLISHED | tenant=%s | version=%s | by=%s", tenant_id, version, by)

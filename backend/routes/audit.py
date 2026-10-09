@@ -15,6 +15,58 @@ from routes.auth import get_current_admin
 router = APIRouter(tags=["audit-history"])
 
 
+CATEGORY_ACTIONS = {
+    "authentication": (
+        "login", "first_admin_created", "admin_password_reset",
+        "admin_password_reset_via_otp", "password_changed",
+    ),
+    "accounts": (
+        "first_admin_created", "admin_created", "admin_updated", "admin_deleted",
+        "admin_password_reset", "admin_password_reset_via_otp", "password_changed",
+    ),
+    "tenant_setup": (
+        "tenant_created", "tenant_deleted", "tenant_profile_draft_saved",
+        "tenant_intent_draft_saved", "tenant_profile_published", "tenant_profile_rolled_back",
+        "tenant_phone_id_bound", "tenant_webhook_secret_configured", "tenant_token_created",
+        "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
+    ),
+    "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
+    "menus": (
+        "menu_settings_updated", "menu_item_updated", "menu_item_created",
+        "menu_item_deleted", "menu_reordered", "menu_reset",
+        "tenant_profile_draft_saved", "tenant_intent_draft_saved", "tenant_profile_published",
+        "tenant_profile_rolled_back",
+        "record_schema_column_created", "record_schema_column_updated",
+        "record_schema_column_deleted", "record_schema_reset",
+    ),
+    "schema": (
+        "record_schema_column_created", "record_schema_column_updated",
+        "record_schema_column_deleted", "record_schema_reset",
+    ),
+    "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
+    "files": ("file_uploaded", "file_deleted", "brochure_delete", "brochure_uploaded"),
+    "complaints": (
+        "complaint_created", "complaint_updated", "complaint_deleted",
+        "complaint_resolved", "complaint_replied",
+    ),
+    "catalog": (
+        "product_created", "product_updated", "product_deleted", "product_deleted_hard",
+        "file_uploaded", "file_deleted", "brochure_delete", "brochure_uploaded",
+    ),
+    "orders": ("order_updated", "order_deleted", "order_created"),
+    "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
+    "distributors": ("distributor_created", "distributor_updated", "distributor_deleted"),
+    "integrations": ("integration_configured", "integration_tested"),
+    "operations": (
+        "order_updated", "order_deleted", "order_created",
+        "campaign_created", "campaign_updated", "campaign_deleted",
+        "complaint_created", "complaint_updated", "complaint_deleted",
+        "complaint_resolved", "complaint_replied",
+        "distributor_created", "distributor_updated", "distributor_deleted",
+    ),
+}
+
+
 @router.get("/api/admin/audit-history")
 def list_audit_history(
     start_date: Optional[date] = Query(default=None),
@@ -67,31 +119,9 @@ def list_audit_history(
             params.append(value.strip())
     
     if category:
-        category_actions = {
-            "authentication": ("login", "first_admin_created", "admin_password_reset", "admin_password_reset_via_otp", "password_changed"),
-            "accounts": (
-                "first_admin_created", "admin_created", "admin_updated", "admin_deleted",
-                "admin_password_reset", "admin_password_reset_via_otp", "password_changed",
-            ),
-            "tenant_setup": (
-                "tenant_created", "tenant_deleted", "tenant_profile_draft_saved",
-                "tenant_intent_draft_saved", "tenant_profile_published", "tenant_profile_rolled_back",
-                "tenant_phone_id_bound", "tenant_webhook_secret_configured", "tenant_token_created",
-                "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
-            ),
-            "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
-            "menus": ("menu_settings_updated", "menu_item_updated", "menu_item_created", "menu_item_deleted", "menu_reordered", "menu_reset"),
-            "schema": ("record_schema_column_created", "record_schema_column_updated", "record_schema_column_deleted", "record_schema_reset"),
-            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
-            "files": ("file_uploaded", "file_deleted"),
-            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
-            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
-            "orders": ("order_updated", "order_deleted", "order_created"),
-            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
-        }
-        if category not in category_actions:
+        if category not in CATEGORY_ACTIONS:
             raise HTTPException(status_code=422, detail="Unknown audit category")
-        actions = category_actions[category]
+        actions = CATEGORY_ACTIONS[category]
         where.append(f"action IN ({', '.join('?' for _ in actions)})")
         params.extend(actions)
     
@@ -189,30 +219,8 @@ def get_audit_statistics(
             where.append(f"{column} = ?")
             params.append(value.strip())
     if category:
-        category_actions = {
-            "authentication": ("login", "first_admin_created", "admin_password_reset", "admin_password_reset_via_otp", "password_changed"),
-            "accounts": (
-                "first_admin_created", "admin_created", "admin_updated", "admin_deleted",
-                "admin_password_reset", "admin_password_reset_via_otp", "password_changed",
-            ),
-            "tenant_setup": (
-                "tenant_created", "tenant_deleted", "tenant_profile_draft_saved",
-                "tenant_intent_draft_saved", "tenant_profile_published", "tenant_profile_rolled_back",
-                "tenant_phone_id_bound", "tenant_webhook_secret_configured", "tenant_token_created",
-                "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
-            ),
-            "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
-            "menus": ("menu_settings_updated", "menu_item_updated", "menu_item_created", "menu_item_deleted", "menu_reordered", "menu_reset"),
-            "schema": ("record_schema_column_created", "record_schema_column_updated", "record_schema_column_deleted", "record_schema_reset"),
-            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
-            "files": ("file_uploaded", "file_deleted"),
-            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
-            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
-            "orders": ("order_updated", "order_deleted", "order_created"),
-            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
-        }
-        if category in category_actions:
-            actions = category_actions[category]
+        if category in CATEGORY_ACTIONS:
+            actions = CATEGORY_ACTIONS[category]
             where.append(f"action IN ({', '.join('?' for _ in actions)})")
             params.extend(actions)
     if search and search.strip():
@@ -379,30 +387,8 @@ def export_audit_history(
             where.append(f"{column} = ?")
             params.append(value.strip())
     if category:
-        category_actions = {
-            "authentication": ("login", "first_admin_created", "admin_password_reset", "admin_password_reset_via_otp", "password_changed"),
-            "accounts": (
-                "first_admin_created", "admin_created", "admin_updated", "admin_deleted",
-                "admin_password_reset", "admin_password_reset_via_otp", "password_changed",
-            ),
-            "tenant_setup": (
-                "tenant_created", "tenant_deleted", "tenant_profile_draft_saved",
-                "tenant_intent_draft_saved", "tenant_profile_published", "tenant_profile_rolled_back",
-                "tenant_phone_id_bound", "tenant_webhook_secret_configured", "tenant_token_created",
-                "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
-            ),
-            "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
-            "menus": ("menu_settings_updated", "menu_item_updated", "menu_item_created", "menu_item_deleted", "menu_reordered", "menu_reset"),
-            "schema": ("record_schema_column_created", "record_schema_column_updated", "record_schema_column_deleted", "record_schema_reset"),
-            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
-            "files": ("file_uploaded", "file_deleted"),
-            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
-            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
-            "orders": ("order_updated", "order_deleted", "order_created"),
-            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
-        }
-        if category in category_actions:
-            actions = category_actions[category]
+        if category in CATEGORY_ACTIONS:
+            actions = CATEGORY_ACTIONS[category]
             where.append(f"action IN ({', '.join('?' for _ in actions)})")
             params.extend(actions)
     if search and search.strip():

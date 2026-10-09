@@ -1137,7 +1137,7 @@ def _init_admin_audit_tables(conn):
 
 
 _AUDIT_SENSITIVE_KEY_PARTS = (
-    "password", "otp", "token", "secret", "credential", "authorization", "api_key", "payload", "body",
+    "password", "otp", "token", "secret", "credential", "authorization", "api_key", "payload",
     "file_path", "filepath", "local_path", "media_url", "detail_url", "signed_url", "upload_url", "url",
 )
 

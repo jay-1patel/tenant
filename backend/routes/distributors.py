@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from database import get_db_context
+from database import get_db_context, record_admin_audit_event
 from routes.auth import require_permission, require_tenant_access
 from shared.tenancy.schemas import is_valid_email, is_valid_phone
 
@@ -232,6 +232,21 @@ def create_distributor(
                 now,
             ),
         )
+        record_admin_audit_event(
+            conn,
+            action="distributor_created",
+            actor=current_admin,
+            resource_type="distributor",
+            resource_id=wa_id,
+            tenant_id=tenant_id,
+            details={
+                "wa_id": wa_id,
+                "name": str(body.name)[:100],
+                "phone": str(body.phone)[:30],
+                "region": str(body.region)[:50],
+                "tier": str(body.tier)[:30],
+            },
+        )
 
     logger.info(f"DISTRIBUTOR_CREATED | tenant={tenant_id} | wa_id={wa_id} | name={body.name}")
     return {"ok": True, "wa_id": wa_id}
@@ -271,6 +286,11 @@ def update_distributor(
     values.extend([wa_id, tenant_id])
 
     with get_db_context() as conn:
+        before = conn.execute(
+            "SELECT name, phone, email, region, tier FROM distributors WHERE wa_id = ? AND tenant_id = ?",
+            (wa_id, tenant_id),
+        ).fetchone()
+
         result = conn.execute(
             f"UPDATE distributors SET {', '.join(fields)} WHERE wa_id = ? AND tenant_id = ?",
             values,
@@ -278,6 +298,26 @@ def update_distributor(
 
         if result.rowcount == 0:
             raise HTTPException(404, f"Distributor '{wa_id}' not found")
+
+        changes = {}
+        if before:
+            for k in ("name", "phone", "email", "region", "tier"):
+                if k in updates and updates[k] is not None and before[k] != updates[k]:
+                    changes[k] = {"before": before[k], "after": updates[k]}
+
+        record_admin_audit_event(
+            conn,
+            action="distributor_updated",
+            actor=current_admin,
+            resource_type="distributor",
+            resource_id=wa_id,
+            tenant_id=tenant_id,
+            details={
+                "wa_id": wa_id,
+                "changed_fields": sorted(updates.keys()),
+                "changes": changes,
+            },
+        )
 
     logger.info(f"DISTRIBUTOR_UPDATED | tenant={tenant_id} | wa_id={wa_id}")
     return {"ok": True}
@@ -291,6 +331,11 @@ def delete_distributor(
 ):
     """Delete one of this tenant's distributors."""
     with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT name, phone, region FROM distributors WHERE wa_id = ? AND tenant_id = ?",
+            (wa_id, tenant_id),
+        ).fetchone()
+
         result = conn.execute(
             "DELETE FROM distributors WHERE wa_id = ? AND tenant_id = ?",
             (wa_id, tenant_id),
@@ -298,6 +343,20 @@ def delete_distributor(
 
         if result.rowcount == 0:
             raise HTTPException(404, f"Distributor '{wa_id}' not found")
+
+        record_admin_audit_event(
+            conn,
+            action="distributor_deleted",
+            actor=current_admin,
+            resource_type="distributor",
+            resource_id=wa_id,
+            tenant_id=tenant_id,
+            details={
+                "wa_id": wa_id,
+                "name": (row["name"] if row else "")[:100],
+                "phone": (row["phone"] if row else "")[:30],
+            },
+        )
 
     logger.info(f"DISTRIBUTOR_DELETED | tenant={tenant_id} | wa_id={wa_id}")
     return {"ok": True}

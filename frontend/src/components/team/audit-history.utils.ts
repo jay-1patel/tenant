@@ -52,12 +52,19 @@ export const LABELS: Record<string, string> = {
   record_schema_column_updated: 'Record field updated',
   record_schema_column_deleted: 'Record field deleted',
   record_schema_reset: 'Record fields reset',
+  distributor_created: 'Distributor created',
+  distributor_updated: 'Distributor updated',
+  distributor_deleted: 'Distributor deleted',
+  integration_configured: 'Integration configured',
+  integration_tested: 'Integration tested',
+  brochure_delete: 'Brochure deleted',
+  brochure_uploaded: 'Brochure uploaded',
 }
 
 // Get category for action
 export function getCategoryForAction(action: string): string | undefined {
   for (const [category, config] of Object.entries(ACTION_CATEGORIES)) {
-    if (config.actions.includes(action)) {
+    if ((config.actions as readonly string[]).includes(action)) {
       return category
     }
   }
@@ -89,7 +96,11 @@ export function formatAuditValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (Array.isArray(value)) return value.map(formatAuditValue).join(', ')
   if (typeof value === 'object') {
-    return Object.entries(value as Record<string, unknown>)
+    const obj = value as Record<string, unknown>
+    if ('before' in obj && 'after' in obj) {
+      return `${formatAuditValue(obj.before)} → ${formatAuditValue(obj.after)}`
+    }
+    return Object.entries(obj)
       .map(([key, item]) => `${key.replace(/_/g, ' ')}: ${formatAuditValue(item)}`)
       .join(' · ')
   }
@@ -97,9 +108,33 @@ export function formatAuditValue(value: unknown): string {
 }
 
 export function describeDetails(details: Record<string, unknown>): string {
-  return Object.entries(details)
-    .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${formatAuditValue(value)}`)
-    .join(' · ')
+  const parts: string[] = []
+
+  if (details.disabled_menu_buttons && Array.isArray(details.disabled_menu_buttons) && details.disabled_menu_buttons.length > 0) {
+    parts.push(`Disabled options: ${details.disabled_menu_buttons.join(', ')}`)
+  }
+  if (details.enabled_menu_buttons && Array.isArray(details.enabled_menu_buttons) && details.enabled_menu_buttons.length > 0) {
+    parts.push(`Enabled options: ${details.enabled_menu_buttons.join(', ')}`)
+  }
+  if (details.removed_menu_buttons && Array.isArray(details.removed_menu_buttons) && details.removed_menu_buttons.length > 0) {
+    parts.push(`Removed options: ${details.removed_menu_buttons.join(', ')}`)
+  }
+  if (details.changes && typeof details.changes === 'object') {
+    const changeList = Object.entries(details.changes as Record<string, { before: unknown; after: unknown }>)
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${formatAuditValue(v?.before)} → ${formatAuditValue(v?.after)}`)
+    if (changeList.length > 0) {
+      parts.push(changeList.join(' · '))
+    }
+  }
+
+  // Add remaining details
+  const handled = new Set(['disabled_menu_buttons', 'enabled_menu_buttons', 'removed_menu_buttons', 'changes'])
+  for (const [key, value] of Object.entries(details)) {
+    if (handled.has(key)) continue
+    parts.push(`${key.replace(/_/g, ' ')}: ${formatAuditValue(value)}`)
+  }
+
+  return parts.join(' · ')
 }
 
 /* legacy filtered detail summary removed
@@ -128,7 +163,7 @@ export function describeDetails(details: Record<string, unknown>): string {
 export function getPresetDates(preset: FilterPreset): { start_date: string; end_date: string } {
   const today = new Date()
   const formatDateStr = (date: Date): string => date.toISOString().split('T')[0]
-  
+
   switch (preset) {
     case 'today': {
       const start = new Date(today)
@@ -187,7 +222,7 @@ export function prepareExportData(events: AuditEventExtended[], columns: string[
   return events.map(event => {
     const formattedEvent = formatEventForDisplay(event)
     const row: Record<string, unknown> = {}
-    
+
     columns.forEach(col => {
       switch (col) {
         case 'created_at':
@@ -218,7 +253,7 @@ export function prepareExportData(events: AuditEventExtended[], columns: string[
           row[col] = (formattedEvent as Record<string, unknown>)[col]
       }
     })
-    
+
     return row
   })
 }
@@ -226,14 +261,14 @@ export function prepareExportData(events: AuditEventExtended[], columns: string[
 // Generate CSV content
 export function generateCSV(data: Record<string, unknown>[], includeHeaders: boolean = true): string {
   if (data.length === 0) return ''
-  
+
   const headers = Object.keys(data[0])
   const lines: string[] = []
-  
+
   if (includeHeaders) {
     lines.push(headers.map(header => `"${header.replace(/"/g, '""')}"`).join(','))
   }
-  
+
   data.forEach(row => {
     const values = headers.map(header => {
       const value = row[header]
@@ -243,7 +278,7 @@ export function generateCSV(data: Record<string, unknown>[], includeHeaders: boo
     })
     lines.push(values.join(','))
   })
-  
+
   return lines.join('\n')
 }
 
@@ -285,8 +320,8 @@ export function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
   wait: number
 ): (...args: Parameters<T>) => void {
   let timeout: ReturnType<typeof setTimeout>
-  
-  return function(...args: Parameters<T>): void {
+
+  return function (...args: Parameters<T>): void {
     clearTimeout(timeout)
     timeout = setTimeout(() => func(...args), wait)
   }
