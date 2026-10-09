@@ -11,6 +11,7 @@ from database import (
     get_files_summary, delete_file_chunks, delete_knowledge_base_file, save_chunks, get_db, get_db_context,
     list_admin_files, list_products, get_products_by_category, save_admin_file, delete_admin_file,
     get_menu_items, upsert_menu_item, reset_menu, get_menu_settings, set_menu_settings,
+    record_admin_audit_event,
 )
 from services.menu_catalog import (
     invalidate_menu_cache, get_menu_editor_items, get_effective_item,
@@ -632,7 +633,7 @@ def delete_admin_file_api(
         raise HTTPException(status_code=404, detail="File not found on disk")
     deleted_faq = delete_file_chunks(filename)
     deleted_kb = delete_knowledge_base_file(filename)
-    delete_admin_file(filename)
+    delete_admin_file(filename, actor=current_admin)
     try:
         os.remove(filepath)
     except OSError:
@@ -717,7 +718,7 @@ async def run_upload(
                     raise HTTPException(status_code=400, detail=img_data.get("message", "Imghippo upload failed"))
                 effective_url = img_data["data"]["url"]
                 effective_media_type = media_type or ext.lstrip(".")
-                save_admin_file(filename, ext.lstrip("."), module, len(content), url=effective_url, tenant_id=tenant_id)
+                save_admin_file(filename, ext.lstrip("."), module, len(content), url=effective_url, tenant_id=tenant_id, actor=current_admin)
                 return {
                     "status": "ok",
                     "filename": filename,
@@ -752,7 +753,7 @@ async def run_upload(
         with open(filepath, "wb") as f:
             f.write(content)
         size = len(content)
-        save_admin_file(filename, ext.lstrip("."), module, size, file_path=filepath, url=url or catbox_url, tenant_id=tenant_id)
+        save_admin_file(filename, ext.lstrip("."), module, size, file_path=filepath, url=url or catbox_url, tenant_id=tenant_id, actor=current_admin)
         chunks = []
         try:
             results = process_file(filepath)

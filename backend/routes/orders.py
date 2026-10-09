@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from database import get_db, get_db_context
+from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import require_permission
 
 logger = logging.getLogger("orders")
@@ -217,6 +217,19 @@ def update_order(
             f"UPDATE orders SET {', '.join(fields)} WHERE id = ?",
             values + [row["id"]],
         )
+        
+        # Record audit event for order update
+        record_admin_audit_event(
+            conn,
+            action="order_updated",
+            actor=current_admin,
+            resource_type="order",
+            resource_id=row["id"],
+            details={
+                "order_id": order_id,
+                "updated_fields": list(payload.keys())
+            }
+        )
 
     logger.info(f"ORDER_UPDATED | {order_id} | {payload} | by {current_admin.get('username')}")
     return {"status": "ok", "order_id": order_id, "updated": payload}
@@ -232,11 +245,24 @@ def delete_order(
     """Permanently remove an order record."""
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT id FROM orders WHERE id = ? OR order_number = ?",
+            "SELECT id, order_number FROM orders WHERE id = ? OR order_number = ?",
             (order_id, order_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Order not found")
         conn.execute("DELETE FROM orders WHERE id = ?", (row["id"],))
+        
+        # Record audit event for order deletion
+        record_admin_audit_event(
+            conn,
+            action="order_deleted",
+            actor=current_admin,
+            resource_type="order",
+            resource_id=row["id"],
+            details={
+                "order_id": order_id,
+                "order_number": row["order_number"] if row["order_number"] else order_id
+            }
+        )
     logger.info(f"ORDER_DELETED | {order_id} | by {current_admin.get('username')}")
     return {"status": "ok", "order_id": order_id}
