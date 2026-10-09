@@ -567,11 +567,36 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
     return {"status": "ok", "username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id, "created_by": current_admin["username"]}
 
 
+def _admin_target(username: str, current_admin: dict) -> dict | None:
+    """Resolve an admin target without exposing other tenants' accounts."""
+    if current_admin.get("role") == "super_admin":
+        return get_admin_record(username)
+    tenant_id = str(current_admin.get("tenant_id") or "").strip()
+    if not tenant_id:
+        return None
+    return get_admin_record(username, tenant_id=tenant_id)
+
+
+def _admin_write_scope(current_admin: dict) -> tuple[str, list]:
+    """SQL predicate and params that keep non-super-admin writes tenant-bound."""
+    if current_admin.get("role") == "super_admin":
+        return "", []
+    tenant_id = str(current_admin.get("tenant_id") or "").strip()
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Your admin account is not assigned to a tenant")
+    return " AND tenant_id = ?", [tenant_id]
+
+
 @router.get("/admins")
 def list_admins(current_admin: dict = Depends(require_permission("manage_admins"))):
-    """List all admin accounts with their roles and permissions."""
+    """List the caller's tenant admins; super admins retain the global roster."""
+    if current_admin.get("role") == "super_admin":
+        records = list_admin_records()
+    else:
+        tenant_id = str(current_admin.get("tenant_id") or "").strip()
+        records = list_admin_records(tenant_id=tenant_id, include_all=False)
     result = []
-    for a in list_admin_records():
+    for a in records:
         result.append({
             "username": a["username"],
             "email": a.get("email"),
@@ -589,9 +614,10 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     if not has_permission(current_admin, "manage_admins"):
         raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
 
-    target = get_admin_record(username)
+    target = _admin_target(username, current_admin)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
+    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     is_self = username == current_admin["username"]
 
@@ -652,10 +678,12 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
             updates["tenant_id"] = tenant_id
         if body.email is not None:
             updates["email"] = email
-        conn.execute(
-            f"UPDATE admins SET {', '.join(f'{field} = ?' for field in updates)}, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
-            [*updates.values(), username],
+        cursor = conn.execute(
+            f"UPDATE admins SET {', '.join(f'{field} = ?' for field in updates)}, updated_at = CURRENT_TIMESTAMP WHERE username = ?{scope_sql}",
+            [*updates.values(), username, *scope_params],
         )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Admin not found")
         after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
         changed_permissions = sorted(
             key for key in set(before["permissions"]) | set(permissions)
@@ -699,15 +727,21 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if username == current_admin["username"]:
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
 
-    target = get_admin_record(username)
+    target = _admin_target(username, current_admin)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
+    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     if target["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
 
     with get_db_context() as conn:
-        conn.execute("DELETE FROM admins WHERE username = ?", (username,))
+        cursor = conn.execute(
+            f"DELETE FROM admins WHERE username = ?{scope_sql}",
+            [username, *scope_params],
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Admin not found")
         record_admin_audit_event(
             conn,
             action="admin_deleted",
@@ -731,9 +765,10 @@ def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current
     if not body.new_password or len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
 
-    target = get_admin_record(username)
+    target = _admin_target(username, current_admin)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
+    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     if username == current_admin["username"]:
         raise HTTPException(
@@ -753,10 +788,12 @@ def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current
 
     hashed = _hash_password(body.new_password)
     with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET password_hash = ? WHERE username = ?",
-            (hashed, username,),
+        cursor = conn.execute(
+            f"UPDATE admins SET password_hash = ? WHERE username = ?{scope_sql}",
+            [hashed, username, *scope_params],
         )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Admin not found")
         record_admin_audit_event(
             conn,
             action="admin_password_reset",

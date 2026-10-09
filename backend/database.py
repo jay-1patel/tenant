@@ -2638,9 +2638,17 @@ def count_admins_by_role(role: str) -> int:
     return row["cnt"] if row else 0
 
 
-def get_admin_record(username: str) -> dict:
+def get_admin_record(username: str, tenant_id: str = None, *, include_unscoped: bool = True) -> dict:
+    if tenant_id is None and not include_unscoped:
+        return None
     with get_db_context() as conn:
-        row = conn.execute("SELECT * FROM admins WHERE username = ?", (username,)).fetchone()
+        if tenant_id is None:
+            row = conn.execute("SELECT * FROM admins WHERE username = ?", (username,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM admins WHERE username = ? AND tenant_id = ?",
+                (username, tenant_id),
+            ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -2648,9 +2656,17 @@ def get_admin_record(username: str) -> dict:
     return d
 
 
-def list_admin_records() -> list:
+def list_admin_records(tenant_id: str = None, *, include_all: bool = True) -> list:
     with get_db_context() as conn:
-        rows = conn.execute("SELECT * FROM admins ORDER BY created_at ASC").fetchall()
+        if include_all:
+            rows = conn.execute("SELECT * FROM admins ORDER BY created_at ASC").fetchall()
+        elif not tenant_id:
+            return []
+        else:
+            rows = conn.execute(
+                "SELECT * FROM admins WHERE tenant_id = ? ORDER BY created_at ASC",
+                (tenant_id,),
+            ).fetchall()
     result = []
     for r in rows:
         d = dict(r)
@@ -2918,12 +2934,20 @@ def soft_delete_message_for_everyone(msg_id: int):
             )
 
 
-def get_all_admins_except(current_username: str) -> list:
+def get_all_admins_except(current_username: str, tenant_id: str = None, *, include_all: bool = True) -> list:
     with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT username FROM admins WHERE username != ? ORDER BY username",
-            (current_username,),
-        ).fetchall()
+        if include_all:
+            rows = conn.execute(
+                "SELECT username FROM admins WHERE username != ? ORDER BY username",
+                (current_username,),
+            ).fetchall()
+        elif not tenant_id:
+            return []
+        else:
+            rows = conn.execute(
+                "SELECT username FROM admins WHERE username != ? AND tenant_id = ? ORDER BY username",
+                (current_username, tenant_id),
+            ).fetchall()
         return [r["username"] for r in rows]
 
 

@@ -174,7 +174,7 @@ export function TenantOverview({ tenantId }: { tenantId: string }) {
           {data.menu?.buttons?.length ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {data.menu.buttons
-                .filter((b) => !b.requires_feature || data.features[b.requires_feature as FeatureFlag])
+                .filter((b) => b.enabled && (!b.requires_feature || data.features[b.requires_feature as FeatureFlag]))
                 .map((button) => (
                   <div key={button.id} className="rounded-lg bg-surface-panel p-3 ring-1 ring-inset ring-surface-line">
                     <div className="flex items-center gap-2">

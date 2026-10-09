@@ -471,6 +471,8 @@ def action_for_option_id(msg_id: str, parsed_msg: dict = None) -> str:
                 "menu_new_arrivals": "NEW_ARRIVALS",
                 "menu_catalogue": "CATALOG",
                 "menu_catalog": "CATALOG",
+                "menu_brochure": "CATALOG",
+                "menu_services": "SERVICE_ENQUIRY",
                 "menu_return_policy": "RETURN_POLICY",
                 "menu_shipping_policy": "SHIPPING_POLICY",
                 "menu_about": "ABOUT_COMPANY",

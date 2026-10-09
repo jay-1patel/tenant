@@ -85,6 +85,41 @@ CONTENT_QUESTION_MARKERS = (
 )
 
 
+def _tenant_profile(wa_id: str, tenant_id: str = None):
+    from shared.tenancy.loader import get_tenant_profile
+    from shared.tenancy.resolver import resolve_tenant_for_user
+
+    tid = tenant_id or resolve_tenant_for_user(wa_id or "")
+    return tid, get_tenant_profile(tid)
+
+
+def _profile_button_status(wa_id: str, button_id: str, tenant_id: str = None) -> tuple[bool, bool, str]:
+    """Return whether a current-profile button exists and can be tapped."""
+    try:
+        from backend.services.menu_catalog import profile_button_status
+
+        exists, available = profile_button_status(button_id, wa_id=wa_id, tenant_id=tenant_id)
+        tid, _profile = _tenant_profile(wa_id, tenant_id)
+        return exists, available, tid
+    except Exception as exc:
+        logger.warning("Could not validate menu option %s: %s", button_id, exc)
+        return False, False, tenant_id or ""
+
+
+def _profile_button_available(wa_id: str, button_id: str, tenant_id: str = None) -> tuple[bool, str]:
+    exists, available, tid = _profile_button_status(wa_id, button_id, tenant_id)
+    return exists and available, tid
+
+
+def _tenant_feature_enabled(wa_id: str, feature: str, tenant_id: str = None) -> tuple[bool, str]:
+    try:
+        tid, profile = _tenant_profile(wa_id, tenant_id)
+        return profile.feature_on(feature), tid
+    except Exception as exc:
+        logger.warning("Could not validate tenant feature %s: %s", feature, exc)
+        return False, tenant_id or ""
+
+
 def is_direct_media_query(text) -> bool:
     lower = (text or "").lower()
     # Word-boundary match for question words so "show" is not caught by "how".
@@ -459,7 +494,7 @@ async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None):
     return data
 
 
-async def process_message(user_text: str, wa_id: str = None, raw_message: dict = None):
+async def process_message(user_text: str, wa_id: str = None, raw_message: dict = None, tenant_id: str = None):
     is_btn_reply = _is_button_reply(raw_message)
     query_type = classify_query(user_text)
 
@@ -476,6 +511,34 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
     result = {"answer": "", "media_url": None, "media_type": None, "whatsapp_sent": False, "interactive": None, "query_type": query_type}
 
     interactive_id = _interactive_reply_id(raw_message)
+    if interactive_id == "menu_brochure":
+        _exists, allowed, tid = _profile_button_status(wa_id or "", interactive_id, tenant_id)
+        if not allowed:
+            result["answer"] = "That menu option is no longer available. Please ask our team for help."
+            result["query_type"] = "menu_unavailable"
+            return result
+        try:
+            from kb.services.whatsapp import send_catalogue_pdf
+            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+        except Exception as exc:
+            logger.exception("Brochure menu action failed for tenant %s: %s", tid, exc)
+            sent = False
+        result["answer"] = "📄 Here is the latest brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
+        result["query_type"] = "catalog_pdf"
+        result["whatsapp_sent"] = bool(sent)
+        return result
+
+    if interactive_id == "menu_services":
+        _exists, allowed, tid = _profile_button_status(wa_id or "", interactive_id, tenant_id)
+        if not allowed:
+            result["answer"] = "That menu option is no longer available. Please ask our team for help."
+            result["query_type"] = "menu_unavailable"
+            return result
+        from backend.services import service_answers
+        answer = service_answers.answer_for_text(wa_id or "", "our services", tenant_id=tid)
+        result["answer"] = answer or "We don't have any services listed right now. Please contact our team for details."
+        result["query_type"] = "service_enquiry"
+        return result
     if is_btn_reply and interactive_id in ("new_arrival", "menu_new_arrivals"):
         sent = _try_send_new_arrivals_pdf(wa_id)
         if sent:
@@ -493,6 +556,24 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
         b2b = await _handle_b2b_message(user_text, wa_id)
         if b2b is not None:
             return b2b
+
+    # Typed brochure requests share the same tenant-specific sender as menu taps.
+    if not is_btn_reply and _wants_catalogue(user_text) and not _wants_new_arrivals(user_text):
+        enabled, tid = _tenant_feature_enabled(wa_id or "", "brochure_pdf", tenant_id)
+        if not enabled:
+            result["answer"] = "Brochure sharing isn't available right now. Please contact our team for help."
+            result["query_type"] = "brochure_unavailable"
+            return result
+        try:
+            from kb.services.whatsapp import send_catalogue_pdf
+            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
+        except Exception as exc:
+            logger.exception("Typed brochure request failed for tenant %s: %s", tid, exc)
+            sent = False
+        result["answer"] = "📄 Here is the latest brochure." if sent else "Sorry, the brochure isn't available right now. Please contact our team."
+        result["query_type"] = "catalog_pdf"
+        result["whatsapp_sent"] = bool(sent)
+        return result
 
     # ── DIRECT CATALOGUE / NEW-ARRIVALS QUERY ─────────────────────────────
     # Bypass the LLM and land the user directly on the interactive product
@@ -519,38 +600,51 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             logger.info(f"CATALOG_LIST | wa_id={wa_id} | sections={len(summary['interactive']['sections'])}")
             return result
         # No structured products (catalogue PDFs are no longer imported into
-        # the products table). For a catalogue request, send the PDF directly.
-        if _wants_catalogue(user_text) and not _wants_new_arrivals(user_text):
-            try:
-                from kb.services.whatsapp import send_catalogue_pdf
-            except Exception as e:
-                logger.debug(f"send_catalogue_pdf import failed: {e}")
-                send_catalogue_pdf = None
-            if send_catalogue_pdf is not None:
-                sent = send_catalogue_pdf(wa_id)
-                result["answer"] = "📄 Here is the latest brochure."
-                result["query_type"] = "catalog_pdf"
-                result["whatsapp_sent"] = bool(sent)
-                logger.info(f"CATALOG_PDF_SENT_DIRECT | {wa_id} | sent={sent}")
-                return result
+        # the products table). Brochure requests were handled tenant-safely above.
 
     # ── CATALOGUE PDF FOLLOW-UP ────────────────────────────────────────────
     # Plain-text "PDF" / "catalogue pdf" / "send pdf" reply: send the catalogue
     # PDF document if one is registered. Used after the product list footer
     # prompt "Reply *PDF* for the full catalogue document."
     if not is_btn_reply and _wants_catalogue_pdf(user_text):
+        enabled, tid = _tenant_feature_enabled(wa_id or "", "brochure_pdf", tenant_id)
+        if not enabled:
+            result["answer"] = "Brochure sharing isn't available right now. Please contact our team for help."
+            result["query_type"] = "brochure_unavailable"
+            return result
         try:
             from kb.services.whatsapp import send_catalogue_pdf
         except Exception as e:
             logger.debug(f"send_catalogue_pdf import failed: {e}")
             send_catalogue_pdf = None
         if send_catalogue_pdf is not None:
-            sent = send_catalogue_pdf(wa_id)
+            sent = send_catalogue_pdf(wa_id, tenant_id=tid)
             result["answer"] = "📄 Sending you the catalogue PDF…"
             result["query_type"] = "catalog_pdf"
             result["whatsapp_sent"] = bool(sent)
             logger.info(f"CATALOG_PDF_SENT | {wa_id} | sent={sent}")
             return result
+
+    # ── TENANT SERVICE ENQUIRIES ──────────────────────────────────────────
+    # Service questions must be answered from this tenant's active offerings,
+    # never from an unrelated FAQ/LLM response.
+    try:
+        from backend.services import service_answers
+        service_enabled, _ = _tenant_feature_enabled(wa_id or "", "offerings", tenant_id)
+        from backend.services.service_answers import is_service_query
+        if not service_enabled and is_service_query(user_text):
+            result["answer"] = "Service information isn't available right now. Please contact our team for help."
+            result["query_type"] = "service_unavailable"
+            return result
+        service_reply = service_answers.answer_for_text(
+            wa_id or "", user_text, tenant_id=tenant_id
+        )
+        if service_reply:
+            result["answer"] = service_reply
+            result["query_type"] = "service_enquiry"
+            return result
+    except Exception as e:
+        logger.warning("Service enquiry lookup failed: %s", e)
 
     # ── PROFILE-DEFINED INFORMATIONAL INTENTS ─────────────────────────────
     # A typed query that clearly names an answered panel (technologies,
@@ -570,8 +664,11 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
 
     if query_type == "greeting":
         # Show the main menu directly; no LLM greeting text is needed.
-        result["answer"] = ""
-        result["interactive"] = _get_greeting_menu(wa_id)
+        greeting_menu = _get_greeting_menu(wa_id)
+        if greeting_menu.get("type") == "text":
+            result["answer"] = greeting_menu.get("body", "")
+        else:
+            result["interactive"] = greeting_menu
         return result
 
     data = await forward_to_bot(query_type, user_text, wa_id, raw_message)

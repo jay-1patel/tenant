@@ -160,7 +160,12 @@ def list_tenant_chat_users(
     else:
         username = _current_admin_username(request, credentials)
 
-    admins = get_all_admins_except(username)
+    is_global_admin = principal.get("type") != "tenant" and principal.get("role") == "super_admin"
+    admins = get_all_admins_except(
+        username,
+        tenant_id=tenant_id,
+        include_all=is_global_admin,
+    )
     result = []
     with get_db_context() as conn:
         for admin in admins:

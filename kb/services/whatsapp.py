@@ -1635,16 +1635,24 @@ def send_products_by_category(to: str) -> bool:
     )
 
 
-def _get_admin_document(module: str, default_filename: str) -> dict | None:
+def _get_admin_document(module: str, default_filename: str, tenant_id: str = None) -> dict | None:
     try:
         from ..database import get_db_context
         with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT name, url, file_path FROM admin_files "
-                "WHERE module = ? "
-                "ORDER BY created_at DESC, id DESC LIMIT 1",
-                (module,),
-            ).fetchone()
+            if tenant_id:
+                row = conn.execute(
+                    "SELECT name, url, file_path FROM admin_files "
+                    "WHERE module = ? AND tenant_id = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (module, tenant_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT name, url, file_path FROM admin_files "
+                    "WHERE module = ? AND tenant_id IS NULL "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (module,),
+                ).fetchone()
         if row:
             name = row["name"] or default_filename
             url = row["url"] or ""
@@ -1660,12 +1668,30 @@ def _get_admin_document(module: str, default_filename: str) -> dict | None:
     return None
 
 
-def get_catalogue_doc() -> dict:
-    """Resolve the current catalogue document at send time."""
-    doc = _get_admin_document("catalogue", "Product Brochure.pdf")
+def get_catalogue_doc(tenant_id: str = None) -> dict | None:
+    """Resolve the tenant-owned catalogue document without crossing tenants."""
+    if tenant_id:
+        try:
+            from shared.tenancy.loader import get_tenant_profile
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tid = resolve_tenant_for_user(tenant_id)
+            profile = get_tenant_profile(tid)
+            url = (profile.notifications.brochure_url or "").strip()
+            if url:
+                return {
+                    "url": url,
+                    "filename": profile.notifications.brochure_label or "Service Brochure.pdf",
+                }
+        except Exception as exc:
+            logger.warning(f"tenant brochure profile lookup failed for {tenant_id}: {exc}")
+
+    doc = _get_admin_document("catalogue", "Product Brochure.pdf", tenant_id=tenant_id)
     if doc:
         return doc
 
+    # Only the legacy, non-tenant deployment may use the process-global URL.
+    if tenant_id:
+        return None
     from routing.config import CATALOGUE_PDF_URL, CATALOGUE_PDF_FILENAME
     return {"url": CATALOGUE_PDF_URL, "filename": CATALOGUE_PDF_FILENAME}
 
@@ -1674,9 +1700,11 @@ def get_new_arrivals_doc() -> dict | None:
     return _get_admin_document("new_arrival", "New Releases.pdf")
 
 
-def send_catalogue_pdf(to: str) -> bool:
+def send_catalogue_pdf(to: str, tenant_id: str = None) -> bool:
     """Send the product catalogue PDF as an interactive document + button."""
-    doc = get_catalogue_doc()
+    doc = get_catalogue_doc(tenant_id=tenant_id)
+    if not doc or not doc.get("url"):
+        return False
     from routing.config import (
         CATALOGUE_BUTTON_ID,
         CATALOGUE_BUTTON_TITLE,
