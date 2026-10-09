@@ -229,6 +229,33 @@ class AuditHistoryTests(unittest.TestCase):
         conn.close()
         self.assertEqual(json.loads(details), {"changed_fields": ["role"], "nested": {}})
         self.assertNotIn("never-store", details)
+
+    def test_audit_context_captures_ip_user_agent_and_safe_tenant_metadata(self):
+        tenancy = self._connect()
+        tenancy.execute("CREATE TABLE tenants (id TEXT PRIMARY KEY, display_name TEXT, slug TEXT)")
+        tenancy.execute("INSERT INTO tenants VALUES ('tenant-a', 'Leeway Softech', 'leeway')")
+        tenancy.commit()
+        tenancy.close()
+
+        database.set_audit_request_context(ip_address="203.0.113.9", user_agent="AuditTest/1")
+        conn = self._connect()
+        event_id = database.record_admin_audit_event(
+            conn,
+            action="file_uploaded",
+            actor={"id": 3, "username": "uploader", "role": "admin", "tenant_id": "tenant-a"},
+            tenant_id="tenant-a",
+            details={"file_name": "services.pdf", "file_path": "C:\\private\\services.pdf", "source_url": "https://example.test/signed?secret=x"},
+        )
+        conn.commit()
+        row = conn.execute("SELECT ip_address, user_agent, tenant_name, tenant_slug, actor_kind, details_json FROM admin_audit_events WHERE id = ?", (event_id,)).fetchone()
+        conn.close()
+        database.clear_audit_request_context()
+        self.assertEqual(row["ip_address"], "203.0.113.9")
+        self.assertEqual(row["user_agent"], "AuditTest/1")
+        self.assertEqual(row["tenant_name"], "Leeway Softech")
+        self.assertEqual(row["tenant_slug"], "leeway")
+        details = json.loads(row["details_json"])
+        self.assertEqual(details, {"file_name": "services.pdf"})
         self._insert(action="legacy_sensitive", details={"auth_token_value": "legacy-secret", "visible": "safe"})
         response = self.client.get("/api/admin/audit-history", params={"action": "legacy_sensitive"})
         self.assertNotIn("legacy-secret", response.text)

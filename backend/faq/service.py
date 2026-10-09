@@ -22,6 +22,7 @@ from routing.config import (
     MISTRAL_API_URL, MISTRAL_API_KEY, MISTRAL_MODEL,
 )
 from database import save_embeddings
+from services.response_formatters import WhatsAppFormatter, MessageType, smart_format
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("faq_bot")
@@ -1076,15 +1077,74 @@ def _format_answer_lines(text: str) -> str:
     return text.strip()
 
 
+def _enhanced_format_answer(text: str, message_type: MessageType = MessageType.FAQ_ANSWER, 
+                           tenant_id: str = None) -> str:
+    """
+    Apply enhanced formatting with emojis, markdown, and proper structure.
+    
+    This enhances the basic formatting with:
+    - Context-aware emojis
+    - WhatsApp-compatible markdown
+    - Better line breaks and spacing
+    - Professional structure
+    """
+    if not text or text.strip() == "":
+        return text or ""
+    
+    # Initialize formatter
+    options = _get_formatter_options(tenant_id)
+    formatter = WhatsAppFormatter(options)
+    
+    try:
+        # Apply enhanced formatting
+        formatted = formatter.format(text, message_type=message_type, 
+                                      context={"tenant_id": tenant_id})
+        
+        # Also apply bullet fixing from existing function
+        formatted = _format_answer_lines(formatted)
+        
+        return formatted
+    except Exception as e:
+        logger.debug(f"Enhanced formatting failed, falling back to basic: {e}")
+        return _format_answer_lines(text)
+
+
+def _get_formatter_options(tenant_id: str = None):
+    """Get formatting options based on tenant or global configuration."""
+    from services.response_formatters import FormattingOptions
+    
+    # For now, use standard options with rich formatting
+    # Can be extended to load tenant-specific preferences later
+    return FormattingOptions(
+        use_emojis=True,
+        use_markdown=True,
+        use_hyperlinks=True,
+        use_line_breaks=True,
+        emoji_frequency="moderate",
+        signature=_brand_context(tenant_id).get("signature", ""),
+        brand_name=_brand_context(tenant_id).get("name", BRAND_NAME),
+        max_line_length=400
+    )
+
+
 def _append_signature(text: str, tenant_id: str | None = None) -> str:
     """Sign off with the tenant's own closing signature, resolved from
     the profile layer (env config only as the no-profile fallback). The
     separator stays a plain dash: decoration belongs to the signature
-    text a tenant configures."""
+    text a tenant configures.
+    
+    Also applies enhanced formatting to make responses more engaging.
+    """
+    # Apply enhanced formatting first
+    if text and text.strip():
+        text = _enhanced_format_answer(text, MessageType.FAQ_ANSWER, tenant_id)
+    else:
+        text = text or ""
+    
     signature = _brand_context(tenant_id)["signature"]
-    text = _format_answer_lines(text)
     if not signature:
-        return text or ""
+        return text
+    
     text = text or ""
     if signature in text:
         return text

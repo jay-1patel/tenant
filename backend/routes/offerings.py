@@ -46,6 +46,11 @@ from shared.tenancy import records as record_schema
 logger = logging.getLogger("offerings")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["offerings"])
 
+try:
+    from services.audit_context import set_audit_actor
+except ImportError:
+    from backend.services.audit_context import set_audit_actor
+
 
 # ── request models ────────────────────────────────────────────────────────
 
@@ -117,8 +122,11 @@ def _require_record_access(perm: str):
         credentials: HTTPAuthorizationCredentials = Depends(security),
     ) -> dict:
         if principal.get("type") == "tenant":
+            set_audit_actor(principal)
             return principal
-        if not has_permission(get_current_admin(request, credentials), perm):
+        admin = get_current_admin(request, credentials)
+        set_audit_actor(admin)
+        if not has_permission(admin, perm):
             raise HTTPException(
                 status_code=403,
                 detail="You do not have permission to perform this action",
@@ -145,8 +153,10 @@ def _require_write_access(action: str):
         credentials: HTTPAuthorizationCredentials = Depends(security),
     ) -> dict:
         if principal.get("type") == "tenant":
+            set_audit_actor(principal)
             return principal
         admin = get_current_admin(request, credentials)
+        set_audit_actor(admin)
         if has_permission(admin, "edit_delete_products"):
             return principal
         vertical = _vertical(tenant_id)
@@ -310,6 +320,8 @@ def create_record_column(tenant_id: str, body: ColumnIn, principal: dict = Depen
             )
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="record_schema_column_created", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{body.key}", tenant_id=tenant_id, details={"column_key": body.key, "column_label": body.label[:100], "column_type": body.type})
     return {"status": "created", "column": column, "columns": _columns(tenant_id)}
 
 
@@ -331,6 +343,8 @@ def patch_record_column(tenant_id: str, key: str, body: ColumnPatch, principal: 
             )
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="record_schema_column_updated", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{key}", tenant_id=tenant_id, details={"column_key": key, "changed_fields": [name for name, value in body.model_dump(exclude_unset=True).items() if value is not None]})
     return {"status": "updated", "column": column, "columns": _columns(tenant_id)}
 
 
@@ -342,6 +356,8 @@ def delete_record_column(tenant_id: str, key: str, principal: dict = Depends(sch
             dropped = record_schema.remove_column(conn, tenant_id, key)
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="record_schema_column_deleted", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{key}", tenant_id=tenant_id, details={"column_key": key, "database_column_dropped": dropped})
     return {
         "status": "deleted",
         "key": key,
@@ -355,6 +371,7 @@ def reset_record_schema(tenant_id: str, principal: dict = Depends(schema_access)
     """Drop this tenant's own columns and re-seed from its vertical defaults."""
     with get_db_context() as conn:
         columns = record_schema.reset_columns(conn, tenant_id, _vertical(tenant_id))
+        record_admin_audit_event(conn, action="record_schema_reset", actor=principal, resource_type="record_schema", resource_id=tenant_id, tenant_id=tenant_id, details={"vertical": _vertical(tenant_id), "column_count": len(columns)})
     return {"status": "reset", "vertical": _vertical(tenant_id), "columns": columns}
 
 
@@ -409,6 +426,7 @@ def create_offering(tenant_id: str, body: OfferingIn, principal: dict = Depends(
         short_label=body.short_label or None,
         detail_url=body.detail_url or None,
         tenant_id=tenant_id,
+        actor=principal,
     )
     if not body.is_active:
         update_product(offering_id, is_active=0, tenant_id=tenant_id)
@@ -443,7 +461,7 @@ def patch_offering(tenant_id: str, offering_id: int, body: OfferingPatch, princi
         clean = {}
 
     if updates:
-        update_product(offering_id, tenant_id=tenant_id, **updates)
+        update_product(offering_id, tenant_id=tenant_id, actor=principal, **updates)
     _write_cells(tenant_id, offering_id, columns, clean)
     return {
         "status": "updated",
@@ -460,5 +478,5 @@ def remove_offering(
 ):
     if not get_product(offering_id, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="Record not found for this tenant")
-    delete_product(offering_id, hard=hard, tenant_id=tenant_id)
+    delete_product(offering_id, hard=hard, tenant_id=tenant_id, actor=principal)
     return {"status": "deleted" if hard else "deactivated", "id": offering_id}

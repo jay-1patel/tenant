@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from database import get_db, get_db_context
+from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import require_tenant_admin_permission
 from routes.orders import ALLOWED_PAYMENT_STATUSES, ALLOWED_STATUSES, OrderUpdate
 
@@ -204,17 +204,25 @@ def update_tenant_order(
         values.append(value)
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT id FROM orders WHERE tenant_id = ? AND (id = ? OR order_number = ?)",
+            "SELECT id, order_number, status, payment_status FROM orders WHERE tenant_id = ? AND (id = ? OR order_number = ?)",
             (tenant_id, order_id, order_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Order not found")
+        before = dict(row)
         cursor = conn.execute(
             f"UPDATE orders SET {', '.join(fields)} WHERE id = ? AND tenant_id = ?",
             values + [row["id"], tenant_id],
         )
         if cursor.rowcount != 1:
             raise HTTPException(status_code=404, detail="Order not found")
+        safe_fields = {key: value for key, value in payload.items() if key in {"status", "payment_status", "order_type"}}
+        record_admin_audit_event(
+            conn, action="order_updated", actor=current_admin, resource_type="order",
+            resource_id=row["id"], tenant_id=tenant_id,
+            details={"order_number": row["order_number"], "changed_fields": sorted(safe_fields),
+                     "changes": {key: {"before": before.get(key), "after": value} for key, value in safe_fields.items()}},
+        )
     return {"status": "ok", "order_id": order_id, "updated": payload}
 
 
@@ -225,12 +233,21 @@ def delete_tenant_order(
     current_admin: dict = Depends(require_tenant_admin_permission("manage_orders")),
 ):
     with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT id, order_number, status, payment_status FROM orders WHERE tenant_id = ? AND (id = ? OR order_number = ?)",
+            (tenant_id, order_id, order_id),
+        ).fetchone()
         cursor = conn.execute(
             "DELETE FROM orders WHERE tenant_id = ? AND (id = ? OR order_number = ?)",
             (tenant_id, order_id, order_id),
         )
         if cursor.rowcount != 1:
             raise HTTPException(status_code=404, detail="Order not found")
+        record_admin_audit_event(
+            conn, action="order_deleted", actor=current_admin, resource_type="order",
+            resource_id=row["id"], tenant_id=tenant_id,
+            details={"order_number": row["order_number"], "status": row["status"], "payment_status": row["payment_status"]},
+        )
     return {"status": "ok", "order_id": order_id}
 
 

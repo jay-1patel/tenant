@@ -672,6 +672,11 @@ async def run_upload(
     else:
         if not has_permission(current_admin, "upload_faq"):
             raise HTTPException(status_code=403, detail="You do not have permission to upload FAQ files")
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(current_admin)
+    except Exception:
+        pass
     content_type = request.headers.get("content-type", "")
     filename = ""
     content = b""
@@ -866,6 +871,7 @@ def create_product_api(
         stock_quantity=data.get("stock_quantity"),
         nutritional_facts=data.get("nutritional_facts"),
         bulk_discount_tiers=data.get("bulk_discount_tiers", []),
+        actor=current_admin,
     )
     return {"status": "ok", "id": pid}
 
@@ -885,7 +891,7 @@ def update_product_api(
         allowed["ingredients"] = json.dumps(allowed["ingredients"])
     if "bulk_discount_tiers" in allowed and isinstance(allowed["bulk_discount_tiers"], list):
         allowed["bulk_discount_tiers"] = json.dumps(allowed["bulk_discount_tiers"])
-    ok = update_product(product_id, **allowed)
+    ok = update_product(product_id, actor=current_admin, **allowed)
     if not ok:
         raise HTTPException(status_code=400, detail="Update failed")
     return {"status": "ok"}
@@ -896,7 +902,7 @@ def delete_product_api(
     product_id: int,
     current_admin: dict = Depends(require_permission("edit_delete_products")),
 ):
-    ok = delete_product(product_id, hard=True)
+    ok = delete_product(product_id, hard=True, actor=current_admin)
     if not ok:
         raise HTTPException(status_code=400, detail="Delete failed")
     return {"status": "ok"}
@@ -1062,10 +1068,15 @@ def set_menu_settings_api(
 ):
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
+    before = get_menu_settings(menu_key)
     if not set_menu_settings(menu_key, **data):
         raise HTTPException(status_code=400, detail="No valid settings fields supplied")
+    after = get_menu_settings(menu_key)
+    changed = {key: {"before": before.get(key), "after": after.get(key)} for key in data if before.get(key) != after.get(key)}
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="menu_settings_updated", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
-    return {"ok": True, "menu_key": menu_key, "settings": get_menu_settings(menu_key)}
+    return {"ok": True, "menu_key": menu_key, "settings": after}
 
 
 @router.put("/menus/{menu_key}/{item_id}")
@@ -1129,6 +1140,8 @@ def update_menu_item_api(
         if effective["is_default"]:
             upsert_menu_item(menu_key, item_id, is_active=False)
         upsert_menu_item(menu_key, new_item_id, **merged)
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{new_item_id}", details={"menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id, "changed_fields": ["item_id", "title", "description", "section", "icon", "sort_order", "is_active"]})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id}
 
@@ -1137,9 +1150,14 @@ def update_menu_item_api(
     fields = {k: v for k, v in data.items() if k in allowed}
     if not fields:
         raise HTTPException(status_code=400, detail="No editable fields supplied")
-    if not get_effective_item(menu_key, item_id):
+    effective = get_effective_item(menu_key, item_id)
+    if not effective:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+    changed = {key: {"before": effective.get(key), "after": value} for key, value in fields.items() if effective.get(key) != value}
     upsert_menu_item(menu_key, item_id, **fields)
+    if changed:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1174,6 +1192,8 @@ def create_menu_item_api(
     )
     if not ok:
         raise HTTPException(status_code=400, detail="Could not create menu item")
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="menu_item_created", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": title[:120], "section": str(data.get("section", "General"))[:80]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1201,6 +1221,8 @@ def reorder_menu_items_api(
     for idx, iid in enumerate(item_ids):
         if upsert_menu_item(menu_key, str(iid).strip(), sort_order=idx):
             applied += 1
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="menu_reordered", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "item_count": applied, "item_ids": [str(i)[:80] for i in item_ids[:100]]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "reordered": applied}
 
@@ -1226,6 +1248,8 @@ def delete_menu_item_api(
 
     if effective["is_default"]:
         upsert_menu_item(menu_key, item_id, is_active=False)
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": True})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": True}
 
@@ -1243,6 +1267,8 @@ def delete_menu_item_api(
     invalidate_menu_cache()
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": False})
     return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": False}
 
 
@@ -1252,5 +1278,7 @@ def reset_menu_api(menu_key: str, current_admin: dict = Depends(require_permissi
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     removed = reset_menu(menu_key)
+    with get_db_context() as conn:
+        record_admin_audit_event(conn, action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "removed": removed}

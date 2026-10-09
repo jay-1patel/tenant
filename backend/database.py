@@ -3,7 +3,9 @@ import json
 import sqlite3
 import logging
 import hashlib
+import re
 import contextvars
+from ipaddress import ip_address as _parse_ip_address, ip_network
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 
@@ -48,6 +50,50 @@ def _loads_json(value, default=None):
 # call site. A contextvar (not a global) so concurrent requests cannot bleed.
 
 _current_tenant: contextvars.ContextVar = contextvars.ContextVar("current_tenant", default=None)
+_audit_request_context: contextvars.ContextVar = contextvars.ContextVar("audit_request_context", default=None)
+
+
+def set_audit_request_context(*, ip_address: str | None = None, user_agent: str | None = None) -> None:
+    """Attach trusted request metadata to audit writes in this request context."""
+    _audit_request_context.set({
+        "ip_address": (ip_address or "")[:64] or None,
+        "user_agent": (user_agent or "")[:512] or None,
+    })
+
+
+def clear_audit_request_context() -> None:
+    _audit_request_context.set(None)
+
+
+def trusted_client_ip(peer_ip: str | None, forwarded_for: str | None = None) -> str | None:
+    """Resolve client IP, trusting forwarded-for only behind configured proxies."""
+    try:
+        peer = _parse_ip_address(str(peer_ip or "").strip())
+    except ValueError:
+        return None
+
+    trusted = []
+    for entry in os.getenv("TRUSTED_PROXY_IPS", "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            trusted.append(ip_network(entry, strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid TRUSTED_PROXY_IPS entry")
+    if not any(peer in network for network in trusted):
+        return str(peer)
+
+    # Walk from nearest to farthest proxy. The first untrusted address is the
+    # client address; ignore malformed forwarded entries.
+    try:
+        chain = [_parse_ip_address(part.strip()) for part in (forwarded_for or "").split(",") if part.strip()]
+    except ValueError:
+        return str(peer)
+    for candidate in reversed(chain):
+        if not any(candidate in network for network in trusted):
+            return str(candidate)
+    return str(chain[0]) if chain else str(peer)
 
 
 def set_request_tenant(tenant_id) -> None:
@@ -1065,9 +1111,21 @@ def _init_admin_audit_tables(conn):
             tenant_id TEXT,
             details_json TEXT NOT NULL DEFAULT '{}',
             ip_address TEXT,
-            user_agent TEXT
+            user_agent TEXT,
+            tenant_name TEXT,
+            tenant_slug TEXT,
+            actor_kind TEXT NOT NULL DEFAULT 'admin',
+            actor_label TEXT
         )"""
     )
+    _ensure_columns(conn, "admin_audit_events", [
+        ("ip_address", "TEXT"),
+        ("user_agent", "TEXT"),
+        ("tenant_name", "TEXT"),
+        ("tenant_slug", "TEXT"),
+        ("actor_kind", "TEXT NOT NULL DEFAULT 'admin'"),
+        ("actor_label", "TEXT"),
+    ])
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_created ON admin_audit_events(created_at DESC, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_actor ON admin_audit_events(actor_username, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_admin_audit_action ON admin_audit_events(action, created_at DESC)")
@@ -1080,17 +1138,25 @@ def _init_admin_audit_tables(conn):
 
 _AUDIT_SENSITIVE_KEY_PARTS = (
     "password", "otp", "token", "secret", "credential", "authorization", "api_key", "payload", "body",
+    "file_path", "filepath", "local_path", "media_url", "detail_url", "signed_url", "upload_url", "url",
 )
 
 
 def safe_audit_details(value):
-    """Remove secret-like keys recursively before storing or returning details."""
+    """Remove secrets and deployment paths/URLs recursively before storing or returning details."""
     if isinstance(value, dict):
         return {
             str(key): safe_audit_details(item)
             for key, item in value.items()
             if not any(part in str(key).lower().replace('-', '_') for part in _AUDIT_SENSITIVE_KEY_PARTS)
         }
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith(("/", "\\\\")) or re.match(r"^[A-Za-z]:[\\\\/]", text):
+            return "[redacted path]"
+        if re.search(r"https?://", text, flags=re.IGNORECASE):
+            return "[redacted URL]"
+        return text[:1000]
     if isinstance(value, (list, tuple)):
         return [safe_audit_details(item) for item in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -1111,25 +1177,48 @@ def record_admin_audit_event(
     details: dict | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    tenant_name: str | None = None,
+    tenant_slug: str | None = None,
+    actor_kind: str | None = None,
+    actor_label: str | None = None,
 ) -> int:
     """Record an audit event using the caller's transaction."""
     if outcome not in {"success", "failure"}:
         raise ValueError("Audit outcome must be success or failure")
     actor = actor or {}
+    context = _audit_request_context.get() or {}
+    tenant_id = tenant_id or actor.get("tenant_id")
+    if tenant_id and (tenant_name is None or tenant_slug is None):
+        try:
+            tenant = conn.execute(
+                "SELECT display_name, slug FROM tenants WHERE id = ?",
+                (str(tenant_id),),
+            ).fetchone()
+            if tenant:
+                tenant_name = tenant_name or tenant["display_name"] or None
+                tenant_slug = tenant_slug or tenant["slug"] or None
+        except Exception:
+            # Compatibility with audit tests/older database fixtures without
+            # the tenant registry table.
+            pass
+    actor_kind = actor_kind or actor.get("type") or ("tenant_token" if actor.get("token_id") else "admin")
+    actor_label = actor_label or actor.get("label") or actor.get("username")
     conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
     cursor = conn.execute(
         """INSERT INTO admin_audit_events
            (created_at, actor_id, actor_username, actor_role, action, outcome,
             resource_type, resource_id, target_username, tenant_id, details_json,
-            ip_address, user_agent)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ip_address, user_agent, tenant_name, tenant_slug, actor_kind, actor_label)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             datetime.now(timezone.utc).isoformat(), actor.get("id"), actor.get("username"),
             actor.get("role"), action, outcome, resource_type,
             "" if resource_id is None else str(resource_id), target_username,
-            tenant_id or actor.get("tenant_id"),
+            tenant_id,
             json.dumps(safe_audit_details(details or {}), ensure_ascii=False),
-            ip_address, user_agent
+            ip_address or context.get("ip_address"),
+            (user_agent or context.get("user_agent") or "")[:512] or None,
+            tenant_name, tenant_slug, actor_kind, actor_label,
         ),
     )
     return int(cursor.lastrowid)
@@ -1936,13 +2025,13 @@ def save_product(name: str, slug: str, category: str = "general",
                 actor=actor,
                 resource_type="product",
                 resource_id=product_id,
-                tenant_id=tenant_id,
+                tenant_id=_resolve_tenant(tenant_id),
                 details={
-                    "name": name,
-                    "slug": slug, 
-                    "category": category,
-                    "price": price,
-                    "media_url": media_url
+                    "changed_fields": ["name", "slug", "category", "price"],
+                    "name": name[:120],
+                    "slug": slug[:120],
+                    "category": category[:80],
+                    "has_price": bool(price),
                 }
             )
         
@@ -2027,23 +2116,33 @@ def update_product(product_id: int, tenant_id: str = None, **kwargs) -> bool:
     actor = kwargs.pop("actor", None)
     
     with get_db_context() as conn:
-        conn.execute(
+        before = conn.execute(
+            "SELECT name, slug, category, price, is_active, sort_order FROM products WHERE id = ? AND tenant_id = ?",
+            (product_id, _resolve_tenant(tenant_id)),
+        ).fetchone()
+        cursor = conn.execute(
             f"UPDATE products SET {set_clause} WHERE id = ? AND tenant_id = ?", values
         )
-        
-        # Record audit event for product update
-        if actor:
+
+        # Record field names and a tightly allowlisted before/after summary.
+        if actor and cursor.rowcount:
+            after = conn.execute(
+                "SELECT name, slug, category, price, is_active, sort_order FROM products WHERE id = ? AND tenant_id = ?",
+                (product_id, _resolve_tenant(tenant_id)),
+            ).fetchone()
+            changed = {}
+            if before and after:
+                for key in ("name", "slug", "category", "price", "is_active", "sort_order"):
+                    if before[key] != after[key]:
+                        changed[key] = {"before": before[key], "after": after[key]}
             record_admin_audit_event(
                 conn,
                 action="product_updated",
                 actor=actor,
                 resource_type="product",
                 resource_id=product_id,
-                tenant_id=tenant_id,
-                details={
-                    "updated_fields": list(updates.keys()),
-                    "changes": {k: v for k, v in updates.items() if k != "updated_at"}
-                }
+                tenant_id=_resolve_tenant(tenant_id),
+                details={"changed_fields": sorted(changed), "changes": changed},
             )
         
     return True
@@ -2078,12 +2177,12 @@ def delete_product(product_id: int, hard: bool = False, tenant_id: str = None, a
                 actor=actor,
                 resource_type="product",
                 resource_id=product_id,
-                tenant_id=tenant_id,
+                tenant_id=_resolve_tenant(tenant_id),
                 details={
-                    "product_name": product_details.get("name", ""),
-                    "product_slug": product_details.get("slug", ""),
-                    "product_category": product_details.get("category", ""),
-                    "hard_delete": hard
+                    "product_name": product_details.get("name", "")[:120],
+                    "product_slug": product_details.get("slug", "")[:120],
+                    "product_category": product_details.get("category", "")[:80],
+                    "hard_delete": hard,
                 }
             )
         
@@ -2809,10 +2908,11 @@ def save_admin_file(name: str, ext: str, module: str, size: int,
                     doc_id: int = None, file_path: str = None, url: str = None,
                     tenant_id: str = None, actor: dict = None) -> int:
     with get_db_context() as conn:
+        effective_tenant = _resolve_tenant(tenant_id) if tenant_id else (get_request_tenant() or tenant_id)
         cur = conn.execute(
             """INSERT INTO admin_files (name, ext, module, size, doc_id, file_path, url, tenant_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, ext, module, size, doc_id, file_path, url, tenant_id),
+            (name, ext, module, size, doc_id, file_path, url, effective_tenant),
         )
         file_id = cur.lastrowid
         
@@ -2824,13 +2924,14 @@ def save_admin_file(name: str, ext: str, module: str, size: int,
                 actor=actor,
                 resource_type="file",
                 resource_id=file_id,
-                tenant_id=tenant_id,
+                tenant_id=effective_tenant,
+                actor_kind=actor.get("type"),
+                actor_label=actor.get("label"),
                 details={
-                    "file_name": name,
+                    "file_name": os.path.basename(name),
                     "file_ext": ext,
                     "module": module,
                     "file_size": size,
-                    "file_path": file_path
                 }
             )
         
@@ -2872,13 +2973,13 @@ def delete_admin_file(name: str, tenant_id: str = None, actor: dict = None) -> b
         file_row = None
         if tenant_id:
             file_row = conn.execute(
-                "SELECT id, module, size FROM admin_files WHERE name = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, module, size, tenant_id FROM admin_files WHERE name = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1",
                 (name, tenant_id),
             ).fetchone()
             conn.execute("DELETE FROM admin_files WHERE name = ? AND tenant_id = ?", (name, tenant_id))
         else:
             file_row = conn.execute(
-                "SELECT id, module, size FROM admin_files WHERE name = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, module, size, tenant_id FROM admin_files WHERE name = ? ORDER BY id DESC LIMIT 1",
                 (name,),
             ).fetchone()
             conn.execute("DELETE FROM admin_files WHERE name = ?", (name,))
@@ -2892,11 +2993,13 @@ def delete_admin_file(name: str, tenant_id: str = None, actor: dict = None) -> b
                 actor=actor,
                 resource_type="file",
                 resource_id=file_details.get("id"),
-                tenant_id=tenant_id,
+                tenant_id=tenant_id or file_details.get("tenant_id"),
+                actor_kind=actor.get("type"),
+                actor_label=actor.get("label"),
                 details={
-                    "file_name": name,
+                    "file_name": os.path.basename(name),
                     "module": file_details.get("module", ""),
-                    "file_size": file_details.get("size", 0)
+                    "file_size": file_details.get("size", 0),
                 }
             )
         

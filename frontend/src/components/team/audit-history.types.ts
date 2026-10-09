@@ -1,4 +1,5 @@
 import { type AuditOutcome } from '@/lib/audit'
+import type React from 'react'
 
 // Extended audit event with additional fields
 export interface AuditEventExtended {
@@ -13,6 +14,11 @@ export interface AuditEventExtended {
   resource_id: string
   target_username: string | null
   tenant_id: string | null
+  tenant_name?: string | null
+  tenant_slug?: string | null
+  tenant_label?: string
+  actor_kind?: string | null
+  actor_label?: string | null
   details: Record<string, unknown>
   ip_address?: string
   user_agent?: string
@@ -103,6 +109,21 @@ export const ACTION_CATEGORIES = {
     actions: ['login', 'first_admin_created', 'admin_password_reset', 'admin_password_reset_via_otp', 'password_changed'],
     color: 'blue'
   },
+  files: {
+    label: 'Files',
+    actions: ['file_uploaded', 'file_deleted'],
+    color: 'orange'
+  },
+  products: {
+    label: 'Products & services',
+    actions: ['product_created', 'product_updated', 'product_deleted', 'product_deleted_hard'],
+    color: 'green'
+  },
+  operations: {
+    label: 'Operations',
+    actions: ['order_updated', 'order_deleted', 'campaign_created', 'campaign_updated', 'campaign_deleted', 'complaint_updated', 'complaint_deleted', 'complaint_resolved', 'complaint_replied'],
+    color: 'orange'
+  },
   accounts: {
     label: 'Admin accounts',
     actions: ['admin_created', 'admin_updated', 'admin_deleted'],
@@ -140,10 +161,12 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'action', label: 'Action', sortable: true, width: '200px' },
   { key: 'actor_username', label: 'Actor', sortable: true, width: '150px' },
   { key: 'target_username', label: 'Target', sortable: true, width: '150px' },
-  { key: 'tenant_id', label: 'Tenant', sortable: true, width: '120px' },
+  { key: 'tenant_label', label: 'Tenant / client', sortable: true, width: '220px' },
   { key: 'outcome', label: 'Outcome', sortable: true, width: '100px' },
   { key: 'ip_address', label: 'IP Address', sortable: true, width: '150px' },
+  { key: 'user_agent', label: 'User Agent', sortable: false, width: '220px' },
   { key: 'resource_type', label: 'Resource Type', sortable: true, width: '150px' },
+  { key: 'resource_id', label: 'Resource ID', sortable: true, width: '150px' },
 ]
 
 // Filter persistence key
@@ -154,9 +177,18 @@ export const LABELS = {
   created_at: 'Date/Time',
   action: 'Action',
   actor_username: 'Actor',
+  actor_id: 'Actor ID',
+  actor_role: 'Actor Role',
+  actor_kind: 'Actor Kind',
+  actor_label: 'Actor Label',
   target_username: 'Target',
-  tenant_id: 'Tenant',
+  tenant_id: 'Tenant ID',
+  tenant_name: 'Tenant Name',
+  tenant_slug: 'Tenant Slug',
+  tenant_label: 'Tenant',
   outcome: 'Outcome',
   ip_address: 'IP Address',
+  user_agent: 'User Agent',
   resource_type: 'Resource Type',
+  resource_id: 'Resource ID',
 } as const;

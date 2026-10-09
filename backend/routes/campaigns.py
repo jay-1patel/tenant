@@ -513,7 +513,8 @@ async def upload_campaign_media(
         fh.write(content)
 
     db.save_admin_file(
-        stored, ext.lstrip("."), "campaigns", len(content), file_path=stored, tenant_id=tenant_id
+        stored, ext.lstrip("."), "campaigns", len(content), file_path=stored,
+        tenant_id=tenant_id, actor=current_admin,
     )
 
     logger.info(

@@ -27,6 +27,26 @@ export const LABELS: Record<string, string> = {
   config_draft_saved: 'Configuration draft saved',
   config_draft_built: 'Configuration draft generated',
   config_published: 'Configuration published',
+  file_uploaded: 'File uploaded',
+  file_deleted: 'File deleted',
+  product_created: 'Product/service created',
+  product_updated: 'Product/service updated',
+  product_deleted: 'Product/service deactivated',
+  product_deleted_hard: 'Product/service deleted',
+  order_updated: 'Order updated',
+  order_deleted: 'Order deleted',
+  campaign_created: 'Campaign created',
+  campaign_updated: 'Campaign updated',
+  campaign_deleted: 'Campaign deleted',
+  complaint_updated: 'Complaint updated',
+  complaint_deleted: 'Complaint deleted',
+  complaint_resolved: 'Complaint resolved',
+  complaint_replied: 'Complaint replied',
+  menu_item_updated: 'Menu option updated',
+  menu_item_created: 'Menu option created',
+  menu_item_deleted: 'Menu option hidden/deleted',
+  menu_reordered: 'Menu reordered',
+  menu_settings_updated: 'Menu settings updated',
 }
 
 // Get category for action
@@ -58,10 +78,26 @@ export function getCategoryColorClass(category: string): string {
   return colorMap[color] || colorMap.slate
 }
 
-// Enhanced describe details function
+// Format every safe detail key rather than silently dropping unrecognized fields.
+export function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.map(formatAuditValue).join(', ')
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${key.replace(/_/g, ' ')}: ${formatAuditValue(item)}`)
+      .join(' · ')
+  }
+  return String(value)
+}
+
 export function describeDetails(details: Record<string, unknown>): string {
-  const parts: string[] = []
-  
+  return Object.entries(details)
+    .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${formatAuditValue(value)}`)
+    .join(' · ')
+}
+
+/* legacy filtered detail summary removed
   if (typeof details.role === 'string') parts.push(`Role: ${details.role}`)
   if (typeof details.role_before === 'string' && typeof details.role_after === 'string' && details.role_before !== details.role_after) {
     parts.push(`Role changed: ${details.role_before} → ${details.role_after}`)
@@ -80,6 +116,8 @@ export function describeDetails(details: Record<string, unknown>): string {
   
   return parts.join(' \· ')
 }
+
+*/
 
 // Filter preset dates
 export function getPresetDates(preset: FilterPreset): { start_date: string; end_date: string } {
@@ -132,6 +170,7 @@ export function getPresetDates(preset: FilterPreset): { start_date: string; end_
 export function formatEventForDisplay(event: AuditEventExtended): AuditEventExtended {
   return {
     ...event,
+    tenant_label: event.tenant_label || [event.tenant_name, event.tenant_slug, event.tenant_id].filter(Boolean).join(' · ') || 'Platform',
     formatted_date: formatDate(event.created_at),
     relative_time: relativeTime(event.created_at),
     category: getCategoryForAction(event.action)
@@ -162,7 +201,10 @@ export function prepareExportData(events: AuditEventExtended[], columns: string[
           row[col] = formattedEvent.outcome
           break
         case 'details':
-          row[col] = describeDetails(formattedEvent.details || {})
+          row[col] = JSON.stringify(formattedEvent.details || {})
+          break
+        case 'tenant_label':
+          row[col] = formattedEvent.tenant_label || formattedEvent.tenant_name || formattedEvent.tenant_id || 'Platform'
           break
         case 'category_label':
           row[col] = formattedEvent.category ? ACTION_CATEGORIES[formattedEvent.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'
@@ -207,7 +249,7 @@ export function generateJSON(data: Record<string, unknown>[], includeHeaders: bo
 
 // Get default columns for export
 export function getDefaultExportColumns(): string[] {
-  return DEFAULT_COLUMNS.map(col => col.key).concat(['category', 'details'])
+  return DEFAULT_COLUMNS.map(col => col.key).concat(['actor_id', 'actor_role', 'actor_kind', 'actor_label', 'category', 'details'])
 }
 
 // Save filters to localStorage

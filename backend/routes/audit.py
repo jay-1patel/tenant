@@ -41,8 +41,8 @@ def list_audit_history(
 
     # Valid sort columns and directions
     valid_sort_columns = {
-        "created_at", "action", "actor_username", "target_username", 
-        "outcome", "tenant_id", "resource_type", "id"
+        "created_at", "action", "actor_username", "target_username",
+        "outcome", "tenant_id", "tenant_name", "tenant_slug", "ip_address", "resource_type", "id"
     }
     valid_sort_directions = {"asc", "desc"}
     
@@ -95,8 +95,12 @@ def list_audit_history(
     
     if search and search.strip():
         term = f"%{search.strip()}%"
-        where.append("(actor_username LIKE ? OR target_username LIKE ? OR resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ?)")
-        params.extend([term] * 5)
+        where.append(
+            "(actor_username LIKE ? OR actor_label LIKE ? OR target_username LIKE ? OR "
+            "resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ? OR tenant_id LIKE ? OR "
+            "tenant_name LIKE ? OR tenant_slug LIKE ? OR ip_address LIKE ? OR user_agent LIKE ? OR details_json LIKE ?)"
+        )
+        params.extend([term] * 12)
     
     clause = f" WHERE {' AND '.join(where)}" if where else ""
     
@@ -117,6 +121,9 @@ def list_audit_history(
             "target_username": "target_username",
             "outcome": "outcome",
             "tenant_id": "tenant_id",
+            "tenant_name": "tenant_name",
+            "tenant_slug": "tenant_slug",
+            "ip_address": "ip_address",
             "resource_type": "resource_type",
             "id": "id"
         }
@@ -126,7 +133,8 @@ def list_audit_history(
         rows = conn.execute(
             f"""SELECT id, created_at, actor_id, actor_username, actor_role,
                        action, outcome, resource_type, resource_id, target_username,
-                       tenant_id, details_json, ip_address, user_agent
+                       tenant_id, tenant_name, tenant_slug, actor_kind, actor_label,
+                       details_json, ip_address, user_agent
                 FROM admin_audit_events{clause}
                 ORDER BY {actual_sort_column} {sort_direction}, id DESC LIMIT ? OFFSET ?""",
             [*params, limit, offset],
@@ -141,6 +149,9 @@ def list_audit_history(
             event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
         except (json.JSONDecodeError, TypeError):
             event["details"] = {}
+        event["tenant_label"] = " · ".join(
+            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
+        ) or "Platform"
         events.append(event)
     
     return {"events": events, "total": total, "limit": limit, "offset": offset}
@@ -202,8 +213,12 @@ def get_audit_statistics(
             params.extend(actions)
     if search and search.strip():
         term = f"%{search.strip()}%"
-        where.append("(actor_username LIKE ? OR target_username LIKE ? OR resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ?)")
-        params.extend([term] * 5)
+        where.append(
+            "(actor_username LIKE ? OR actor_label LIKE ? OR target_username LIKE ? OR "
+            "resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ? OR tenant_id LIKE ? OR "
+            "tenant_name LIKE ? OR tenant_slug LIKE ? OR ip_address LIKE ? OR user_agent LIKE ? OR details_json LIKE ?)"
+        )
+        params.extend([term] * 12)
     clause = f" WHERE {' AND '.join(where)}" if where else ""
 
     conn = get_db()
@@ -386,17 +401,21 @@ def export_audit_history(
             params.extend(actions)
     if search and search.strip():
         term = f"%{search.strip()}%"
-        where.append("(actor_username LIKE ? OR target_username LIKE ? OR resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ?)")
-        params.extend([term] * 5)
+        where.append(
+            "(actor_username LIKE ? OR actor_label LIKE ? OR target_username LIKE ? OR "
+            "resource_type LIKE ? OR resource_id LIKE ? OR action LIKE ? OR tenant_id LIKE ? OR "
+            "tenant_name LIKE ? OR tenant_slug LIKE ? OR ip_address LIKE ? OR user_agent LIKE ? OR details_json LIKE ?)"
+        )
+        params.extend([term] * 12)
     
     clause = f" WHERE {' AND '.join(where)}" if where else ""
     
     conn = get_db()
     try:
         rows = conn.execute(
-            f"""SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome, 
-                       resource_type, resource_id, target_username, tenant_id, details_json,
-                       ip_address, user_agent
+            f"""SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome,
+                       resource_type, resource_id, target_username, tenant_id, tenant_name,
+                       tenant_slug, actor_kind, actor_label, details_json, ip_address, user_agent
                 FROM admin_audit_events{clause}
                 ORDER BY created_at DESC, id DESC LIMIT ?""",
             [*params, limit],
@@ -411,12 +430,15 @@ def export_audit_history(
             event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
         except (json.JSONDecodeError, TypeError):
             event["details"] = {}
+        event["tenant_label"] = " · ".join(
+            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
+        ) or "Platform"
         events.append(event)
     
     # Parse requested columns
     requested_columns = columns.split(",") if columns else [
-        "id", "created_at", "action", "actor_username", "target_username", 
-        "outcome", "tenant_id", "resource_type", "resource_id", 
+        "id", "created_at", "action", "actor_id", "actor_username", "actor_role", "actor_kind", "actor_label", "target_username",
+        "outcome", "tenant_id", "tenant_name", "tenant_slug", "tenant_label", "resource_type", "resource_id",
         "ip_address", "user_agent", "details"
     ]
     
@@ -429,13 +451,19 @@ def export_audit_history(
         headers = []
         column_mappings = {
             "id": "ID",
-            "created_at": "Date/Time", 
+            "created_at": "Date/Time",
             "action": "Action",
+            "actor_id": "Actor ID",
             "actor_username": "Actor",
             "actor_role": "Actor Role",
+            "actor_kind": "Actor Kind",
+            "actor_label": "Actor Label",
             "target_username": "Target User",
             "outcome": "Outcome",
             "tenant_id": "Tenant ID",
+            "tenant_name": "Tenant Name",
+            "tenant_slug": "Tenant Slug",
+            "tenant_label": "Tenant",
             "resource_type": "Resource Type",
             "resource_id": "Resource ID",
             "ip_address": "IP Address",
@@ -504,9 +532,9 @@ def get_audit_event(
     conn = get_db()
     try:
         row = conn.execute(
-            """SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome, 
-                       resource_type, resource_id, target_username, tenant_id, details_json,
-                       ip_address, user_agent
+            """SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome,
+                       resource_type, resource_id, target_username, tenant_id, tenant_name,
+                       tenant_slug, actor_kind, actor_label, details_json, ip_address, user_agent
                 FROM admin_audit_events WHERE id = ?""",
             [event_id],
         ).fetchone()
@@ -519,7 +547,9 @@ def get_audit_event(
             event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
         except (json.JSONDecodeError, TypeError):
             event["details"] = {}
-        
+        event["tenant_label"] = " · ".join(
+            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
+        ) or "Platform"
         return event
     finally:
         conn.close()

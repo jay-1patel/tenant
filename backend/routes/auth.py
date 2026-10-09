@@ -308,6 +308,11 @@ def require_tenant_access():
 
         principal = get_tenant_principal(request, credentials)
         if principal is not None:
+            try:
+                from backend.services.audit_context import set_audit_actor
+                set_audit_actor(principal)
+            except Exception:
+                pass
             if principal["tenant_id"] != target:
                 logger.warning(
                     "Tenant token scope violation: token for %s tried to touch %s",
@@ -321,6 +326,11 @@ def require_tenant_access():
                     "label": principal.get("label", "")}
 
         admin = get_current_admin(request, credentials)
+        try:
+            from backend.services.audit_context import set_audit_actor
+            set_audit_actor(admin)
+        except Exception:
+            pass
         if not has_permission(admin, "manage_operations"):
             raise HTTPException(
                 status_code=403, detail="You do not have permission to manage tenant profiles"
@@ -334,7 +344,13 @@ def require_tenant_access():
                     status_code=403, detail=f"Admin is scoped to tenant '{admin_tenant}'"
                 )
             # If admin has no tenant_id set yet, they may still access (backcompat) but better to scope
-        return {"type": "admin", "username": admin.get("username", ""), "role": admin.get("role", "")}
+        return {
+            "type": "admin",
+            "id": admin.get("id"),
+            "username": admin.get("username", ""),
+            "role": admin.get("role", ""),
+            "tenant_id": admin.get("tenant_id"),
+        }
 
     return dependency
 

@@ -6,6 +6,11 @@ export interface AuditEventExtended extends Omit<AuditEvent, 'details'> {
   details: Record<string, unknown>
   ip_address?: string
   user_agent?: string
+  tenant_name?: string | null
+  tenant_slug?: string | null
+  tenant_label?: string
+  actor_kind?: string | null
+  actor_label?: string | null
   category?: string
   formatted_date?: string
   relative_time?: string

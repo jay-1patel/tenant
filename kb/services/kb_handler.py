@@ -18,6 +18,13 @@ from .whatsapp import (
     send_whatsapp_message, send_menu, _handle_menu_selection,
     send_with_main_menu_fallback, send_main_menu, send_interactive_buttons,
 )
+
+# Import response formatter
+try:
+    from backend.services.response_formatters import WhatsAppFormatter, MessageType, smart_format
+    RESPONSE_FORMATTER_AVAILABLE = True
+except ImportError:
+    RESPONSE_FORMATTER_AVAILABLE = False
 from .bot_config import get_response_settings
 from .menu_router import (
     parse_interactive_message, should_show_main_menu, should_enter_ai_mode,
@@ -27,6 +34,75 @@ from .menu_router import (
     build_product_buttons, build_main_menu_buttons,
 )
 from routing.config import logger
+
+# ── RESPONSE FORMATTING ──────────────────────────────────────────────────────
+
+def _format_response(text: str, wa_id: str = None, message_type: str = "faq_answer") -> str:
+    """
+    Apply enhanced formatting to response text.
+    
+    Args:
+        text: Text to format
+        wa_id: WhatsApp ID for tenant context
+        message_type: Type of message (faq_answer, product_info, etc.)
+        
+    Returns:
+        Formatted text with emojis, markdown, and proper structure
+    """
+    if not text or not text.strip():
+        return text or ""
+    
+    # Fallback to basic formatting if new formatter not available
+    if not RESPONSE_FORMATTER_AVAILABLE:
+        # Apply basic bullet formatting
+        return _format_basic_text(text)
+    
+    try:
+        # Create formatter with appropriate options
+        formatter = WhatsAppFormatter()
+        
+        # Convert string message_type to MessageType enum
+        type_mapping = {
+            "faq_answer": MessageType.FAQ_ANSWER,
+            "product_info": MessageType.PRODUCT_INFO,
+            "order_confirmation": MessageType.ORDER_CONFIRMATION,
+            "price_query": MessageType.PRICE_QUERY,
+            "greeting": MessageType.GREETING,
+            "support_response": MessageType.SUPPORT_RESPONSE,
+            "error": MessageType.ERROR_MESSAGE,
+            "listing": MessageType.LISTING,
+        }
+        msg_type = type_mapping.get(message_type, MessageType.FAQ_ANSWER)
+        
+        # Apply formatting
+        formatted = formatter.format(text, message_type=msg_type)
+        
+        # Additional formatting fixes
+        formatted = _format_basic_text(formatted)
+        
+        return formatted
+    except Exception as e:
+        logger.debug(f"Response formatting failed: {e}")
+        return _format_basic_text(text)
+
+
+def _format_basic_text(text: str) -> str:
+    """Basic text formatting fallback."""
+    if not text:
+        return text or ""
+    
+    # Fix bullet points
+    bullet = "•"
+    text = re.sub(r"(?<!^)(?<!\n)[ \t]*" + bullet + r"[ \t]*", "\n" + bullet + " ", text, flags=re.MULTILINE)
+    
+    # Collapse excessive blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    
+    # Trim trailing whitespace on each line
+    text = "\n".join(line.rstrip() for line in text.splitlines())
+    
+    return text.strip()
+
 
 # ── DYNAMIC DISCOUNTS ────────────────────────────────────────────────────────
 # Builds the DISCOUNTS reply from the actual KB/FAQ database instead of a fixed
@@ -387,7 +463,9 @@ def _clean_response(text: str) -> str:
             # No natural boundary found, fall back to hard truncation with ellipse
             text = text[:max_chars - 3].strip() + "..."
 
-    return text
+    # Apply enhanced formatting after cleaning
+    formatted_text = _format_response(text, message_type="faq_answer")
+    return formatted_text
 
 
 def _product_text_for_filter(products: list) -> str:
@@ -475,12 +553,17 @@ def _result(
     media_url: str = None,
     media_type: str = None,
     whatsapp_sent: bool = False,
+    message_type: str = "faq_answer",
+    wa_id: str = None,
 ) -> dict:
+    # Apply enhanced formatting to answer
+    formatted_answer = _format_response(answer, wa_id, message_type)
+    
     return {
-        "answer": answer or "",
+        "answer": formatted_answer or "",
         "route": route,
         "interactive": interactive,
-        "success": bool(answer),
+        "success": bool(formatted_answer),
         "media_url": media_url,
         "media_type": media_type,
         "whatsapp_sent": whatsapp_sent,
@@ -556,7 +639,7 @@ async def handle_kb_query(
                 logger.error(f"Failed to send fuzzy correction to {wa_id}: {e}")
 
         response_text = correction_message
-        return _result(response_text, route="fuzzy_correction", interactive=interactive, whatsapp_sent=sent)
+        return _result(response_text, route="fuzzy_correction", interactive=interactive, whatsapp_sent=sent, wa_id=wa_id, message_type="faq_answer")
 
     # ── Priority 1: Menu Keywords → Always show Main Menu ─────────────────────
     if should_show_main_menu(text, parsed_msg, wa_id):
@@ -570,7 +653,7 @@ async def handle_kb_query(
             except Exception as e:
                 logger.error(f"Failed to send main menu to {wa_id}: {e}")
         response_text = interactive.get("body") or "Main Menu"
-        return _result(response_text, route="menu", interactive=interactive, whatsapp_sent=sent)
+        return _result(response_text, route="menu", interactive=interactive, whatsapp_sent=sent, wa_id=wa_id, message_type="greeting")
 
     # ── Priority 1b: B2C Customer Support Workflows ─────────────────────────
     # Transactional flows (Order Tracking, Complaint Registration) are handled by
@@ -663,7 +746,7 @@ async def handle_kb_query(
             except Exception as e:
                 logger.error(f"Failed to send products list to {wa_id}: {e}")
         response_text = "📋 Here are our products."
-        return _result(response_text, route="products", interactive=None, whatsapp_sent=sent)
+        return _result(response_text, route="products", interactive=None, whatsapp_sent=sent, wa_id=wa_id, message_type="listing")
 
     # ── CATALOG: Send the product catalogue PDF ─────────────────────────────
     if action == "CATALOG":
@@ -678,7 +761,7 @@ async def handle_kb_query(
             except Exception as e:
                 logger.error(f"Failed to send catalogue PDF to {wa_id}: {e}")
         response_text = "📄 Sent you the brochure."
-        return _result(response_text, route="catalog", interactive=None, whatsapp_sent=sent)
+        return _result(response_text, route="catalog", interactive=None, whatsapp_sent=sent, wa_id=wa_id, message_type="product_info")
 
     if action == "NEW_ARRIVALS":
         set_state(wa_id, UserState.MAIN_MENU)

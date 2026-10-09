@@ -14,7 +14,12 @@ from middleware import SecurityHeadersMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-from database import init_db
+from database import (
+    init_db,
+    set_audit_request_context,
+    clear_audit_request_context,
+    trusted_client_ip,
+)
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
@@ -147,12 +152,24 @@ async def cart_cleanup_monitor(stop_event: asyncio.Event = None) -> None:
 FORCE_HTTPS = os.getenv("FORCE_HTTPS", "false").lower() == "true"
 
 app = FastAPI(
-    title="Chiki Unified Service", 
+    title="Chiki Unified Service",
     version="2.0.0", 
     lifespan=lifespan,
     # SECURITY FIX: Enforce HTTPS for all connections
     https_redirect=FORCE_HTTPS,
 )
+
+@app.middleware("http")
+async def audit_request_context(request: Request, call_next):
+    """Provide trusted network metadata to audit writes for this request."""
+    peer = request.client.host if request.client else None
+    ip = trusted_client_ip(peer, request.headers.get("x-forwarded-for"))
+    set_audit_request_context(ip_address=ip, user_agent=request.headers.get("user-agent"))
+    try:
+        return await call_next(request)
+    finally:
+        clear_audit_request_context()
+
 
 # slowapi requires the limiter on app.state plus an app-level exception handler
 if RATE_LIMIT_ENABLED:

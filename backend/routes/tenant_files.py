@@ -79,10 +79,20 @@ def _resolve_uploader(
     A tenant token is, by construction, authorized for its own tenant, so it is
     represented as a super admin of that tenant.
     """
+    try:
+        from backend.services.audit_context import set_audit_actor
+        set_audit_actor(principal)
+    except Exception:
+        pass
     if principal.get("type") == "tenant":
         return {
+            "id": None,
+            "type": "tenant_token",
+            "token_id": principal.get("token_id"),
+            "label": principal.get("label") or "tenant",
             "username": principal.get("label") or "tenant",
             "role": "super_admin",
+            "tenant_id": principal.get("tenant_id"),
             "permissions": {},
         }
     return get_current_admin(request, credentials)
@@ -167,9 +177,14 @@ def delete_tenant_file(
 ):
     if not get_admin_file(filename, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="File not found for this tenant")
+    actor = {
+        **principal,
+        "username": principal.get("username") or principal.get("label") or "tenant",
+        "tenant_id": tenant_id,
+    }
     deleted_faq = delete_file_chunks(filename, tenant_id=tenant_id)
     deleted_kb = delete_knowledge_base_file(filename, tenant_id=tenant_id)
-    delete_admin_file(filename, tenant_id=tenant_id)
+    delete_admin_file(filename, tenant_id=tenant_id, actor=actor)
     filepath = _find_uploaded_file(filename)
     if filepath:
         try:
@@ -213,5 +228,30 @@ async def upload_tenant_image(
             status_code=502,
             detail="Image hosting failed — check the imghippo API key.",
         )
+    try:
+        from database import get_db_context, record_admin_audit_event
+        actor = {
+            **principal,
+            "username": principal.get("username") or principal.get("label") or "tenant",
+            "tenant_id": tenant_id,
+        }
+        with get_db_context() as conn:
+            record_admin_audit_event(
+                conn,
+                action="file_uploaded",
+                actor=actor,
+                resource_type="file",
+                resource_id=file.filename or "image",
+                tenant_id=tenant_id,
+                details={
+                    "file_name": os.path.basename(file.filename or "image"),
+                    "file_ext": os.path.splitext(file.filename or "")[1].lower().lstrip("."),
+                    "module": "record_image",
+                    "file_size": len(content),
+                    "hosted": True,
+                },
+            )
+    except Exception as exc:
+        logger.error("Could not audit tenant image upload: %s", exc)
     logger.info("TENANT_IMAGE_UPLOADED | tenant=%s | name=%s | bytes=%s", tenant_id, file.filename, len(content))
     return {"url": url, "name": file.filename, "size": len(content)}

@@ -185,17 +185,21 @@ def delete_tenant(
     principal: dict = Depends(require_tenant_access()),
 ):
     _admin_only(principal)
-    if not tenancy_store.get_tenant(tenant_id):
+    tenant_snapshot = tenancy_store.get_tenant(tenant_id)
+    if not tenant_snapshot:
         raise HTTPException(status_code=404, detail="tenant not found")
     with get_db_context() as conn:
         tenancy_store.delete_tenant(tenant_id, conn=conn)
         record_admin_audit_event(
             conn,
             action="tenant_deleted",
-            actor={"username": principal.get("username"), "role": principal.get("role"), "tenant_id": tenant_id},
+            actor=principal,
             resource_type="tenant",
             resource_id=tenant_id,
             tenant_id=tenant_id,
+            tenant_name=tenant_snapshot.get("display_name"),
+            tenant_slug=tenant_snapshot.get("slug"),
+            details={"display_name": tenant_snapshot.get("display_name"), "slug": tenant_snapshot.get("slug")},
         )
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_DELETED | tenant=%s | by=%s", tenant_id, principal.get("username"))
