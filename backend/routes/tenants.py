@@ -437,7 +437,6 @@ def save_intent_draft(
     return {"ok": True, "tenant_id": tenant_id, "has_draft": True, "validation": warnings}
 
 
-@router.post("/{tenant_id}/publish")
 def _draft_changes_menu_only(draft, live) -> bool:
     """Menu edits publish without approval; anything else needs a super admin.
 
