@@ -633,7 +633,18 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 <p className="mt-1 text-xs leading-relaxed text-slate-500">{button.description}</p>
                               )}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 items-center gap-3">
+                              <Switch
+                                checked={button.enabled}
+                                onChange={(enabled) => {
+                                  const next = [...buttons]
+                                  next[index] = { ...button, enabled }
+                                  setButtons(next)
+                                }}
+                                label={button.enabled ? 'Active' : 'Inactive'}
+                                description="Shown in the customer WhatsApp menu after publishing."
+                                size="sm"
+                              />
                               <Button size="sm" variant="ghost" onClick={() => move(index, -1)} title="Move up" icon={<ArrowUp className="h-4 w-4" />} />
                               <Button size="sm" variant="ghost" onClick={() => move(index, 1)} title="Move down" icon={<ArrowDown className="h-4 w-4" />} />
                               <Button size="sm" variant="secondary" onClick={() => startEdit(index)} icon={<Pencil className="h-4 w-4" />}>

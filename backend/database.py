@@ -1911,7 +1911,8 @@ def save_product(name: str, slug: str, category: str = "general",
                   stock_quantity: int = None, nutritional_facts: str = None,
                  bulk_discount_tiers: list = None,
                  attrs_json: dict = None, short_label: str = None,
-                 detail_url: str = None, tenant_id: str = None) -> int:
+                 detail_url: str = None, tenant_id: str = None, 
+                 actor: dict = None) -> int:
     with get_db_context() as conn:
         cur = conn.execute(
             """INSERT INTO products (name, slug, category, description, short_description,
@@ -1925,7 +1926,27 @@ def save_product(name: str, slug: str, category: str = "general",
               stock_quantity, nutritional_facts, json.dumps(bulk_discount_tiers or []),
              json.dumps(attrs_json or {}), short_label, detail_url, _resolve_tenant(tenant_id)),
         )
-        return cur.lastrowid
+        product_id = cur.lastrowid
+        
+        # Record audit event for product creation
+        if actor:
+            record_admin_audit_event(
+                conn,
+                action="product_created",
+                actor=actor,
+                resource_type="product",
+                resource_id=product_id,
+                tenant_id=tenant_id,
+                details={
+                    "name": name,
+                    "slug": slug, 
+                    "category": category,
+                    "price": price,
+                    "media_url": media_url
+                }
+            )
+        
+        return product_id
 
 
 def get_product(product_id: int, tenant_id: str = None) -> dict:
@@ -2002,15 +2023,40 @@ def update_product(product_id: int, tenant_id: str = None, **kwargs) -> bool:
     updates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [product_id, _resolve_tenant(tenant_id)]
+    
+    actor = kwargs.pop("actor", None)
+    
     with get_db_context() as conn:
         conn.execute(
             f"UPDATE products SET {set_clause} WHERE id = ? AND tenant_id = ?", values
         )
+        
+        # Record audit event for product update
+        if actor:
+            record_admin_audit_event(
+                conn,
+                action="product_updated",
+                actor=actor,
+                resource_type="product",
+                resource_id=product_id,
+                tenant_id=tenant_id,
+                details={
+                    "updated_fields": list(updates.keys()),
+                    "changes": {k: v for k, v in updates.items() if k != "updated_at"}
+                }
+            )
+        
     return True
 
 
-def delete_product(product_id: int, hard: bool = False, tenant_id: str = None) -> bool:
+def delete_product(product_id: int, hard: bool = False, tenant_id: str = None, actor: dict = None) -> bool:
     with get_db_context() as conn:
+        # Get product details before deletion for audit logging
+        product_row = conn.execute(
+            "SELECT name, slug, category FROM products WHERE id = ? AND tenant_id = ?",
+            (product_id, _resolve_tenant(tenant_id)),
+        ).fetchone()
+        
         if hard:
             conn.execute(
                 "DELETE FROM products WHERE id = ? AND tenant_id = ?",
@@ -2021,6 +2067,26 @@ def delete_product(product_id: int, hard: bool = False, tenant_id: str = None) -
                 "UPDATE products SET is_active = 0 WHERE id = ? AND tenant_id = ?",
                 (product_id, _resolve_tenant(tenant_id)),
             )
+        
+        # Record audit event for product deletion
+        if actor:
+            action_type = "product_deleted_hard" if hard else "product_deleted"
+            product_details = dict(product_row) if product_row else {}
+            record_admin_audit_event(
+                conn,
+                action=action_type,
+                actor=actor,
+                resource_type="product",
+                resource_id=product_id,
+                tenant_id=tenant_id,
+                details={
+                    "product_name": product_details.get("name", ""),
+                    "product_slug": product_details.get("slug", ""),
+                    "product_category": product_details.get("category", ""),
+                    "hard_delete": hard
+                }
+            )
+        
     return True
 
 
@@ -2741,14 +2807,34 @@ def clear_admin_otp(username: str) -> bool:
 
 def save_admin_file(name: str, ext: str, module: str, size: int,
                     doc_id: int = None, file_path: str = None, url: str = None,
-                    tenant_id: str = None) -> int:
+                    tenant_id: str = None, actor: dict = None) -> int:
     with get_db_context() as conn:
         cur = conn.execute(
             """INSERT INTO admin_files (name, ext, module, size, doc_id, file_path, url, tenant_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, ext, module, size, doc_id, file_path, url, tenant_id),
         )
-        return cur.lastrowid
+        file_id = cur.lastrowid
+        
+        # Record audit event for file upload
+        if actor:
+            record_admin_audit_event(
+                conn,
+                action="file_uploaded",
+                actor=actor,
+                resource_type="file",
+                resource_id=file_id,
+                tenant_id=tenant_id,
+                details={
+                    "file_name": name,
+                    "file_ext": ext,
+                    "module": module,
+                    "file_size": size,
+                    "file_path": file_path
+                }
+            )
+        
+        return file_id
 
 
 def list_admin_files(tenant_id: str = None) -> list:
@@ -2780,12 +2866,40 @@ def get_admin_file(name: str, tenant_id: str = None) -> dict:
     return dict(row) if row else None
 
 
-def delete_admin_file(name: str, tenant_id: str = None) -> bool:
+def delete_admin_file(name: str, tenant_id: str = None, actor: dict = None) -> bool:
     with get_db_context() as conn:
+        # Get file details before deletion for audit logging
+        file_row = None
         if tenant_id:
+            file_row = conn.execute(
+                "SELECT id, module, size FROM admin_files WHERE name = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1",
+                (name, tenant_id),
+            ).fetchone()
             conn.execute("DELETE FROM admin_files WHERE name = ? AND tenant_id = ?", (name, tenant_id))
         else:
+            file_row = conn.execute(
+                "SELECT id, module, size FROM admin_files WHERE name = ? ORDER BY id DESC LIMIT 1",
+                (name,),
+            ).fetchone()
             conn.execute("DELETE FROM admin_files WHERE name = ?", (name,))
+        
+        # Record audit event for file deletion
+        if actor and file_row:
+            file_details = dict(file_row)
+            record_admin_audit_event(
+                conn,
+                action="file_deleted",
+                actor=actor,
+                resource_type="file",
+                resource_id=file_details.get("id"),
+                tenant_id=tenant_id,
+                details={
+                    "file_name": name,
+                    "module": file_details.get("module", ""),
+                    "file_size": file_details.get("size", 0)
+                }
+            )
+        
     return True
 
 

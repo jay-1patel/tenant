@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from database import get_db_context
+from database import get_db_context, record_admin_audit_event
 from routes.auth import require_permission, require_tenant_access
 
 logger = logging.getLogger("campaigns")
@@ -817,6 +817,23 @@ def create_campaign(
         )
 
         campaign_id = cursor.lastrowid
+        
+        # Record audit event for campaign creation
+        record_admin_audit_event(
+            conn,
+            action="campaign_created",
+            actor=current_admin,
+            resource_type="campaign",
+            resource_id=campaign_id,
+            tenant_id=tenant_id,
+            details={
+                "campaign_name": body.name,
+                "campaign_type": body.campaign_type,
+                "audience_type": body.audience_type,
+                "status": status,
+                "target_count": target
+            }
+        )
 
     logger.info(f"CAMPAIGN_CREATED | tenant={tenant_id} | id={campaign_id} | name={body.name}")
     return {"ok": True, "id": campaign_id}
@@ -886,6 +903,23 @@ def update_campaign(
 
         if result.rowcount == 0:
             raise HTTPException(404, f"Campaign {campaign_id} not found")
+        
+        # Record audit event for campaign update
+        record_admin_audit_event(
+            conn,
+            action="campaign_updated",
+            actor=current_admin,
+            resource_type="campaign",
+            resource_id=campaign_id,
+            tenant_id=tenant_id,
+            details={
+                "campaign_name": body.name,
+                "campaign_type": body.campaign_type,
+                "audience_type": body.audience_type,
+                "status": body.status,
+                "target_count": target
+            }
+        )
 
     logger.info(f"CAMPAIGN_UPDATED | tenant={tenant_id} | id={campaign_id}")
     return {"ok": True}
@@ -900,6 +934,12 @@ def delete_campaign(
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
     with get_db_context() as conn:
+        # Get campaign details before deletion for audit
+        campaign_row = conn.execute(
+            "SELECT name, status FROM campaigns WHERE id = ? AND tenant_id = ?",
+            (campaign_id, tenant_id),
+        ).fetchone()
+        
         result = conn.execute(
             "DELETE FROM campaigns WHERE id = ? AND tenant_id = ?",
             (campaign_id, tenant_id),
@@ -907,6 +947,22 @@ def delete_campaign(
 
         if result.rowcount == 0:
             raise HTTPException(404, f"Campaign {campaign_id} not found")
+        
+        # Record audit event for campaign deletion
+        if campaign_row:
+            campaign_details = dict(campaign_row)
+            record_admin_audit_event(
+                conn,
+                action="campaign_deleted",
+                actor=current_admin,
+                resource_type="campaign",
+                resource_id=campaign_id,
+                tenant_id=tenant_id,
+                details={
+                    "campaign_name": campaign_details.get("name", ""),
+                    "campaign_status": campaign_details.get("status", "")
+                }
+            )
 
     logger.info(f"CAMPAIGN_DELETED | tenant={tenant_id} | id={campaign_id}")
     return {"ok": True}

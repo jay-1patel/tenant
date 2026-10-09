@@ -80,6 +80,12 @@ def list_audit_history(
                 "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
             ),
             "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
+            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
+            "files": ("file_uploaded", "file_deleted"),
+            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
+            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
+            "orders": ("order_updated", "order_deleted", "order_created"),
+            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
         }
         if category not in category_actions:
             raise HTTPException(status_code=422, detail="Unknown audit category")
@@ -183,6 +189,12 @@ def get_audit_statistics(
                 "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
             ),
             "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
+            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
+            "files": ("file_uploaded", "file_deleted"),
+            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
+            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
+            "orders": ("order_updated", "order_deleted", "order_created"),
+            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
         }
         if category in category_actions:
             actions = category_actions[category]
@@ -257,7 +269,24 @@ def get_audit_statistics(
             "config_draft_built": "tenant_setup",
             "config_published": "tenant_setup",
             "api_access_request_submitted": "api_access",
-            "api_access_request_reviewed": "api_access"
+            "api_access_request_reviewed": "api_access",
+            "product_created": "products",
+            "product_updated": "products",
+            "product_deleted": "products",
+            "product_deleted_hard": "products",
+            "file_uploaded": "files",
+            "file_deleted": "files",
+            "complaint_created": "complaints",
+            "complaint_updated": "complaints",
+            "complaint_deleted": "complaints",
+            "complaint_resolved": "complaints",
+            "complaint_replied": "complaints",
+            "order_updated": "orders",
+            "order_deleted": "orders",
+            "order_created": "orders",
+            "campaign_created": "campaigns",
+            "campaign_updated": "campaigns",
+            "campaign_deleted": "campaigns"
         }
         
         category_stats = conn.execute(
@@ -344,6 +373,12 @@ def export_audit_history(
                 "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
             ),
             "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
+            "products": ("product_created", "product_updated", "product_deleted", "product_deleted_hard"),
+            "files": ("file_uploaded", "file_deleted"),
+            "complaints": ("complaint_created", "complaint_updated", "complaint_deleted", "complaint_resolved", "complaint_replied"),
+            "catalog": ("product_created", "product_updated", "product_deleted", "product_deleted_hard", "file_uploaded", "file_deleted"),
+            "orders": ("order_updated", "order_deleted", "order_created"),
+            "campaigns": ("campaign_created", "campaign_updated", "campaign_deleted"),
         }
         if category in category_actions:
             actions = category_actions[category]

@@ -129,6 +129,7 @@ async def add_product(
         stock_quantity=stock_quantity,
         nutritional_facts=nutritional_facts,
         bulk_discount_tiers=_parse_json_list(bulk_discount_tiers),
+        actor=current_admin,
     )
 
     if not is_active:
@@ -259,7 +260,7 @@ async def update_product_endpoint(
 
     if not updates:
         raise HTTPException(status_code=400, detail="No updatable fields provided")
-    update_product(product_id, **updates)
+    update_product(product_id, **updates, actor=current_admin)
     return {"status": "updated", "id": product_id}
 
 
@@ -272,7 +273,7 @@ async def delete_product_endpoint(
     item = get_product(product_id)
     if not item:
         raise HTTPException(status_code=404, detail="Product not found")
-    delete_product(product_id, hard=hard)
+    delete_product(product_id, hard=hard, actor=current_admin)
     return {"status": "deleted" if hard else "deactivated", "id": product_id}
 
 

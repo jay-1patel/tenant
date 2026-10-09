@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from database import get_db, get_db_context, set_human_handover
+from database import get_db, get_db_context, set_human_handover, record_admin_audit_event
 from routes.auth import require_permission
 
 logger = logging.getLogger("complaints")
@@ -146,6 +146,27 @@ def update_complaint(
         params.append(ticket_id)
 
         conn.execute(f"UPDATE complaints SET {', '.join(updates)} WHERE ticket_id = ?", params)
+        
+        # Record audit event for complaint update
+        changed_fields = []
+        if body.status:
+            changed_fields.append(f"status:{body.status}")
+        if body.assigned_to is not None:
+            changed_fields.append(f"assigned_to:{body.assigned_to}")
+        if body.priority:
+            changed_fields.append(f"priority:{body.priority}")
+            
+        record_admin_audit_event(
+            conn,
+            action="complaint_updated",
+            actor=current_admin,
+            resource_type="complaint",
+            resource_id=row["id"],
+            details={
+                "ticket_id": ticket_id,
+                "changed_fields": changed_fields
+            }
+        )
 
     return {"status": "ok", "ticket_id": ticket_id, "updated": {k: v for k, v in body.dict().items() if v is not None}}
 
@@ -167,6 +188,19 @@ def resolve_complaint(
         conn.execute(
             "UPDATE complaints SET status='resolved', resolved_at=?, updated_at=? WHERE ticket_id=?",
             (now, now, ticket_id),
+        )
+        
+        # Record audit event for complaint resolution
+        record_admin_audit_event(
+            conn,
+            action="complaint_resolved",
+            actor=current_admin,
+            resource_type="complaint",
+            resource_id=row["id"],
+            details={
+                "ticket_id": ticket_id,
+                "resolved_at": now
+            }
         )
     return {"status": "ok", "ticket_id": ticket_id, "resolved": True}
 
@@ -261,10 +295,25 @@ def delete_complaint(
 ):
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT id FROM complaints WHERE ticket_id = ?", (ticket_id,)
+            "SELECT id, wa_id, complaint_type, description FROM complaints WHERE ticket_id = ?", (ticket_id,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Complaint not found")
         conn.execute("DELETE FROM complaints WHERE ticket_id = ?", (ticket_id,))
+        
+        # Record audit event for complaint deletion
+        record_admin_audit_event(
+            conn,
+            action="complaint_deleted",
+            actor=current_admin,
+            resource_type="complaint",
+            resource_id=row["id"],
+            details={
+                "ticket_id": ticket_id,
+                "wa_id": row["wa_id"],
+                "complaint_type": row["complaint_type"],
+                "description": row["description"]
+            }
+        )
     logger.info(f"COMPLAINT_DELETED | {ticket_id} | by {current_admin.get('username')}")
     return {"status": "ok", "ticket_id": ticket_id}
