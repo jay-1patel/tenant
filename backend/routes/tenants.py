@@ -438,20 +438,60 @@ def save_intent_draft(
 
 
 @router.post("/{tenant_id}/publish")
+def _draft_changes_menu_only(draft, live) -> bool:
+    """Menu edits publish without approval; anything else needs a super admin.
+
+    The menu editor also writes the intent pages its options route to, so
+    `menu` and `intents` both count as the menu scope. Any other change —
+    brand, features, flows, business hours — keeps the approval gate.
+    """
+    if not isinstance(draft, dict):
+        return False
+    # Without a published baseline there is nothing to diff against, so a
+    # non-super admin's first publish goes through approval like any other
+    # profile-wide change.
+    if not isinstance(live, dict) or not live:
+        return False
+    changed = {key for key in set(draft) | set(live) if draft.get(key) != live.get(key)}
+    return changed <= {"menu", "intents"}
+
+
+@router.post("/{tenant_id}/publish")
 def publish_profile(
     tenant_id: str,
+    request: Request,
     principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Validate the merged profile, append a version, go live, purge the cache.
 
-    Publishing is direct for every principal that clears
-    require_tenant_access() — super admins, tenant admins and sub admins
-    holding the right permission, and tenant-scoped tokens. Each publish is
-    audit-logged below, so who made a profile live is always answerable.
+    Super admins and tenant-scoped tokens publish directly. For every other
+    admin the scope of the edit decides: a menu-only edit goes live
+    immediately, while anything that touches the rest of the profile is
+    queued as a pending request only a super admin can approve — the same
+    gate as the Register a tenant panel. Each publish is audit-logged below,
+    so who made a profile live is always answerable.
     """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
+
+    if principal.get("type") == "admin" and principal.get("role") != "super_admin":
+        if not _draft_changes_menu_only(draft, tenancy_store.get_published_mirror(tenant_id)):
+            from routes.tenant_approvals import queue_publish_for_approval
+
+            current_admin = get_current_admin(request, credentials)
+            result = queue_publish_for_approval(tenant_id, current_admin)
+            return {
+                "ok": True,
+                "tenant_id": tenant_id,
+                "status": "pending_approval",
+                "request": result["request"],
+                "message": (
+                    "Profile change sent for super admin approval — "
+                    "it goes live only once approved."
+                ),
+            }
 
     try:
         profile = tenancy_loader.validate_merged_profile(tenant_id, draft)
