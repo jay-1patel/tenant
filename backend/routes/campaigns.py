@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from typing import List
+from pydantic import BaseModel, Field
 
 from database import get_db_context, record_admin_audit_event
 from routes.auth import require_permission, require_tenant_access
@@ -570,11 +571,7 @@ def test_send_campaign(
     except (json.JSONDecodeError, TypeError):
         fallbacks = {}
 
-    def _render(match: "re.Match") -> str:
-        variable = match.group(1) or match.group(2)
-        return str(fallbacks.get(variable) or f"[{variable}]")
-
-    rendered = re.sub(r"\{\{\s*(\w+)\s*\}\}|\{(\w+)\}", _render, d.get("message_template") or "")
+    rendered = _render_campaign_message(d, fallbacks)
 
     from routing.whatsapp import send_whatsapp_message
 
@@ -1085,3 +1082,157 @@ def campaign_replies(
         ).fetchall()
 
     return {"replies": [dict(r) for r in rows]}
+
+
+# ── Recipient sync + send-to-selection ─────────────────────────────────
+
+def _render_campaign_message(d: dict, fallbacks: dict, extra: dict | None = None) -> str:
+    """Render the campaign body: {{var}} / {var} from per-recipient values
+    first, then the campaign's stored fallbacks, then a [placeholder]."""
+    def _render(match: "re.Match") -> str:
+        variable = match.group(1) or match.group(2)
+        value = (extra or {}).get(variable) or fallbacks.get(variable) or f"[{variable}]"
+        return str(value)
+
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}|\{(\w+)\}", _render, d.get("message_template") or "")
+
+
+class SendSelectionBody(BaseModel):
+    wa_ids: List[str] = Field(default_factory=list)
+
+
+@router.get("/recipients")
+def list_recipients(
+    tenant_id: str,
+    current_admin: dict = Depends(require_permission("view_campaigns")),
+):
+    """Everyone the tenant can message, from the customer directory and the
+    distributor network, de-duplicated by WhatsApp id. The console's Sync
+    button reads this so an admin can pick exactly who receives a campaign."""
+    with get_db_context() as conn:
+        customers = conn.execute(
+            """SELECT wa_id, name, phone, city, company FROM customers
+               WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
+            (tenant_id,),
+        ).fetchall()
+        distributors = conn.execute(
+            """SELECT wa_id, name, phone, region, tier, city FROM distributors
+               WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
+            (tenant_id,),
+        ).fetchall()
+        opted_out = {
+            r["wa_id"] for r in conn.execute(
+                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+            ).fetchall()
+        }
+
+    merged: dict = {}
+
+    def _add(wa_id, name, phone, city, company, source):
+        wa_id = (wa_id or "").strip()
+        if not wa_id:
+            return
+        entry = merged.setdefault(wa_id, {
+            "wa_id": wa_id, "name": "", "phone": "", "city": "",
+            "company": "", "sources": set(),
+        })
+        entry["name"] = entry["name"] or (name or "").strip()
+        entry["phone"] = entry["phone"] or (phone or "").strip()
+        entry["city"] = entry["city"] or (city or "").strip()
+        entry["company"] = entry["company"] or (company or "").strip()
+        entry["sources"].add(source)
+
+    for r in customers:
+        _add(r["wa_id"], r["name"], r["phone"], r["city"], r["company"], "customer")
+    for r in distributors:
+        _add(r["wa_id"], r["name"], r["phone"], r["city"] or r["region"], r["name"], "distributor")
+
+    recipients = []
+    for entry in merged.values():
+        sources = sorted(entry["sources"])
+        recipients.append({
+            "wa_id": entry["wa_id"],
+            "name": entry["name"] or entry["wa_id"],
+            "phone": entry["phone"],
+            "city": entry["city"],
+            "company": entry["company"],
+            "source": "+".join(sources) if len(sources) > 1 else sources[0],
+            "opted_out": entry["wa_id"] in opted_out,
+        })
+    recipients.sort(key=lambda r: r["name"].lower())
+    return {"ok": True, "recipients": recipients, "count": len(recipients)}
+
+
+@router.post("/{campaign_id}/send-selection")
+def send_selection(
+    tenant_id: str,
+    campaign_id: int,
+    body: SendSelectionBody,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Send one campaign to an admin-chosen list of recipients.
+
+    The console's Sync button loads everyone (customers + distributors); the
+    admin ticks exactly who should get it and fires the campaign here.
+    Opted-out contacts are always skipped, and {name} renders per recipient.
+    """
+    wa_ids = []
+    for raw in body.wa_ids or []:
+        wa_id = (raw or "").strip().lstrip("+")
+        if re.fullmatch(r"\d{6,15}", wa_id):
+            wa_ids.append(wa_id)
+    wa_ids = list(dict.fromkeys(wa_ids))
+    if not wa_ids:
+        raise HTTPException(422, "select at least one recipient")
+
+    with get_db_context() as conn:
+        row = _get_campaign(conn, campaign_id, tenant_id)
+        opted_out = {
+            r["wa_id"] for r in conn.execute(
+                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+            ).fetchall()
+        }
+        name_rows = conn.execute(
+            """SELECT wa_id, name FROM customers WHERE tenant_id = ? AND wa_id IN (
+                   SELECT wa_id FROM distributors WHERE tenant_id = ?)
+               UNION
+               SELECT wa_id, name FROM distributors WHERE tenant_id = ?""",
+            (tenant_id, tenant_id, tenant_id),
+        ).fetchall()
+    names = {r["wa_id"]: (r["name"] or "") for r in name_rows}
+
+    d = dict(row)
+    try:
+        fallbacks = json.loads(d.get("variable_fallbacks_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        fallbacks = {}
+
+    from routing.whatsapp import send_whatsapp_message
+
+    sent, skipped, failed = 0, 0, 0
+    for wa_id in wa_ids:
+        if wa_id in opted_out:
+            skipped += 1
+            continue
+        try:
+            ok = send_whatsapp_message(wa_id, _render_campaign_message(d, fallbacks, {"name": names.get(wa_id, "")}))
+        except Exception as exc:
+            logger.warning(f"campaign send to {wa_id} failed: {exc}")
+            ok = False
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+
+    with get_db_context() as conn:
+        conn.execute(
+            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+            "status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+            (sent, failed, datetime.utcnow().isoformat(), campaign_id, tenant_id),
+        )
+
+    logger.info(
+        f"CAMPAIGN_SELECTION_SENT | tenant={tenant_id} | campaign={campaign_id} "
+        f"| sent={sent} failed={failed} skipped={skipped}"
+    )
+    return {"ok": True, "sent": sent, "failed": failed, "skipped_opt_out": skipped}

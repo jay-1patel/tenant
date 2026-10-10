@@ -124,6 +124,78 @@ def get_db_context():
         conn.close()
 
 
+# ── Customer directory ──────────────────────────────────────────────────────
+
+def touch_customer(tenant_id, wa_id, name: str = "") -> None:
+    """Create the customer on first contact, refresh them on every message.
+
+    The live webhook calls this for EVERY inbound message — a plain "Hi" is
+    enough to get a row — keyed on (tenant_id, wa_id) so nobody is duplicated.
+    `name` is the WhatsApp profile name; it fills the record until something
+    better (a lead form, an order) replaces it.
+    """
+    if not tenant_id or not wa_id:
+        return
+    now = datetime.utcnow().isoformat()
+    try:
+        with get_db_context() as conn:
+            row = conn.execute(
+                "SELECT id, name FROM customers WHERE tenant_id = ? AND wa_id = ?",
+                (tenant_id, wa_id),
+            ).fetchone()
+            if row is None:
+                lang = ""
+                try:
+                    state_row = conn.execute(
+                        "SELECT lang FROM user_states WHERE wa_id = ?", (wa_id,)
+                    ).fetchone()
+                    lang = (state_row["lang"] if state_row else "") or ""
+                except Exception:
+                    pass
+                # The WhatsApp id is the phone number in this system, so it
+                # seeds the phone column; a volunteered number replaces it.
+                conn.execute(
+                    """INSERT INTO customers (tenant_id, wa_id, name, phone, language,
+                       message_count, first_seen, last_seen)
+                       VALUES (?, ?, ?, ?, ?, 1, ?, ?)""",
+                    (tenant_id, wa_id, (name or "").strip(), wa_id, lang, now, now),
+                )
+            else:
+                new_name = (name or "").strip()
+                old_name = row["name"] or ""
+                best = new_name if (new_name and (not old_name or old_name == wa_id)) else old_name
+                conn.execute(
+                    "UPDATE customers SET name = ?, message_count = message_count + 1, "
+                    "last_seen = ? WHERE id = ?",
+                    (best, now, row["id"]),
+                )
+    except Exception as e:
+        logger.warning(f"touch_customer failed for {wa_id}: {e}")
+
+
+def update_customer_profile(tenant_id, wa_id, **fields) -> None:
+    """Fill in profile fields a customer volunteered (lead flows, edits).
+
+    Only non-empty values are written, so an update never blanks the record.
+    """
+    if not tenant_id or not wa_id:
+        return
+    allowed = ("name", "phone", "email", "city", "state", "company", "language")
+    updates = {k: str(v).strip() for k, v in fields.items()
+                if k in allowed and v and str(v).strip()}
+    if not updates:
+        return
+    try:
+        with get_db_context() as conn:
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(
+                f"UPDATE customers SET {sets} WHERE tenant_id = ? AND wa_id = ?",
+                (*updates.values(), tenant_id, wa_id),
+            )
+    except Exception as e:
+        logger.warning(f"update_customer_profile failed for {wa_id}: {e}")
+
+
 # ── Schema ───────────────────────────────────────────────────────────────
 
 def init_db():
@@ -920,6 +992,33 @@ def init_db():
                    ORDER BY c.id DESC LIMIT 1), ?)
                WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
             (_fallback_tenant,),
+        )
+        # -- Customer directory ----------------------------------------------
+        # One row per person who has ever messaged the tenant. The webhook
+        # creates it on first contact (even a plain "Hi") and refreshes it on
+        # every later message; lead flows fill in the profile fields
+        # customers volunteer. Never duplicated: keyed on (tenant, wa_id).
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id TEXT NOT NULL,
+                wa_id TEXT NOT NULL,
+                name TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                city TEXT DEFAULT '',
+                state TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                language TEXT DEFAULT '',
+                message_count INTEGER DEFAULT 0,
+                first_seen TEXT,
+                last_seen TEXT,
+                UNIQUE (tenant_id, wa_id)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS ix_customers_tenant_seen "
+            "ON customers(tenant_id, last_seen)"
         )
 
         # ── Orders: idempotency + per-user history index (Phase 2) ──────────

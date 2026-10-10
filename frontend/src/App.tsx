@@ -102,7 +102,6 @@ function Router() {
   const route = parseRoute(useRoute())
   const { canManageTenants, canManageTeam, isSuperAdmin, can } = usePermissions()
   const { identity } = useAuth()
-  const { tenants } = useTenants()
 
   if (route.view === 'register') {
     // Admins can view and edit the registration panel; their submission goes
@@ -186,20 +185,6 @@ function Router() {
         <NotPermitted what="change tenant configuration" />
       </AppShell>
     )
-  }
-
-  // Campaigns and the distributor network apply to product businesses; the
-  // sidebar hides them for software & IT tenants (buildTenantNav) and a
-  // direct URL lands on this notice instead of the panel.
-  if (route.view === 'campaigns' || route.view === 'distributors') {
-    const tenant = tenants.find((t) => t.id === route.tenantId)
-    if (tenant?.vertical === 'it_software') {
-      return (
-        <AppShell route={route}>
-          <NotForVertical view={route.view} vertical="software & IT" />
-        </AppShell>
-      )
-    }
   }
 
   return (
@@ -291,18 +276,6 @@ function ComingSoon({ view }: { view: string }) {
       <PageHeader title={label.replace(/\b\w/g, (c) => c.toUpperCase())} />
       <Alert tone="info" title="Coming next">
         This screen is wired into the navigation but its panel is not built yet.
-      </Alert>
-    </div>
-  )
-}
-
-function NotForVertical({ view, vertical }: { view: string; vertical: string }) {
-  const label = view.replace(/-/g, ' ')
-  return (
-    <div>
-      <PageHeader title={label.replace(/\b\w/g, (c) => c.toUpperCase())} />
-      <Alert tone="warning" title="Not available for this tenant">
-        This screen belongs to the product-business toolset — {vertical} tenants do not use it.
       </Alert>
     </div>
   )

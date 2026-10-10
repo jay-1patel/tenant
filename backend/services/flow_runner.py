@@ -151,6 +151,17 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
     # the runner owns the conversation (see module docstring).
     if (lead_source or "").lower() in ("complaint", "ticket", "support_ticket"):
         _insert_complaint_row(tenant_id, wa_id, data)
+    # Customer directory: fill in the profile fields the customer volunteered.
+    try:
+        update_customer_profile = _db().update_customer_profile
+        update_customer_profile(
+            tenant_id, wa_id,
+            name=data.get("name"), phone=data.get("phone"), email=data.get("email"),
+            city=data.get("city"), state=data.get("state"),
+            company=data.get("company") or data.get("organisation") or data.get("organization"),
+        )
+    except Exception as e:
+        logger.debug("customer profile enrichment failed: %s", e)
     return lead_id
 
 

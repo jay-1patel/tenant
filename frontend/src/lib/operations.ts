@@ -24,11 +24,50 @@ export interface Customer {
   wa_id: string
   name: string
   mobile: string | null
+  email?: string | null
+  city?: string | null
+  state?: string | null
+  company?: string | null
+  language?: string | null
+  message_count?: number
+  first_seen?: string | null
   total_orders: number
   total_complaints: number
   open_complaints: number
   total_spent: number
   last_active: string | null
+}
+
+/**
+ * Download the tenant's customer directory (CSV or Excel). The file streams
+ * from the backend with the bearer token attached, so this goes through a
+ * blob download rather than the JSON api wrapper.
+ */
+export async function downloadCustomerExport(tenantId: string, format: 'csv' | 'xlsx') {
+  const { getToken } = await import('./api')
+  const res = await fetch(
+    `/api/admin/tenants/${encodeURIComponent(tenantId)}/customers/export?format=${format}`,
+    { headers: { Authorization: `Bearer ${getToken() ?? ''}` } },
+  )
+  if (!res.ok) {
+    let detail = `Export failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* keep the status text */
+    }
+    throw new Error(detail)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `customers-${tenantId}.${format}`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export interface OrderItem {
@@ -94,6 +133,16 @@ export interface Campaign {
 }
 
 /** An approved WhatsApp template the campaign builder broadcasts through. */
+export interface CampaignRecipient {
+  wa_id: string
+  name: string
+  phone: string
+  city: string
+  company: string
+  source: string
+  opted_out: boolean
+}
+
 export interface CampaignTemplate {
   id: number
   name: string
@@ -205,6 +254,24 @@ export const operationsApi = {
     signal?: AbortSignal,
   ) =>
     api.get<{ orders: Order[]; count: number; counts: OrderCounts }>(`${tenantBase(tenantId)}/orders${query(opts)}`, signal),
+
+  /** Everyone the tenant can message (customers + distributors). */
+  campaignRecipients: (tenantId: string, signal?: AbortSignal) =>
+    api.get<{ ok: boolean; recipients: CampaignRecipient[]; count: number }>(
+      `${tenantBase(tenantId)}/campaigns/recipients`,
+      signal,
+    ),
+
+  /** Fire one campaign at an admin-chosen list of recipients. */
+  sendCampaignSelection: (
+    tenantId: string,
+    campaignId: number,
+    waIds: string[],
+  ) =>
+    api.post<{ ok: boolean; sent: number; failed: number; skipped_opt_out: number }>(
+      `${tenantBase(tenantId)}/campaigns/${campaignId}/send-selection`,
+      { wa_ids: waIds },
+    ),
 
   campaigns: (tenantId: string, signal?: AbortSignal) =>
     api.get<{ campaigns: Campaign[]; stats: CampaignStats }>(

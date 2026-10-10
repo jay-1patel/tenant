@@ -31,7 +31,6 @@ import {
   Upload,
   Users,
   Phone,
-  Calendar,
   type LucideIcon,
 } from 'lucide-react'
 import type { FeatureFlag, Features } from './types'
@@ -105,14 +104,20 @@ export function buildTenantNav(opts: {
       icon: Upload,
       permissions: ['upload_faq', 'upload_kb', 'view_files', 'catalogue_new_arrival'],
     },
-    // Software & IT tenants sell services, not stock through resellers, so
-    // campaigns and the distributor network do not apply to them.
-    ...(opts.vertical === 'it_software'
-      ? []
-      : [
-          { id: 'campaigns', label: 'Campaigns', icon: Megaphone, permissions: ['view_campaigns'] },
-          { id: 'distributors', label: 'Distributors', icon: Truck, permissions: ['view_distributors'] },
-        ]),
+    {
+      id: 'campaigns',
+      label: 'Campaigns',
+      icon: Megaphone,
+      permissions: ['view_campaigns'],
+      feature: 'campaigns',
+    },
+    {
+      id: 'distributors',
+      label: 'Distributors',
+      icon: Truck,
+      permissions: ['view_distributors'],
+      feature: 'distributors',
+    },
     {
       id: 'chat',
       label: 'Admin chat',

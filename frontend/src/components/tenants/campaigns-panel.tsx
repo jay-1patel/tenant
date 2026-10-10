@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import {
+  operationsApi,
   type Campaign,
   type CampaignInput,
+  type CampaignRecipient,
   type CampaignSegment,
   type CampaignTemplate,
-  operationsApi,
 } from '@/lib/operations'
 import { timezoneOptions } from '@/lib/profile'
 import { formatDate } from '@/lib/format'
@@ -189,6 +190,55 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
     }
   }
 
+  const [recipients, setRecipients] = useState<CampaignRecipient[] | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [recipientSearch, setRecipientSearch] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [sendingTo, setSendingTo] = useState<number | null>(null)
+
+  /** Sync: load everyone (customers + distributors) and pre-select them all. */
+  const syncRecipients = async () => {
+    setSyncing(true)
+    try {
+      const data = await operationsApi.campaignRecipients(tenantId)
+      setRecipients(data.recipients)
+      setPicked(new Set(data.recipients.filter((r) => !r.opted_out).map((r) => r.wa_id)))
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const togglePicked = (waId: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(waId)) next.delete(waId)
+      else next.add(waId)
+      return next
+    })
+  }
+
+  /** Fire the campaign at the currently picked recipients. */
+  const sendToSelection = async (campaign: { id: number; name: string }) => {
+    if (!picked.size) return
+    if (!window.confirm(`Send "${campaign.name}" to ${picked.size} selected recipients?`)) return
+    setSendingTo(campaign.id)
+    try {
+      const result = await operationsApi.sendCampaignSelection(tenantId, campaign.id, [...picked])
+      toast.push(
+        `Sent to ${result.sent} recipient(s)` +
+          (result.failed ? ` — ${result.failed} failed` : '') +
+          (result.skipped_opt_out ? ` — ${result.skipped_opt_out} opted out (skipped)` : ''),
+      )
+      state.reload()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setSendingTo(null)
+    }
+  }
+
   const testSend = async (waId: string) => {
     if (!editing) return
     const result = await action.run(() => operationsApi.testSendCampaign(tenantId, editing.id, waId))
@@ -208,6 +258,14 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
               </Button>
               <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setManagingSegments((v) => !v)}>
                 {managingSegments ? 'Hide segments' : 'Manage segments'}
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<RefreshCw className="h-4 w-4" />}
+                loading={syncing}
+                onClick={syncRecipients}
+              >
+                {recipients ? `Recipients (${recipients.length})` : 'Sync recipients'}
               </Button>
               <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
                 New campaign
@@ -249,6 +307,63 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
             state.reload()
           }}
         />
+      )}
+
+      {recipients !== null && canManage && (
+        <Card className="mb-4">
+          <CardHeader
+            title={`Recipients (${recipients.length})`}
+            description="Everyone from the customer directory and the distributor network. Tick exactly who should receive a campaign, then press Send on it."
+            actions={
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setPicked(new Set(recipients.filter((r) => !r.opted_out).map((r) => r.wa_id)))}>
+                  Select all
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+                  Clear
+                </Button>
+              </>
+            }
+          />
+          <CardBody className="space-y-3">
+            <Input
+              label="Search"
+              value={recipientSearch}
+              onChange={(e) => setRecipientSearch(e.target.value)}
+              placeholder="Name, number or city"
+            />
+            <p className="text-2xs text-slate-500">{picked.size} selected</p>
+            <div className="max-h-72 divide-y divide-surface-line overflow-y-auto scroll-thin">
+              {recipients
+                .filter((r) => {
+                  const needle = recipientSearch.trim().toLowerCase()
+                  if (!needle) return true
+                  return [r.name, r.wa_id, r.phone, r.city].some((v) => (v || '').toLowerCase().includes(needle))
+                })
+                .map((r) => (
+                  <label key={r.wa_id} className="flex cursor-pointer items-center gap-3 py-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-accent-500"
+                      checked={picked.has(r.wa_id)}
+                      disabled={r.opted_out}
+                      onChange={() => togglePicked(r.wa_id)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-slate-100">{r.name}</span>
+                      <span className="block truncate text-2xs text-slate-500">
+                        {r.wa_id}
+                        {r.phone && r.phone !== r.wa_id ? ` · ${r.phone}` : ''}
+                        {r.city ? ` · ${r.city}` : ''}
+                      </span>
+                    </span>
+                    <Badge tone={r.source.includes('distributor') ? 'accent' : 'neutral'}>{r.source}</Badge>
+                    {r.opted_out && <Badge tone="danger">opted out</Badge>}
+                  </label>
+                ))}
+            </div>
+          </CardBody>
+        </Card>
       )}
 
       {(creating || editing) && (
@@ -336,6 +451,15 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
                       {canManage && (
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={!recipients || picked.size === 0}
+                              loading={sendingTo === campaign.id}
+                              onClick={() => sendToSelection(campaign)}
+                            >
+                              <Send className="h-3.5 w-3.5" /> Send{picked.size ? ` (${picked.size})` : ''}
+                            </Button>
                             <Button size="sm" variant="ghost" onClick={() => setEditing(campaign)}>
                               <Pencil className="h-3.5 w-3.5" /> Edit
                             </Button>

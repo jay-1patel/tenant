@@ -643,6 +643,39 @@ function DomainStep({ draft, patch }: StepProps) {
         })}
       </div>
 
+      <Card>
+        <CardHeader
+          title="Optional modules"
+          description="Switch on only what this company will use — anything off stays hidden from their console."
+        />
+        <CardBody className="space-y-4">
+          <Switch
+            checked={draft.features.includes('campaigns')}
+            onChange={(on) =>
+              patch({
+                features: on
+                  ? [...draft.features, 'campaigns']
+                  : draft.features.filter((f) => f !== 'campaigns'),
+              })
+            }
+            label="Campaigns"
+            description="Broadcast messages to customer segments from the console."
+          />
+          <Switch
+            checked={draft.features.includes('distributors')}
+            onChange={(on) =>
+              patch({
+                features: on
+                  ? [...draft.features, 'distributors']
+                  : draft.features.filter((f) => f !== 'distributors'),
+              })
+            }
+            label="Distributors"
+            description="Manage the reseller/distributor network and their pricing tiers."
+          />
+        </CardBody>
+      </Card>
+
       {missingRequired.length > 0 && (
         <Alert tone="warning">
           Answer {missingRequired.map((q) => q.label).join(', ')} before continuing.

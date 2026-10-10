@@ -66,6 +66,22 @@ class TenantOperationsTests(unittest.TestCase):
                 updated_at TEXT,
                 tenant_id TEXT
             );
+            CREATE TABLE customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id TEXT,
+                wa_id TEXT,
+                name TEXT,
+                phone TEXT,
+                email TEXT,
+                city TEXT,
+                state TEXT,
+                company TEXT,
+                language TEXT,
+                message_count INTEGER DEFAULT 0,
+                first_seen TEXT,
+                last_seen TEXT,
+                UNIQUE (tenant_id, wa_id)
+            );
             INSERT INTO tenants (id) VALUES ('tenant-a'), ('tenant-b');
             INSERT INTO orders (order_number, wa_id, items, total_amount, status, created_at,
                                 customer_name, customer_mobile, tenant_id)
