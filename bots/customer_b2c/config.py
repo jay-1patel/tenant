@@ -24,9 +24,18 @@ B2C_SYSTEM_PROMPT = (
 
 # ── Behavioural thresholds ───────────────────────────────────────────────────
 # Phrases that explicitly request a human agent (handover trigger).
+# Only EXPLICIT requests count — generic wording like "customer support" or
+# a bare "agent" is a question the bot answers itself. The menu's
+# "Talk to Human" row is the other allowed trigger.
 HUMAN_HANDOVER_PHRASES = [
-    "human", "agent", "real person", "talk to a human", "speak to a human",
-    "customer support", "representative",
+    "human handover", "handover to human", "hand over to human",
+    "talk to human", "talk to a human", "talk to the human",
+    "speak to human", "speak to a human", "speak to the human",
+    "talk to agent", "talk to an agent",
+    "speak to agent", "speak to an agent",
+    "talk to someone", "speak to someone",
+    "real person", "real human", "live person", "live agent",
+    "human agent",
 ]
 
 # Fallback recipe list used when the query is generic / not DB-backed.
