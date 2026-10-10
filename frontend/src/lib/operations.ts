@@ -273,6 +273,17 @@ export const operationsApi = {
       { wa_ids: waIds },
     ),
 
+  /** Send one campaign to its ENTIRE selected audience, right now. */
+  sendCampaign: (tenantId: string, campaignId: number) =>
+    api.post<{
+      ok: boolean
+      audience: string
+      targeted: number
+      sent: number
+      failed: number
+      skipped_opt_out: number
+    }>(`${tenantBase(tenantId)}/campaigns/${campaignId}/send`),
+
   campaigns: (tenantId: string, signal?: AbortSignal) =>
     api.get<{ campaigns: Campaign[]; stats: CampaignStats }>(
       `${tenantBase(tenantId)}/campaigns`,

@@ -239,6 +239,25 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
     }
   }
 
+  /** Send the campaign to its entire selected audience. */
+  const sendToAudience = async (campaign: { id: number; name: string; audience_type: string }) => {
+    if (!window.confirm(`Send "${campaign.name}" to EVERYONE in the ${campaign.audience_type} audience?`)) return
+    setSendingTo(campaign.id)
+    try {
+      const result = await operationsApi.sendCampaign(tenantId, campaign.id)
+      toast.push(
+        `${result.audience}: sent to ${result.sent} of ${result.targeted}` +
+          (result.failed ? ` — ${result.failed} failed` : '') +
+          (result.skipped_opt_out ? ` — ${result.skipped_opt_out} opted out (skipped)` : ''),
+      )
+      state.reload()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setSendingTo(null)
+    }
+  }
+
   const testSend = async (waId: string) => {
     if (!editing) return
     const result = await action.run(() => operationsApi.testSendCampaign(tenantId, editing.id, waId))
@@ -453,12 +472,20 @@ export function CampaignsPanel({ tenantId }: { tenantId: string }) {
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               size="sm"
+                              variant="subtle"
+                              loading={sendingTo === campaign.id}
+                              onClick={() => sendToAudience(campaign)}
+                            >
+                              <Send className="h-3.5 w-3.5" /> Send all
+                            </Button>
+                            <Button
+                              size="sm"
                               variant="ghost"
                               disabled={!recipients || picked.size === 0}
                               loading={sendingTo === campaign.id}
                               onClick={() => sendToSelection(campaign)}
                             >
-                              <Send className="h-3.5 w-3.5" /> Send{picked.size ? ` (${picked.size})` : ''}
+                              <Send className="h-3.5 w-3.5" /> Picked{picked.size ? ` (${picked.size})` : ''}
                             </Button>
                             <Button size="sm" variant="ghost" onClick={() => setEditing(campaign)}>
                               <Pencil className="h-3.5 w-3.5" /> Edit

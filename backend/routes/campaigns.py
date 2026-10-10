@@ -1187,42 +1187,7 @@ def send_selection(
 
     with get_db_context() as conn:
         row = _get_campaign(conn, campaign_id, tenant_id)
-        opted_out = {
-            r["wa_id"] for r in conn.execute(
-                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
-            ).fetchall()
-        }
-        name_rows = conn.execute(
-            """SELECT wa_id, name FROM customers WHERE tenant_id = ? AND wa_id IN (
-                   SELECT wa_id FROM distributors WHERE tenant_id = ?)
-               UNION
-               SELECT wa_id, name FROM distributors WHERE tenant_id = ?""",
-            (tenant_id, tenant_id, tenant_id),
-        ).fetchall()
-    names = {r["wa_id"]: (r["name"] or "") for r in name_rows}
-
-    d = dict(row)
-    try:
-        fallbacks = json.loads(d.get("variable_fallbacks_json") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        fallbacks = {}
-
-    from routing.whatsapp import send_whatsapp_message
-
-    sent, skipped, failed = 0, 0, 0
-    for wa_id in wa_ids:
-        if wa_id in opted_out:
-            skipped += 1
-            continue
-        try:
-            ok = send_whatsapp_message(wa_id, _render_campaign_message(d, fallbacks, {"name": names.get(wa_id, "")}))
-        except Exception as exc:
-            logger.warning(f"campaign send to {wa_id} failed: {exc}")
-            ok = False
-        if ok:
-            sent += 1
-        else:
-            failed += 1
+    sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
 
     with get_db_context() as conn:
         conn.execute(
@@ -1236,3 +1201,181 @@ def send_selection(
         f"| sent={sent} failed={failed} skipped={skipped}"
     )
     return {"ok": True, "sent": sent, "failed": failed, "skipped_opt_out": skipped}
+
+
+def _blast_campaign(row, tenant_id: str, wa_ids: list) -> tuple:
+    """Render and send one campaign to a list of recipients.
+
+    Opted-out contacts are always skipped; {name} renders per recipient from
+    the customer/distributor records. Returns (sent, failed, skipped).
+    """
+    d = dict(row)
+    try:
+        fallbacks = json.loads(d.get("variable_fallbacks_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        fallbacks = {}
+
+    with get_db_context() as conn:
+        opted_out = {
+            r["wa_id"] for r in conn.execute(
+                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+            ).fetchall()
+        }
+        name_rows = conn.execute(
+            """SELECT wa_id, name FROM customers WHERE tenant_id = ?
+               UNION
+               SELECT wa_id, name FROM distributors WHERE tenant_id = ?""",
+            (tenant_id, tenant_id),
+        ).fetchall()
+    names = {r["wa_id"]: (r["name"] or "") for r in name_rows}
+
+    from routing.whatsapp import send_whatsapp_message
+
+    sent, skipped, failed = 0, 0, 0
+    for wa_id in wa_ids:
+        if wa_id in opted_out:
+            skipped += 1
+            continue
+        try:
+            ok = send_whatsapp_message(
+                wa_id, _render_campaign_message(d, fallbacks, {"name": names.get(wa_id, "")})
+            )
+        except Exception as exc:
+            logger.warning(f"campaign send to {wa_id} failed: {exc}")
+            ok = False
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+    return sent, failed, skipped
+
+
+def _audience_wa_ids(conn, tenant_id: str, audience_type: str, criteria: dict | None) -> list:
+    """Everyone in one audience: all distributors, all customers (the
+    directory), or the members a segment's criteria select. Opted-out
+    contacts are excluded — they can never be messaged."""
+    opt_clause, opt_params = _opt_out_clause(tenant_id)
+
+    if audience_type == "customers":
+        rows = conn.execute(
+            f"""SELECT wa_id FROM customers
+                WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
+            (tenant_id,),
+        ).fetchall()
+        return [r["wa_id"] for r in rows]
+
+    c = criteria or {}
+    where, params = [], []
+    positive_clauses, positive_params = [], []
+
+    def _in_clause(column: str, values) -> None:
+        placeholders = ",".join("?" for _ in values)
+        positive_clauses.append(f"{column} IN ({placeholders})")
+        positive_params.extend(values)
+
+    if c.get("regions") and "All" not in c["regions"]:
+        _in_clause("region", c["regions"])
+    if c.get("tiers"):
+        _in_clause("tier", c["tiers"])
+    if c.get("city"):
+        positive_clauses.append("LOWER(city) = LOWER(?)")
+        positive_params.append(str(c["city"]).strip())
+    for interest in c.get("product_interests") or []:
+        positive_clauses.append("product_interests LIKE ?")
+        positive_params.append(f"%{interest}%")
+
+    joiner = " OR " if c.get("match") == "any" else " AND "
+    if positive_clauses:
+        where.append("(" + joiner.join(positive_clauses) + ")")
+        params.extend(positive_params)
+
+    if c.get("min_sales_volume") is not None:
+        where.append("sales_volume >= ?")
+        params.append(float(c["min_sales_volume"]))
+    if c.get("credit_status"):
+        if c["credit_status"] == "outstanding":
+            where.append("outstanding_payments > 0")
+        elif c["credit_status"] == "clear":
+            where.append("outstanding_payments <= 0")
+    if c.get("registered_within_days") is not None:
+        where.append("created_at >= datetime('now', ?)")
+        params.append(f"-{int(c['registered_within_days'])} days")
+
+    for key, column in (("exclude_regions", "region"), ("exclude_tiers", "tier"), ("exclude_city", "city")):
+        values = c.get(key) or []
+        if isinstance(values, str):
+            values = [values]
+        if values:
+            placeholders = ",".join("?" for _ in values)
+            if column == "city":
+                where.append(f"(city IS NULL OR LOWER(city) NOT IN ({placeholders.lower()}))")
+                params.extend(str(v).strip().lower() for v in values)
+            else:
+                where.append(f"({column} IS NULL OR {column} NOT IN ({placeholders}))")
+                params.extend(values)
+
+    where.append(opt_clause)
+    params.extend(opt_params)
+
+    rows = conn.execute(
+        f"""SELECT wa_id FROM distributors
+            WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != '' AND {' AND '.join(where)}""",
+        [tenant_id, *params],
+    ).fetchall()
+    return [r["wa_id"] for r in rows]
+
+
+@router.post("/{campaign_id}/send")
+def send_campaign_to_audience(
+    tenant_id: str,
+    campaign_id: int,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Send one campaign to its ENTIRE selected audience, right now.
+
+    distributors -> every distributor of the tenant; customers -> everyone
+    in the customer directory; segments -> the members the segment's
+    criteria select. Opted-out contacts are always skipped.
+    """
+    with get_db_context() as conn:
+        row = _get_campaign(conn, campaign_id, tenant_id)
+        audience = row["audience_type"]
+        criteria = None
+        if audience == "segments":
+            seg = conn.execute(
+                "SELECT * FROM segments WHERE id = ? AND tenant_id = ?",
+                (row["segment_id"], tenant_id),
+            ).fetchone()
+            if not seg:
+                raise HTTPException(422, "the campaign's segment no longer exists")
+            try:
+                criteria = json.loads(seg.get("criteria_json") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                criteria = {}
+            audience = seg.get("audience_type") or "distributors"
+        wa_ids = _audience_wa_ids(conn, tenant_id, audience, criteria)
+
+    if not wa_ids:
+        raise HTTPException(422, f"the '{audience}' audience is empty \u2014 nothing to send")
+
+    sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
+
+    with get_db_context() as conn:
+        conn.execute(
+            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+            "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+            (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+        )
+
+    logger.info(
+        f"CAMPAIGN_AUDIENCE_SENT | tenant={tenant_id} | campaign={campaign_id} "
+        f"| audience={audience} | targeted={len(wa_ids)} sent={sent} failed={failed} skipped={skipped}"
+    )
+    return {
+        "ok": True,
+        "audience": audience,
+        "targeted": len(wa_ids),
+        "sent": sent,
+        "failed": failed,
+        "skipped_opt_out": skipped,
+    }
