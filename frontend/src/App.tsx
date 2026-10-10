@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Blocks } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { TenantProvider, useTenants } from '@/lib/tenants'
-import { usePermissions } from '@/lib/permissions'
+import { isOnboardingLocked, ONBOARDING_VIEWS, usePermissions } from '@/lib/permissions'
 import { parseRoute, useRoute } from '@/lib/router'
 import { ToastProvider } from '@/components/ui/toast'
 import { LoginView } from '@/components/auth/login-view'
@@ -102,6 +102,18 @@ function Router() {
   const route = parseRoute(useRoute())
   const { canManageTenants, canManageTeam, isSuperAdmin, can } = usePermissions()
   const { identity } = useAuth()
+  const { tenants } = useTenants()
+  const locked = isOnboardingLocked(identity, tenants)
+
+  // First-login lock: until a super admin approves the tenant's registration,
+  // its admins only get the onboarding screens.
+  if (locked && !ONBOARDING_VIEWS.has(route.view)) {
+    return (
+      <AppShell route={route}>
+        <AwaitingApproval />
+      </AppShell>
+    )
+  }
 
   if (route.view === 'register') {
     // Admins can view and edit the registration panel; their submission goes
@@ -276,6 +288,19 @@ function ComingSoon({ view }: { view: string }) {
       <PageHeader title={label.replace(/\b\w/g, (c) => c.toUpperCase())} />
       <Alert tone="info" title="Coming next">
         This screen is wired into the navigation but its panel is not built yet.
+      </Alert>
+    </div>
+  )
+}
+
+function AwaitingApproval() {
+  return (
+    <div className="mx-auto max-w-lg py-16">
+      <Alert tone="warning" title="Awaiting approval">
+        Your tenant registration is still awaiting super admin approval. Until then, only
+        <strong> Register a tenant</strong> (to complete your submission) and
+        <strong> My change requests</strong> (to track it) are available. Once the
+        super admin approves your request, the full dashboard unlocks.
       </Alert>
     </div>
   )

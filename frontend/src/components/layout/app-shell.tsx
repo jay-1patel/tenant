@@ -5,7 +5,7 @@ import { useTenantFeatures, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav } from '@/lib/navigation'
 import { navigate, type RouteMatch } from '@/lib/router'
-import { TEAM_PERMISSION, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
+import { isOnboardingLocked, TEAM_PERMISSION, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
 import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
@@ -24,8 +24,9 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const [switcherOpen, setSwitcherOpen] = useState(false)
 
   const tenantScoped = Boolean(route.tenantId)
+  const locked = isOnboardingLocked(identity, tenants)
   const features = useTenantFeatures(route.tenantId)
-  const nav = buildTenantNav({ vertical: active?.vertical, features, can })
+  const nav = locked ? [] : buildTenantNav({ vertical: active?.vertical, features, can })
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
   )
@@ -123,7 +124,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         )}
 
         <nav className="mt-4 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
-          {tenantScoped && route.tenantId ? (
+          {tenantScoped && route.tenantId && !locked ? (
             <div className="space-y-0.5">
               <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
                 {active?.display_name || active?.id || route.tenantId}
@@ -154,6 +155,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 )
               })}
             </div>
+          ) : locked ? (
+            <p className="rounded-lg bg-surface-raised px-3 py-2.5 text-xs leading-relaxed text-slate-500 ring-1 ring-surface-line">
+              Your registration is awaiting super admin approval. Until it is approved, only
+              Register a tenant and My change requests are available.
+            </p>
           ) : identity?.role !== 'super_admin' && identity?.tenant_id ? (
             <div className="space-y-0.5">
               <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
@@ -222,7 +228,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 </div>
               ) : (
                 <>
-                  {identity?.tenant_id && (
+                  {identity?.tenant_id && !locked && (
                     <button
                       type="button"
                       onClick={() => navigate(`/tenants/${encodeURIComponent(identity.tenant_id!)}/api-access`)}
@@ -255,7 +261,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {can(TEAM_PERMISSION) && (
+          {can(TEAM_PERMISSION) && !locked && (
             <div className="border-t border-surface-line pt-3">
               <button
                 type="button"
