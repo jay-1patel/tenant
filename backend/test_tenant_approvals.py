@@ -218,14 +218,14 @@ class TenantApprovalTests(unittest.TestCase):
                     "slug": "acme",
                     "vertical": "generic",
                     "display_name": "Acme Ltd",
-                    "waba_phone_id": "12345678901234",
+                    "waba_phone_id": "12345",
                     "status": "active",
                 },
             },
             headers=admin,
         )
         self.assertEqual(res.status_code, 422)
-        self.assertIn("15-digit", res.json()["detail"])
+        self.assertIn("10-16 digits", res.json()["detail"])
         # Valid contact details queue fine.
         res = self._submit_create(
             admin,
@@ -390,7 +390,9 @@ class TenantApprovalTests(unittest.TestCase):
             {"brand": {"name": "Acme", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
         )
 
-        other = self._create_admin("other-admin", tenant_id="acme")
+        # One admin per company: the cross-tenant scoping check uses a
+        # sub admin, since a second admin for acme is rejected.
+        other = self._create_admin("other-sub", role="sub_admin", tenant_id="acme")
         self._register_tenant("rival")
         self.assertEqual(self._submit_publish(other, "rival").status_code, 403)
 

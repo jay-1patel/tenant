@@ -1,5 +1,6 @@
 import { type AuditEventExtended, type FilterPreset, type ExportFormat } from './audit-history.types'
 import { ACTION_CATEGORIES, DEFAULT_COLUMNS } from './audit-history.types'
+export { ACTION_CATEGORIES } from './audit-history.types'
 import { formatDate, relativeTime } from '@/lib/format'
 
 // Action labels mapping

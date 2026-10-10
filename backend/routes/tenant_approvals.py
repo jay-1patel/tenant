@@ -20,7 +20,6 @@ always approves what was reviewed, not what the draft looks like later.
 
 import json
 import logging
-import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -191,11 +190,15 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
             raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
         waba_phone_id = str(tenant_fields.get("waba_phone_id") or "").strip()
-        if waba_phone_id and not re.fullmatch(r"\d{15}", waba_phone_id):
-            raise HTTPException(
-                status_code=422,
-                detail="waba_phone_id must be the 15-digit WhatsApp phone number id",
-            )
+        if waba_phone_id:
+            from shared.tenancy import store as tenancy_store
+            try:
+                tenant_fields["waba_phone_id"] = tenancy_store.normalize_waba_phone_id(waba_phone_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="waba_phone_id must be the WhatsApp phone number id or the number itself in international format (10-16 digits)",
+                )
         payload = {
             "tenant": {
                 "slug": tenant_fields.get("slug") or tenant_id,
@@ -498,6 +501,34 @@ def _apply_request(row: dict) -> int:
     return version
 
 
+def _scope_requester_to_tenant(row: dict) -> None:
+    """Approving a company's registration claims it for the admin who
+    submitted it: an unscoped admin becomes that tenant's admin, so the
+    console unlocks for them once the tenant is live. One admin per
+    company is respected."""
+    from database import get_admin_record, count_tenant_admins
+    username = str(row.get("requester_username") or "").strip()
+    tenant_id = str(row.get("tenant_id") or "").strip()
+    if not username or not tenant_id:
+        return
+    requester = get_admin_record(username)
+    if (
+        not requester
+        or requester.get("role") != "admin"
+        or str(requester.get("tenant_id") or "").strip()
+        or count_tenant_admins(tenant_id)
+    ):
+        return
+    with get_db_context() as conn:
+        conn.execute(
+            "UPDATE admins SET tenant_id = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+            (tenant_id, username),
+        )
+    logger.info(
+        "TENANT_CHANGE_SCOPED | admin=%s | tenant=%s", username, tenant_id,
+    )
+
+
 @router.post("/api/admin/tenant-change-requests/{request_id}/decision")
 async def decide_request(
     request_id: int,
@@ -518,6 +549,7 @@ async def decide_request(
     if body.decision == "approved":
         record = dict(row)
         version = _apply_request(record)
+        _scope_requester_to_tenant(record)
     else:
         version = None
 
