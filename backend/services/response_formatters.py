@@ -298,9 +298,10 @@ class WhatsAppFormatter:
             (r'\*\*(.+?)\*\*', r'*\1*'),
             (r'__([^_]+)__', r'*\1*'),
             
-            # Italic
-            (r'\*(.+?)\*', r'\_\1\_'),
-            (r'_([^_]+)_', r'\_\1\_'),
+            # NOTE: no *x* / _x_ transforms. WhatsApp already renders *x* as
+            # bold and _x_ as italic, and the bold rule above emits *x* —
+            # re-matching it here used to rewrite it to \_x\_, a literal
+            # backslash-underscore pair that clients display verbatim.
             
             # Strikethrough
             (r'~~(.+?)~~', r'~\1~'),

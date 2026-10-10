@@ -317,6 +317,13 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
             sm.set_tenant(wa_id, tenant_id)
         except Exception as exc:
             logger.debug(f"Could not stamp tenant {tenant_id} on {wa_id}: {exc}")
+    # Customer directory: everyone who messages gets a record — the first
+    # message creates it, every later message refreshes it (never duplicates).
+    try:
+        from routing.database import touch_customer
+        touch_customer(tenant_id, wa_id, sender_name)
+    except Exception as exc:
+        logger.debug(f"Could not touch customer {wa_id}: {exc}")
     try:
         # ── CHECK HUMAN HANDOVER ────────────────────────────────────────
         # While a human agent is handling the conversation, still save the

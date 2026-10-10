@@ -34,8 +34,10 @@ def list_tenant_customers(
                    SELECT wa_id FROM chat_history WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
                    UNION
                    SELECT wa_id FROM user_states WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM customers WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
                )""",
-            (tenant_id, tenant_id, tenant_id, tenant_id),
+            (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
         ).fetchall()
         wa_ids = [row["wa_id"] for row in customer_rows]
         needle = q.strip().lower()
@@ -60,8 +62,24 @@ def list_tenant_customers(
                    ORDER BY id DESC LIMIT 1""",
                 (tenant_id, wa_id),
             ).fetchone()
-            name = (order_name["customer_name"] if order_name else None) or (sender_name["sender_name"] if sender_name else None) or wa_id
-            mobile_value = mobile["customer_mobile"] if mobile else None
+            cust = conn.execute(
+                """SELECT name, phone, email, city, state, company, language,
+                          message_count, first_seen
+                   FROM customers WHERE tenant_id = ? AND wa_id = ?""",
+                (tenant_id, wa_id),
+            ).fetchone()
+            # The directory's WhatsApp profile name is the person's real
+            # identity; order/chat names are older, weaker signals.
+            name = (
+                (cust["name"] if cust and cust["name"] else None)
+                or (order_name["customer_name"] if order_name else None)
+                or (sender_name["sender_name"] if sender_name else None)
+                or wa_id
+            )
+            mobile_value = (
+                (mobile["customer_mobile"] if mobile else None)
+                or (cust["phone"] if cust and cust["phone"] else None)
+            )
 
             if needle and not any(needle in str(value or "").lower() for value in (wa_id, name, mobile_value)):
                 continue
@@ -100,6 +118,13 @@ def list_tenant_customers(
                 "wa_id": wa_id,
                 "name": name,
                 "mobile": mobile_value,
+                "email": (cust["email"] if cust else None) or None,
+                "city": (cust["city"] if cust else None) or None,
+                "state": (cust["state"] if cust else None) or None,
+                "company": (cust["company"] if cust else None) or None,
+                "language": (cust["language"] if cust else None) or None,
+                "message_count": (cust["message_count"] if cust else None) or 0,
+                "first_seen": (cust["first_seen"] if cust else None) or None,
                 "total_orders": order_count,
                 "total_complaints": complaint_count,
                 "open_complaints": open_complaints,
@@ -112,6 +137,73 @@ def list_tenant_customers(
         return {"customers": customers, "count": len(customers)}
     finally:
         conn.close()
+
+
+@router.get("/customers/export")
+def export_tenant_customers(
+    tenant_id: str,
+    format: str = Query("csv", pattern="^(csv|xlsx)$"),
+    current_admin: dict = Depends(require_tenant_admin_permission("view_customers")),
+):
+    """The tenant's customer directory as a downloadable CSV or Excel file."""
+    import csv as csv_mod
+    import io
+    import json as json_mod
+    from fastapi.responses import StreamingResponse
+
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT wa_id, name, phone, email, city, state, company, language,
+                      message_count, first_seen, last_seen
+               FROM customers WHERE tenant_id = ? ORDER BY last_seen DESC""",
+            (tenant_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    headers = [
+        "WhatsApp ID", "Name", "Phone", "Email", "City", "State", "Company",
+        "Language", "Messages", "First seen", "Last seen",
+    ]
+
+    def row_values(r):
+        # The WhatsApp id is the phone number in this system; use it when no
+        # volunteered phone is on record so the Phone column is never blank.
+        return [
+            r["wa_id"], r["name"], r["phone"] or r["wa_id"], r["email"], r["city"], r["state"],
+            r["company"], r["language"],
+            r["message_count"], r["first_seen"], r["last_seen"],
+        ]
+
+    if format == "xlsx":
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Customers"
+        sheet.append(headers)
+        for r in rows:
+            sheet.append(row_values(r))
+        buf = io.BytesIO()
+        workbook.save(buf)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="customers-{tenant_id}.xlsx"'},
+        )
+
+    buf = io.StringIO()
+    writer = csv_mod.writer(buf)
+    writer.writerow(headers)
+    for r in rows:
+        writer.writerow(row_values(r))
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="customers-{tenant_id}.csv"'},
+    )
 
 
 @router.get("/orders")

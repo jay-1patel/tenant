@@ -23,6 +23,7 @@ Endpoints:
 
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -38,10 +39,9 @@ from services.callback_service import (
     CallbackType,
     Priority,
     callback_service,
-    notification_service,
+    google_meet_service,
+    notification_service
 )
-
-from services.google_meet_service import create_meeting
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tenants", tags=["callbacks"])
@@ -90,13 +90,10 @@ class ScheduleCallbackRequest(BaseModel):
     """Request model for scheduling a callback with Google Meet."""
     model_config = ConfigDict(extra="allow")
     
-    agent_id: Optional[str] = Field(default=None, description="Agent ID to assign")
-    agent_name: Optional[str] = Field(default=None, description="Agent name")
+    agent_id: str = Field(..., description="Agent ID to assign")
+    agent_name: str = Field(..., description="Agent name")
     start_time: str = Field(..., description="Start time (ISO format)")
     end_time: str = Field(..., description="End time (ISO format)")
-    timezone: Optional[str] = Field(default="UTC", description="Timezone for the meeting")
-    summary: Optional[str] = Field(default=None, description="Meeting title/summary")
-    attendee_email: Optional[str] = Field(default=None, description="Attendee email override")
     time_slot_id: Optional[str] = Field(default=None, description="Time slot ID")
     send_notifications: bool = Field(default=True, description="Send notifications to all parties")
 
@@ -425,7 +422,7 @@ async def create_callback(
     tenant_id: str,
     body: CallbackCreateRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Create a new callback request.
     
@@ -515,7 +512,7 @@ async def list_callbacks(
     date_to: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """List all callback requests for a tenant with filters."""
     with get_db_context() as conn:
@@ -583,7 +580,7 @@ async def list_callbacks(
 async def get_callback(
     tenant_id: str,
     callback_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get detailed information about a specific callback request."""
     with get_db_context() as conn:
@@ -610,7 +607,7 @@ async def update_callback(
     tenant_id: str,
     callback_id: str,
     body: CallbackUpdateRequest,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Update a callback request."""
     with get_db_context() as conn:
@@ -688,7 +685,7 @@ async def schedule_callback(
     callback_id: str,
     body: ScheduleCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Schedule a callback by creating Google Meet and adding to calendar.
     
@@ -717,13 +714,9 @@ async def schedule_callback(
             )
     
     # Create Google Meet event
-    _attendee_email = body.attendee_email or callback_request.customer_email
-    _timezone = body.timezone or getattr(callback_request, "timezone", "UTC") or "UTC"
-    _title = body.summary or f"Callback: {callback_request.customer_name} - {callback_request.callback_type}"
-    meet_result = await create_meeting(
-        tenant_id=tenant_id,
+    meet_result = await google_meet_service.create_meeting(
         calendar_id="primary",
-        title=_title,
+        title=f"Callback: {callback_request.customer_name} - {callback_request.callback_type}",
         description=f"""
         Callback requested via WhatsApp
         Customer: {callback_request.customer_name}
@@ -736,9 +729,9 @@ async def schedule_callback(
         start_time=body.start_time,
         end_time=body.end_time,
         attendees=[
-            {"email": _attendee_email, "displayName": callback_request.customer_name}
-        ] if _attendee_email else [],
-        timezone=_timezone
+            {"email": callback_request.customer_email, "displayName": callback_request.customer_name}
+        ] if callback_request.customer_email else [],
+        timezone=callback_request.timezone
     )
     
     if not meet_result.get("ok"):
@@ -750,8 +743,8 @@ async def schedule_callback(
     # Update callback with meeting details
     callback_request = callback_service.schedule_callback_with_meet(
         callback_request=callback_request,
-        agent_id=body.agent_id or "system",
-        agent_name=body.agent_name or "System",
+        agent_id=body.agent_id,
+        agent_name=body.agent_name,
         start_time=body.start_time,
         end_time=body.end_time,
         calendar_event_id=meet_result.get("event_id", ""),
@@ -797,8 +790,8 @@ async def schedule_callback(
         "start_time": callback_request.scheduled_start_time,
         "end_time": callback_request.scheduled_end_time,
         "agent": {
-            "id": body.agent_id or "system",
-            "name": body.agent_name or "System"
+            "id": body.agent_id,
+            "name": body.agent_name
         },
         "message": "Callback scheduled successfully with Google Meet"
     }
@@ -810,7 +803,7 @@ async def cancel_callback(
     callback_id: str,
     body: CancelCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Cancel a callback request."""
     with get_db_context() as conn:
@@ -882,7 +875,7 @@ async def complete_callback(
     tenant_id: str,
     callback_id: str,
     body: CompleteCallbackRequest,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Mark a callback as completed and save summary."""
     with get_db_context() as conn:
@@ -959,7 +952,7 @@ async def complete_callback(
 async def get_callback_summary(
     tenant_id: str,
     callback_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get summary of a completed callback meeting."""
     with get_db_context() as conn:
@@ -1014,7 +1007,7 @@ async def get_time_slots(
     date: str,
     agent_id: Optional[str] = None,
     duration_minutes: Optional[int] = None,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get available time slots for scheduling callbacks."""
     try:
@@ -1067,7 +1060,7 @@ async def reschedule_callback(
     callback_id: str,
     body: RescheduleCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Reschedule an existing callback."""
     with get_db_context() as conn:
@@ -1183,7 +1176,7 @@ async def list_upcoming_callbacks(
     tenant_id: str,
     days_ahead: int = 7,
     limit: int = 50,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """List upcoming callbacks that need reminders or attention."""
     with get_db_context() as conn:
@@ -1233,7 +1226,7 @@ async def list_upcoming_callbacks(
 @router.post("/{tenant_id}/callbacks/meet-test")
 async def test_google_meet(
     tenant_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Test Google Meet integration."""
     test_event = await google_meet_service.create_meeting(
@@ -1270,7 +1263,7 @@ async def save_agent_availability(
     start_time: str,
     end_time: str,
     is_available: bool = True,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Save agent availability for a specific date and time."""
     try:
@@ -1338,7 +1331,7 @@ async def get_agent_availability(
     tenant_id: str,
     agent_id: str,
     date: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get agent availability for a specific date."""
     try:
@@ -1383,7 +1376,7 @@ async def get_agent_availability(
 async def get_callback_stats(
     tenant_id: str,
     days: int = 30,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get callback statistics for a tenant."""
     with get_db_context() as conn:
@@ -1471,166 +1464,3 @@ async def get_callback_stats(
             (status_counts.get(CallbackStatus.CANCELLED.value, 0) / max(sum(status_counts.values()), 1)) * 100
         )
     }
-
-# ── Google OAuth Connect Endpoints ──────────────────────────────────────────
-
-class GoogleConnectRequest(BaseModel):
-    """Request model for storing Google OAuth tokens per tenant."""
-    access_token: str = Field(..., description="Google OAuth access token")
-    refresh_token: Optional[str] = Field(default=None, description="Google OAuth refresh token")
-    expires_at: int = Field(..., description="Token expiry as unix timestamp (seconds since epoch)")
-    token_type: Optional[str] = Field(default="Bearer")
-    scope: Optional[str] = Field(default=None)
-
-
-@router.post("/{tenant_id}/google-connect")
-async def google_connect(
-    tenant_id: str,
-    body: GoogleConnectRequest,
-    current_admin: dict = Depends(require_tenant_access),
-):
-    """Store Google OAuth token for a tenant (called after OAuth flow completes).
-
-    The frontend redirects the user through Google OAuth and then POSTs the
-    resulting token data here so it is persisted per-tenant for future
-    calendar/Meet API calls.
-    """
-    from services.token_storage import save_token
-    ok = save_token(
-        tenant_id=tenant_id,
-        access_token=body.access_token,
-        refresh_token=body.refresh_token,
-        expires_at=body.expires_at,
-        token_type=body.token_type,
-        scope=body.scope,
-    )
-    if not ok:
-        raise HTTPException(status_code=500, detail="Failed to store Google OAuth token")
-
-    with get_db_context() as conn:
-        record_admin_audit_event(
-            conn,
-            action="google_oauth_connected",
-            actor=current_admin,
-            resource_type="tenant",
-            resource_id=tenant_id,
-            tenant_id=tenant_id,
-            details={"scope": body.scope},
-        )
-
-    return {"ok": True, "message": "Google account connected successfully"}
-
-
-@router.get("/{tenant_id}/google-connect/status")
-async def google_connect_status(
-    tenant_id: str,
-    current_admin: dict = Depends(require_tenant_access),
-):
-    """Check whether a Google account is connected for this tenant."""
-    from services.token_storage import get_token
-    from datetime import datetime, timezone
-
-    token = get_token(tenant_id)
-    if not token:
-        return {"connected": False}
-
-    expires_at = token.get("expires_at", 0)
-    is_expired = expires_at < int(datetime.now(timezone.utc).timestamp())
-    has_refresh = bool(token.get("refresh_token"))
-
-    return {
-        "connected": True,
-        "has_refresh_token": has_refresh,
-        "token_expired": is_expired,
-        "scope": token.get("scope"),
-    }
-
-
-@router.get("/{tenant_id}/google-connect/oauth-url")
-async def google_oauth_url(
-    tenant_id: str,
-    current_admin: dict = Depends(require_tenant_access),
-):
-    """Return the Google OAuth authorization URL for a tenant to begin the OAuth flow."""
-    import os
-    from urllib.parse import urlencode
-
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    if not client_id:
-        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID not configured")
-
-    # The redirect URI should point to your backend callback handler
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", f"{os.getenv('BACKEND_URL', 'http://localhost:8000')}/api/tenants/{tenant_id}/google-connect/callback")
-
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events",
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": tenant_id,
-    }
-
-    oauth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
-    return {"oauth_url": oauth_url, "redirect_uri": redirect_uri}
-
-
-@router.get("/{tenant_id}/google-connect/callback")
-async def google_oauth_callback(
-    tenant_id: str,
-    code: str,
-    state: str = None,
-):
-    """Handle the OAuth 2.0 authorization code callback from Google.
-
-    Google redirects here after the user grants consent.  We exchange the
-    authorization code for tokens and persist them, then redirect the user
-    back to the frontend.
-    """
-    import os
-    import httpx
-    from datetime import datetime, timezone
-    from services.token_storage import save_token
-    from fastapi.responses import RedirectResponse
-
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", f"{os.getenv('BACKEND_URL', 'http://localhost:8000')}/api/tenants/{tenant_id}/google-connect/callback")
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "code": code,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "redirect_uri": redirect_uri,
-                    "grant_type": "authorization_code",
-                },
-            )
-        if resp.status_code != 200:
-            logger.error(f"Token exchange failed: {resp.text}")
-            return RedirectResponse(url=f"{frontend_url}/google-connect?error=token_exchange_failed&tenant_id={tenant_id}")
-
-        token_data = resp.json()
-        expires_in = token_data.get("expires_in", 3600)
-        expires_at = int(datetime.now(timezone.utc).timestamp()) + expires_in
-
-        save_token(
-            tenant_id=tenant_id,
-            access_token=token_data["access_token"],
-            refresh_token=token_data.get("refresh_token"),
-            expires_at=expires_at,
-            token_type=token_data.get("token_type", "Bearer"),
-            scope=token_data.get("scope"),
-        )
-
-        logger.info(f"Google OAuth token stored for tenant {tenant_id}")
-        return RedirectResponse(url=f"{frontend_url}/google-connect?success=true&tenant_id={tenant_id}")
-
-    except Exception as e:
-        logger.error(f"OAuth callback error: {e}")
-        return RedirectResponse(url=f"{frontend_url}/google-connect?error=server_error&tenant_id={tenant_id}")

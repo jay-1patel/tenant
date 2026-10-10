@@ -31,9 +31,7 @@ import {
   Upload,
   Users,
   Phone,
-  Calendar,
   type LucideIcon,
-  Video,
 } from 'lucide-react'
 import type { FeatureFlag, Features } from './types'
 import { getVertical } from './verticals'
@@ -106,8 +104,20 @@ export function buildTenantNav(opts: {
       icon: Upload,
       permissions: ['upload_faq', 'upload_kb', 'view_files', 'catalogue_new_arrival'],
     },
-    { id: 'campaigns', label: 'Campaigns', icon: Megaphone, permissions: ['view_campaigns'] },
-    { id: 'distributors', label: 'Distributors', icon: Truck, permissions: ['view_distributors'] },
+    {
+      id: 'campaigns',
+      label: 'Campaigns',
+      icon: Megaphone,
+      permissions: ['view_campaigns'],
+      feature: 'campaigns',
+    },
+    {
+      id: 'distributors',
+      label: 'Distributors',
+      icon: Truck,
+      permissions: ['view_distributors'],
+      feature: 'distributors',
+    },
     {
       id: 'chat',
       label: 'Admin chat',
@@ -141,12 +151,6 @@ export function buildTenantNav(opts: {
       permissions: ['manage_operations'],
       feature: 'callback',
       showsCount: true,
-    },
-    {
-      id: 'google-connect',
-      label: 'Google Account',
-      icon: Video,
-      permissions: ['manage_operations'],
     },
     { id: 'tokens', label: 'API tokens', icon: KeyRound, permissions: ['manage_operations'] },
   ]
