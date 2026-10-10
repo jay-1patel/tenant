@@ -150,6 +150,27 @@ def require_permission(perm: str):
     return dependency
 
 
+def require_tenant_admin_permission(perm: str):
+    """Tenant-scoped guard: the admin must be assigned to this exact tenant
+    (super admins use the platform-wide endpoints instead) and hold `perm`."""
+    def dependency(tenant_id: str, current_admin: dict = Depends(get_current_admin)) -> dict:
+        if not current_admin or current_admin.get("tenant_id") != tenant_id:
+            raise HTTPException(status_code=403, detail="You do not have access to this tenant")
+        if not has_permission(current_admin, perm):
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+        return current_admin
+    return dependency
+
+
+def require_super_admin_permission(perm: str):
+    """Platform-wide guard for the legacy global endpoints: super admins only."""
+    def dependency(current_admin: dict = Depends(get_current_admin)) -> dict:
+        if not current_admin or not has_permission(current_admin, perm) or current_admin.get("role") != "super_admin":
+            raise HTTPException(status_code=403, detail="Super admin access required")
+        return current_admin
+    return dependency
+
+
 # ---------- helpers ----------
 
 def _hash_password(plain: str) -> str:

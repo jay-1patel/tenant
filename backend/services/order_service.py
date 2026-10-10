@@ -67,7 +67,8 @@ def create_order(wa_id: str,
                  idempotency_key: str | None = None,
                  tier: str | None = None,
                  discount_applied: float = 0.0,
-                 payment_method: str = "cod") -> dict:
+                 payment_method: str = "cod",
+                 tenant_id: str | None = None) -> dict:
     """Create an order transactionally. Returns dict with order_number/total.
 
     Args:
@@ -144,14 +145,27 @@ def create_order(wa_id: str,
                                  f"{prod['name'] if prod else 'Product'} is unavailable")
 
         # 4. Insert order.
+        # Tenancy: explicit arg wins, else the webhook's request-scoped
+        # tenant, else the configured default (same chain as complaint rows).
+        tenant = (str(tenant_id or "").strip()) or None
+        if not tenant:
+            try:
+                tenant = db.get_request_tenant()
+            except Exception:
+                tenant = None
+        if not tenant:
+            try:
+                tenant = db._resolve_tenant()
+            except Exception:
+                tenant = None
         order_number = _next_order_number(conn)
         conn.execute(
             """INSERT INTO orders (order_number, wa_id, items, total_amount, status,
                                    payment_status, source, tier, discount_applied,
-                                   idempotency_key)
-               VALUES (?, ?, ?, ?, 'placed', 'pending', ?, ?, ?, ?)""",
+                                   idempotency_key, tenant_id)
+               VALUES (?, ?, ?, ?, 'placed', 'pending', ?, ?, ?, ?, ?)""",
             (order_number, wa_id, json.dumps(items), total, source, tier,
-             round(float(discount_applied or 0), 2), idempotency_key),
+             round(float(discount_applied or 0), 2), idempotency_key, tenant),
         )
 
         # 5. Confirm session + clear cart.

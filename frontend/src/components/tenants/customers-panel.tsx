@@ -16,7 +16,7 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
   const [search, setSearch] = useState('')
 
   const state = useAsync(
-    (signal) => operationsApi.customers({ q: search || undefined }, signal),
+    (signal) => operationsApi.tenantCustomers(tenantId, { q: search || undefined }, signal),
     [tenantId, search],
   )
 

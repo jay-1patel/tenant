@@ -435,12 +435,19 @@ def record_payment_confirmation(
 ) -> int:
     """Persist a payment-confirmation request. Returns the new row id."""
     try:
+        # Tenancy: the webhook stamps the request-scoped tenant before the B2B
+        # flow runs, so payment rows land in the right tenant console.
+        try:
+            from database import get_request_tenant
+            tenant = get_request_tenant()
+        except Exception:
+            tenant = None
         with _db() as conn:
             cur = conn.execute(
                 """INSERT INTO payment_confirmations
-                    (wa_id, amount, utr_txn_id, order_number, notes)
-                    VALUES (?, ?, ?, ?, ?)""",
-                (wa_id, float(amount or 0), utr_txn_id or "", order_number or "", notes or ""),
+                    (wa_id, amount, utr_txn_id, order_number, notes, tenant_id)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                (wa_id, float(amount or 0), utr_txn_id or "", order_number or "", notes or "", tenant),
             )
             new_id = cur.lastrowid
         logger.info(

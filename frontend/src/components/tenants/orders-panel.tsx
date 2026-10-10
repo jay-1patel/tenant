@@ -38,7 +38,7 @@ export function OrdersPanel({ tenantId }: { tenantId: string }) {
 
   const state = useAsync(
     (signal) =>
-      operationsApi.orders({ status: status === 'all' ? undefined : status, q: search || undefined }, signal),
+      operationsApi.tenantOrders(tenantId, { status: status === 'all' ? undefined : status, q: search || undefined }, signal),
     [tenantId, status, search],
   )
 

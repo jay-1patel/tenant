@@ -87,8 +87,16 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
                 timeout=timeout,
             )
             logger.info(f"Reply sent to {to} [{msg_type}], status={resp.status_code}, body={resp.text[:300]}")
-            body = resp.text or ""
-            return resp.status_code == 200 and ('"success":true' in body or '"success":1' in body or '"success":true' in body.lower())
+            body = (resp.text or "").lower()
+            # send2.digital replies 200 with "Your Message ID : ... , Message
+            # Sent Successfully" for session-msg-send; other endpoints return
+            # JSON {"success": true}. Anything else (INVALID PARAMETER, the
+            # OPT OUT notice, ...) is a failure even with status 200.
+            return resp.status_code == 200 and (
+                '"success":true' in body
+                or '"success":1' in body
+                or "message sent successfully" in body
+            )
         except Exception as e:
             last_err = e
             logger.warning(f"send2.digital send failed for {msg_type} (attempt {attempt}/{retries}): {e}")

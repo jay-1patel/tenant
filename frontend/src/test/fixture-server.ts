@@ -103,6 +103,8 @@ function routeDefault(
     if (sub === '/test-question' && method === 'POST')
       return json({ tenant_id: id, message: body?.message ?? '', intent: 'greeting', score: 0.9, tier: 'high', flow: null, active_intents: ['greeting'] })
     if (sub === '/smoke') return json(fixtures.smoke)
+    if (sub === '/customers' && method === 'GET') return json({ customers: fixtures.customers, count: fixtures.customers.length })
+    if (sub === '/orders' && method === 'GET') return json({ orders: fixtures.orders, count: fixtures.orders.length, counts: fixtures.orderCounts })
     if (sub === '/offerings' && method === 'GET') return json({ offerings: fixtures.offerings, columns: fixtures.recordSchema.columns, count: fixtures.offerings.length })
     if (sub === '/offerings' && method === 'POST') return json({ ok: true, id: 42 })
     const om = sub.match(/^\/offerings\/(\d+)$/)

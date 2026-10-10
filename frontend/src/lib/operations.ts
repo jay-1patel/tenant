@@ -1,10 +1,10 @@
 /**
  * Operational data — customers, orders, campaigns and distributors.
  *
- * Campaigns and distributors are tenant-scoped (the tenant is a path segment
- * and the server refuses a token that belongs to another one). Customers and
- * orders still read the shared platform tables; grouping them here means
- * moving them under the same prefix later is a one-file change.
+ * Campaigns, distributors, customers and orders are tenant-scoped (the tenant
+ * is a path segment and the server refuses a token that belongs to another
+ * one); grouping them here means moving them under the same prefix later is a
+ * one-file change.
  */
 
 import { api } from './api'
@@ -183,14 +183,28 @@ export interface CampaignInput {
 }
 
 export const operationsApi = {
+  /** Legacy platform-wide listing (super-admin view of every tenant). */
   customers: (opts: { q?: string; limit?: number } = {}, signal?: AbortSignal) =>
     api.get<{ customers: Customer[]; count: number }>(`/api/admin/customers${query(opts)}`, signal),
 
+  /** One tenant's own customers only. */
+  tenantCustomers: (tenantId: string, opts: { q?: string; limit?: number } = {}, signal?: AbortSignal) =>
+    api.get<{ customers: Customer[]; count: number }>(`${tenantBase(tenantId)}/customers${query(opts)}`, signal),
+
+  /** Legacy platform-wide listing (super-admin view of every tenant). */
   orders: (
     opts: { status?: string; order_type?: string; payment_status?: string; q?: string; limit?: number } = {},
     signal?: AbortSignal,
   ) =>
     api.get<{ orders: Order[]; count: number; counts: OrderCounts }>(`/api/orders${query(opts)}`, signal),
+
+  /** One tenant's own orders only. */
+  tenantOrders: (
+    tenantId: string,
+    opts: { status?: string; order_type?: string; payment_status?: string; q?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) =>
+    api.get<{ orders: Order[]; count: number; counts: OrderCounts }>(`${tenantBase(tenantId)}/orders${query(opts)}`, signal),
 
   campaigns: (tenantId: string, signal?: AbortSignal) =>
     api.get<{ campaigns: Campaign[]; stats: CampaignStats }>(

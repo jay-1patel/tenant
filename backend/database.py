@@ -664,6 +664,49 @@ def init_db():
             ("updated_at", "TIMESTAMP"),
             ("embedding", "BLOB"),
         ])
+        # ── Tenancy for orders + payment confirmations ─────────────────────
+        # The tenant consoles (customers / orders) filter by tenant_id, so
+        # untagged rows are invisible to tenant admins. New rows are stamped
+        # at insert time by the order/payment services; historical rows are
+        # backfilled below. payment_confirmations has no CREATE TABLE anywhere
+        # in this repo (legacy deployments already have it), so create it
+        # if missing to keep fresh databases working.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS payment_confirmations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wa_id TEXT NOT NULL,
+                amount REAL DEFAULT 0,
+                utr_txn_id TEXT,
+                order_number TEXT,
+                status TEXT DEFAULT 'pending',
+                notes TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        _ensure_columns(conn, "orders", [("tenant_id", "TEXT")])
+        _ensure_columns(conn, "payment_confirmations", [("tenant_id", "TEXT")])
+        # Historical rows predate the column. Attribute each wa_id to the
+        # tenant of its most recent chat row (a tester's number can move
+        # between tenants); wa_ids with no chat history fall back to the
+        # configured default tenant.
+        conn.execute(
+            """UPDATE orders SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = orders.wa_id AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute(
+            """UPDATE payment_confirmations SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = payment_confirmations.wa_id AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_orders_tenant ON orders(tenant_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_payment_confirmations_tenant ON payment_confirmations(tenant_id, created_at)")
 
         # ── Tenancy for uploaded files + the internal admin chat ─────────────
         # `faq_dataset` and `knowledge_base` already carry tenant_id (populated by
