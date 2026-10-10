@@ -36,6 +36,8 @@ import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
 import { AuditHistory } from '@/components/team/audit-history'
 import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
+import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
+import { CallbackDetailPanel } from '@/components/tenants/callback-detail-panel'
 
 function Router() {
   const route = parseRoute(useRoute())
@@ -154,6 +156,8 @@ function Router() {
       {route.view === 'layers' && <LayersPanel tenantId={route.tenantId} />}
       {route.view === 'tokens' && <TokensPanel tenantId={route.tenantId} />}
       {route.view === 'test' && <TestAndSmoke tenantId={route.tenantId} />}
+      {route.view === 'callbacks' && <CallbacksPanel />}
+      {route.view === 'callback' && <CallbackDetailPanel />}
       {PENDING_VIEWS.has(route.view) && <ComingSoon view={route.view} />}
       {!KNOWN_VIEWS.includes(route.view) && (
         <Alert tone="warning" title="Unknown view">
@@ -197,6 +201,8 @@ const KNOWN_VIEWS = [
   'layers',
   'tokens',
   'test',
+  'callbacks',
+  'callback',
   'api-access',
   'tenant-requests',
   'api-requests',

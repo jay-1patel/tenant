@@ -1164,6 +1164,231 @@ def safe_audit_details(value):
     return str(value)
 
 
+# ── Callback and Meeting Scheduling Tables ─────────────────────────────────
+# These tables support the complete callback booking pipeline with Google Meet integration
+def _ensure_callback_tables(conn):
+    """Ensure callback-related tables exist."""
+    # Main callbacks table - stores all callback requests
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callbacks (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            wa_id TEXT NOT NULL,
+            data TEXT NOT NULL,  -- JSON-serialized CallbackRequest with all details
+            status TEXT NOT NULL DEFAULT 'pending',
+            scheduled_start_time TEXT,
+            scheduled_end_time TEXT,
+            meet_link TEXT,
+            calendar_event_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+    
+    # Create indexes for efficient querying
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callbacks_tenant ON callbacks(tenant_id, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callbacks_wa_id ON callbacks(wa_id, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callbacks_status ON callbacks(status, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callbacks_scheduled ON callbacks(scheduled_start_time)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callbacks_meet_link ON callbacks(meet_link)")
+    
+    # Callback summaries table - stores meeting summaries and outcomes
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_summaries (
+            id TEXT PRIMARY KEY,
+            callback_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            meeting_notes TEXT,
+            outcome TEXT,
+            follow_up_required INTEGER DEFAULT 0,
+            follow_up_notes TEXT,
+            rating INTEGER,
+            feedback TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (callback_id) REFERENCES callbacks(id) ON DELETE CASCADE
+        )
+    """)
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callback_summaries_callback ON callback_summaries(callback_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callback_summaries_tenant ON callback_summaries(tenant_id, created_at)")
+    
+    # Agent assignment and availability for callback scheduling
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_agents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL UNIQUE,
+            agent_name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            specialization TEXT,
+            max_concurrent_callbacks INTEGER DEFAULT 3,
+            current_callbacks INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            UNIQUE(tenant_id, agent_id)
+        )
+    """)
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callback_agents_tenant ON callback_agents(tenant_id, agent_id)")
+    
+    # Agent availability calendar for callback scheduling
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_availability (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            date TEXT NOT NULL,  -- YYYY-MM-DD format
+            start_time TEXT NOT NULL,  -- HH:MM format
+            end_time TEXT NOT NULL,  -- HH:MM format
+            is_available INTEGER DEFAULT 1,
+            is_booked INTEGER DEFAULT 0,
+            callback_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (agent_id) REFERENCES callback_agents(agent_id),
+            FOREIGN KEY (callback_id) REFERENCES callbacks(id),
+            UNIQUE(tenant_id, agent_id, date, start_time, end_time)
+        )
+    """)
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_agent_availability_lookup ON agent_availability(tenant_id, agent_id, date, is_available)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_agent_availability_slot ON agent_availability(agent_id, date, start_time)")
+    
+    # Callback types and categories configuration per tenant
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_types (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            type_name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            default_duration_minutes INTEGER DEFAULT 30,
+            max_duration_minutes INTEGER DEFAULT 120,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            UNIQUE(tenant_id, type_name)
+        )
+    """)
+    
+    # Repeating callback schedules (for recurring meetings)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS recurring_callbacks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            callback_template_id TEXT NOT NULL,
+            frequency TEXT NOT NULL DEFAULT 'weekly',  -- daily, weekly, biweekly, monthly
+            interval INTEGER DEFAULT 1,  -- every N days/weeks/months
+            start_date TEXT NOT NULL,  -- YYYY-MM-DD
+            end_date TEXT,  -- YYYY-MM-DD (null for indefinite)
+            time_of_day TEXT NOT NULL,  -- HH:MM
+            timezone TEXT DEFAULT 'Asia/Kolkata',
+            max_occurrences INTEGER,  -- max number of recurrences
+            current_occurrence INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+    
+    # Callback notifications and reminders tracking
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            callback_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            notification_type TEXT NOT NULL,  -- reminder, confirmation, cancellation, reschedule
+            recipient_type TEXT NOT NULL,  -- customer, agent, admin
+            recipient_contact TEXT NOT NULL,  -- wa_id, email, phone
+            message_type TEXT DEFAULT 'whatsapp',  -- whatsapp, email, sms
+            message_content TEXT,
+            status TEXT DEFAULT 'pending',  -- pending, sent, failed, delivered
+            error_message TEXT,
+            sent_at TIMESTAMP,
+            delivered_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (callback_id) REFERENCES callbacks(id) ON DELETE CASCADE,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callback_notifications_callback ON callback_notifications(callback_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_callback_notifications_status ON callback_notifications(status, created_at)")
+    
+    # Google Meet integration tokens and configuration
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS google_meet_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL UNIQUE,
+            service_account_json TEXT,
+            calendar_id TEXT DEFAULT 'primary',
+            calendar_name TEXT DEFAULT 'Main Calendar',
+            default_meeting_duration INTEGER DEFAULT 30,
+            enable_recording INTEGER DEFAULT 0,
+            enable_live_stream INTEGER DEFAULT 0,
+            meeting_visibility TEXT DEFAULT 'private',
+            time_zone TEXT DEFAULT 'Asia/Kolkata',
+            is_configured INTEGER DEFAULT 0,
+            last_test_at TIMESTAMP,
+            last_test_success INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+    
+    # Callback analytics and metrics
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_analytics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL,
+            date TEXT NOT NULL,  -- YYYY-MM-DD
+            callback_type TEXT,
+            status TEXT NOT NULL,
+            total_count INTEGER DEFAULT 0,
+            total_duration_minutes INTEGER DEFAULT 0,
+            avg_duration_minutes REAL DEFAULT 0,
+            avg_response_time_minutes REAL DEFAULT 0,
+            completion_rate REAL DEFAULT 0,
+            cancellation_rate REAL DEFAULT 0,
+            agent_id TEXT,
+            timezone TEXT DEFAULT 'Asia/Kolkata',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            UNIQUE(tenant_id, date, callback_type, status, agent_id)
+        )
+    """)
+    
+    # Call history for callback meetings (for recording actual meeting details)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_meeting_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            callback_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            meeting_start_time TIMESTAMP,
+            meeting_end_time TIMESTAMP,
+            actual_duration_seconds INTEGER,
+            participants_json TEXT DEFAULT '[]',  -- JSON array of participants
+            recording_url TEXT,
+            recording_duration INTEGER,
+            transcript_text TEXT,
+            quality_score REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (callback_id) REFERENCES callbacks(id) ON DELETE CASCADE,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+    
+    # Migrate: add callback tables to init_db
+    _ensure_callback_tables(conn)
+
+
 def record_admin_audit_event(
     conn,
     *,
