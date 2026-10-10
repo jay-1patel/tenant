@@ -435,11 +435,11 @@ def record_payment_confirmation(
 ) -> int:
     """Persist a payment-confirmation request. Returns the new row id."""
     try:
-        # Tenancy: the webhook stamps the request-scoped tenant before the B2B
-        # flow runs, so payment rows land in the right tenant console.
+        # Tenancy: resolve from user_states (stamped by the webhook for this
+        # conversation) so payment rows land in the right tenant console.
         try:
-            from database import get_request_tenant
-            tenant = get_request_tenant()
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tenant = resolve_tenant_for_user(wa_id)
         except Exception:
             tenant = None
         with _db() as conn:
@@ -480,11 +480,17 @@ def record_invoice_request(wa_id: str, order_number: str, notes: str = "") -> in
                     f"(req={wa_id} owner={order['wa_id']})"
                 )
                 return -1  # exists but not theirs
+            # Tenancy: same per-conversation resolution as payment rows.
+            try:
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                tenant = resolve_tenant_for_user(wa_id)
+            except Exception:
+                tenant = None
             cur = conn.execute(
                 """INSERT INTO invoice_requests
-                    (wa_id, order_number, notes)
-                    VALUES (?, ?, ?)""",
-                (wa_id, order_number, notes or ""),
+                    (wa_id, order_number, notes, tenant_id)
+                    VALUES (?, ?, ?, ?)""",
+                (wa_id, order_number, notes or "", tenant),
             )
             new_id = cur.lastrowid
         logger.info(

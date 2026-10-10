@@ -58,6 +58,16 @@ def _db():
     return db
 
 
+def _tenant_for(wa_id: str):
+    """Tenant that owns this conversation. user_states is stamped by the
+    webhook before cart/checkout runs, so one indexed read per write."""
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        return resolve_tenant_for_user(wa_id)
+    except Exception:
+        return None
+
+
 # ── Price parsing (products.price is TEXT) ──────────────────────────────────
 
 _NUM_RE = re.compile(r"[\d,]+(?:\.\d+)?")
@@ -129,8 +139,8 @@ def get_or_create_active_cart(wa_id: str) -> dict:
             ).fetchone()
             if not row:
                 cur = conn.execute(
-                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-                    (wa_id, _ts(now), _ts(now), expires),
+                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at, tenant_id) VALUES (?, ?, ?, ?, ?)",
+                    (wa_id, _ts(now), _ts(now), expires, _tenant_for(wa_id)),
                 )
                 cart_id = cur.lastrowid
                 return {
@@ -144,8 +154,8 @@ def get_or_create_active_cart(wa_id: str) -> dict:
             if row["expires_at"] <= _ts(now):
                 conn.execute("DELETE FROM carts WHERE id = ?", (row["id"],))
                 cur = conn.execute(
-                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-                    (wa_id, _ts(now), _ts(now), expires),
+                    "INSERT INTO carts (wa_id, created_at, updated_at, expires_at, tenant_id) VALUES (?, ?, ?, ?, ?)",
+                    (wa_id, _ts(now), _ts(now), expires, _tenant_for(wa_id)),
                 )
                 cart_id = cur.lastrowid
                 return {
@@ -211,12 +221,12 @@ def add_to_cart(wa_id: str, product: dict, quantity: int = 1) -> dict:
         with db.get_db_context() as conn:
             cart_id = _upsert_cart_row(conn, wa_id)
             conn.execute(
-                """INSERT INTO cart_items (cart_id, product_id, qty, price_at_add, added_at)
-                   VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO cart_items (cart_id, product_id, qty, price_at_add, added_at, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(cart_id, product_id)
                    DO UPDATE SET qty = qty + excluded.qty,
                                  price_at_add = excluded.price_at_add""",
-                (cart_id, product_id, qty, price, _ts(_utcnow())),
+                (cart_id, product_id, qty, price, _ts(_utcnow()), _tenant_for(wa_id)),
             )
             # Get the updated item
             row = conn.execute(
@@ -342,9 +352,9 @@ def start_checkout(wa_id: str) -> dict:
         with db.get_db_context() as conn:
             conn.execute(
                 """INSERT INTO checkout_sessions
-                       (id, wa_id, cart_snapshot_json, status, state, created_at, expires_at)
-                   VALUES (?, ?, ?, 'active', 'name', ?, ?)""",
-                (session_id, wa_id, json.dumps(items), _ts(now), expires),
+                       (id, wa_id, cart_snapshot_json, status, state, created_at, expires_at, tenant_id)
+                   VALUES (?, ?, ?, 'active', 'name', ?, ?, ?)""",
+                (session_id, wa_id, json.dumps(items), _ts(now), expires, _tenant_for(wa_id)),
             )
         return {"ok": True, "session": {"id": session_id, "state": "name"}, "snapshot": {"items": items}}
     except Exception as e:
@@ -693,8 +703,8 @@ def _upsert_cart_row(conn, wa_id: str) -> int:
         )
         return row["id"]
     cur = conn.execute(
-        "INSERT INTO carts (wa_id, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?)",
-        (wa_id, _ts(now), _ts(now), expires),
+        "INSERT INTO carts (wa_id, created_at, updated_at, expires_at, tenant_id) VALUES (?, ?, ?, ?, ?)",
+        (wa_id, _ts(now), _ts(now), expires, _tenant_for(wa_id)),
     )
     return cur.lastrowid
 

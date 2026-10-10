@@ -1255,9 +1255,14 @@ def store_incoming_messages(messages):
             message = msg.get("Message") or msg.get("message") or ""
             status = msg.get("status") or "received"
             try:
+                try:
+                    from shared.tenancy.resolver import resolve_tenant_for_user
+                    _tenant = resolve_tenant_for_user(number)
+                except Exception:
+                    _tenant = None
                 conn.execute(
-                    "INSERT OR IGNORE INTO incoming_messages (message_id, number, message, status, raw_payload) VALUES (?, ?, ?, ?, ?)",
-                    (msg_id, number, message, status, json.dumps(msg)),
+                    "INSERT OR IGNORE INTO incoming_messages (message_id, number, message, status, raw_payload, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (msg_id, number, message, status, json.dumps(msg), _tenant),
                 )
                 stored += 1
             except Exception as e:

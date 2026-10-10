@@ -861,6 +861,66 @@ def init_db():
         )
         conn.execute("CREATE INDEX IF NOT EXISTS ix_checkout_wa ON checkout_sessions(wa_id, status)")
         _ensure_columns(conn, "checkout_sessions", [("state", "TEXT DEFAULT 'name'")])
+        # -- Tenancy for carts / checkout / invoice requests / raw incoming --
+        # Same rationale as the orders tenancy block: stamped at insert time
+        # by the owning services, historical rows backfilled per wa_id (raw
+        # incoming messages key on `number`). invoice_requests has no CREATE
+        # TABLE elsewhere in the repo, so create it here for fresh databases.
+        # inbox_messages / inbox_assignments are legacy orphan tables with no
+        # readers or writers and are intentionally left untouched.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS invoice_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wa_id TEXT,
+                order_number TEXT,
+                status TEXT DEFAULT 'pending',
+                notes TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        _ensure_columns(conn, "carts", [("tenant_id", "TEXT")])
+        _ensure_columns(conn, "cart_items", [("tenant_id", "TEXT")])
+        _ensure_columns(conn, "checkout_sessions", [("tenant_id", "TEXT")])
+        _ensure_columns(conn, "invoice_requests", [("tenant_id", "TEXT")])
+        _ensure_columns(conn, "incoming_messages", [("tenant_id", "TEXT")])
+        conn.execute(
+            """UPDATE carts SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = carts.wa_id AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute(
+            """UPDATE cart_items SET tenant_id = COALESCE((
+                   SELECT ca.tenant_id FROM carts ca WHERE ca.id = cart_items.cart_id), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute(
+            """UPDATE checkout_sessions SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = checkout_sessions.wa_id AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute(
+            """UPDATE invoice_requests SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = invoice_requests.wa_id AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
+        conn.execute(
+            """UPDATE incoming_messages SET tenant_id = COALESCE((
+                   SELECT c.tenant_id FROM chat_history c
+                   WHERE c.wa_id = incoming_messages.number AND c.tenant_id IS NOT NULL
+                   ORDER BY c.id DESC LIMIT 1), ?)
+               WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''""",
+            (_fallback_tenant,),
+        )
 
         # ── Orders: idempotency + per-user history index (Phase 2) ──────────
         _ensure_columns(conn, "orders", [("idempotency_key", "TEXT")])

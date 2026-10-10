@@ -145,12 +145,13 @@ def create_order(wa_id: str,
                                  f"{prod['name'] if prod else 'Product'} is unavailable")
 
         # 4. Insert order.
-        # Tenancy: explicit arg wins, else the webhook's request-scoped
-        # tenant, else the configured default (same chain as complaint rows).
+        # Tenancy: explicit arg wins, else the conversation's tenant from
+        # user_states (stamped by the webhook), else the configured default.
         tenant = (str(tenant_id or "").strip()) or None
         if not tenant:
             try:
-                tenant = db.get_request_tenant()
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                tenant = resolve_tenant_for_user(wa_id)
             except Exception:
                 tenant = None
         if not tenant:
