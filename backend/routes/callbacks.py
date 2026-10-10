@@ -23,6 +23,7 @@ Endpoints:
 
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -421,7 +422,7 @@ async def create_callback(
     tenant_id: str,
     body: CallbackCreateRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Create a new callback request.
     
@@ -511,7 +512,7 @@ async def list_callbacks(
     date_to: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """List all callback requests for a tenant with filters."""
     with get_db_context() as conn:
@@ -579,7 +580,7 @@ async def list_callbacks(
 async def get_callback(
     tenant_id: str,
     callback_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get detailed information about a specific callback request."""
     with get_db_context() as conn:
@@ -606,7 +607,7 @@ async def update_callback(
     tenant_id: str,
     callback_id: str,
     body: CallbackUpdateRequest,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Update a callback request."""
     with get_db_context() as conn:
@@ -684,7 +685,7 @@ async def schedule_callback(
     callback_id: str,
     body: ScheduleCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Schedule a callback by creating Google Meet and adding to calendar.
     
@@ -802,7 +803,7 @@ async def cancel_callback(
     callback_id: str,
     body: CancelCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Cancel a callback request."""
     with get_db_context() as conn:
@@ -874,7 +875,7 @@ async def complete_callback(
     tenant_id: str,
     callback_id: str,
     body: CompleteCallbackRequest,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Mark a callback as completed and save summary."""
     with get_db_context() as conn:
@@ -951,7 +952,7 @@ async def complete_callback(
 async def get_callback_summary(
     tenant_id: str,
     callback_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get summary of a completed callback meeting."""
     with get_db_context() as conn:
@@ -1006,7 +1007,7 @@ async def get_time_slots(
     date: str,
     agent_id: Optional[str] = None,
     duration_minutes: Optional[int] = None,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get available time slots for scheduling callbacks."""
     try:
@@ -1059,7 +1060,7 @@ async def reschedule_callback(
     callback_id: str,
     body: RescheduleCallbackRequest,
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Reschedule an existing callback."""
     with get_db_context() as conn:
@@ -1175,7 +1176,7 @@ async def list_upcoming_callbacks(
     tenant_id: str,
     days_ahead: int = 7,
     limit: int = 50,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """List upcoming callbacks that need reminders or attention."""
     with get_db_context() as conn:
@@ -1225,7 +1226,7 @@ async def list_upcoming_callbacks(
 @router.post("/{tenant_id}/callbacks/meet-test")
 async def test_google_meet(
     tenant_id: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Test Google Meet integration."""
     test_event = await google_meet_service.create_meeting(
@@ -1262,7 +1263,7 @@ async def save_agent_availability(
     start_time: str,
     end_time: str,
     is_available: bool = True,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Save agent availability for a specific date and time."""
     try:
@@ -1330,7 +1331,7 @@ async def get_agent_availability(
     tenant_id: str,
     agent_id: str,
     date: str,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get agent availability for a specific date."""
     try:
@@ -1375,7 +1376,7 @@ async def get_agent_availability(
 async def get_callback_stats(
     tenant_id: str,
     days: int = 30,
-    current_admin: dict = Depends(require_tenant_access),
+    current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get callback statistics for a tenant."""
     with get_db_context() as conn:

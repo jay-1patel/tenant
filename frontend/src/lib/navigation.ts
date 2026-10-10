@@ -105,8 +105,14 @@ export function buildTenantNav(opts: {
       icon: Upload,
       permissions: ['upload_faq', 'upload_kb', 'view_files', 'catalogue_new_arrival'],
     },
-    { id: 'campaigns', label: 'Campaigns', icon: Megaphone, permissions: ['view_campaigns'] },
-    { id: 'distributors', label: 'Distributors', icon: Truck, permissions: ['view_distributors'] },
+    // Software & IT tenants sell services, not stock through resellers, so
+    // campaigns and the distributor network do not apply to them.
+    ...(opts.vertical === 'it_software'
+      ? []
+      : [
+          { id: 'campaigns', label: 'Campaigns', icon: Megaphone, permissions: ['view_campaigns'] },
+          { id: 'distributors', label: 'Distributors', icon: Truck, permissions: ['view_distributors'] },
+        ]),
     {
       id: 'chat',
       label: 'Admin chat',

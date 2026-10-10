@@ -23,6 +23,7 @@ import { CampaignsPanel } from '@/components/tenants/campaigns-panel'
 import { DistributorsPanel } from '@/components/tenants/distributors-panel'
 import { ChatHistoryPanel } from '@/components/tenants/chat-history-panel'
 import { LiveInboxPanel } from '@/components/tenants/live-inbox-panel'
+import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
 import { UploadsPanel } from '@/components/tenants/uploads-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
@@ -38,8 +39,6 @@ import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
 import { AuditHistory } from '@/components/team/audit-history'
 import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
-import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
-import { CallbackDetailPanel } from '@/components/tenants/callback-detail-panel'
 
 /**
  * First login for a company admin: until the company's registration has been
@@ -103,6 +102,7 @@ function Router() {
   const route = parseRoute(useRoute())
   const { canManageTenants, canManageTeam, isSuperAdmin, can } = usePermissions()
   const { identity } = useAuth()
+  const { tenants } = useTenants()
 
   if (route.view === 'register') {
     // Admins can view and edit the registration panel; their submission goes
@@ -188,6 +188,20 @@ function Router() {
     )
   }
 
+  // Campaigns and the distributor network apply to product businesses; the
+  // sidebar hides them for software & IT tenants (buildTenantNav) and a
+  // direct URL lands on this notice instead of the panel.
+  if (route.view === 'campaigns' || route.view === 'distributors') {
+    const tenant = tenants.find((t) => t.id === route.tenantId)
+    if (tenant?.vertical === 'it_software') {
+      return (
+        <AppShell route={route}>
+          <NotForVertical view={route.view} vertical="software & IT" />
+        </AppShell>
+      )
+    }
+  }
+
   return (
     <AppShell route={route}>
       {route.view === 'overview' && <TenantOverview tenantId={route.tenantId} />}
@@ -210,14 +224,13 @@ function Router() {
       {route.view === 'chat-history' && <ChatHistoryPanel tenantId={route.tenantId} />}
       {route.view === 'inbox' && <LiveInboxPanel tenantId={route.tenantId} />}
       {route.view === 'complaints' && <ComplaintsPanel tenantId={route.tenantId} />}
+      {route.view === 'callbacks' && <CallbacksPanel tenantId={route.tenantId} />}
       {route.view === 'uploads' && <UploadsPanel tenantId={route.tenantId} />}
       {route.view === 'chat' && <AdminChatPanel tenantId={route.tenantId} />}
       {route.view === 'versions' && <VersionsPanel tenantId={route.tenantId} />}
       {route.view === 'layers' && <LayersPanel tenantId={route.tenantId} />}
       {route.view === 'tokens' && <TokensPanel tenantId={route.tenantId} />}
       {route.view === 'test' && <TestAndSmoke tenantId={route.tenantId} />}
-      {route.view === 'callbacks' && <CallbacksPanel />}
-      {route.view === 'callback' && <CallbackDetailPanel />}
       {PENDING_VIEWS.has(route.view) && <ComingSoon view={route.view} />}
       {!KNOWN_VIEWS.includes(route.view) && (
         <Alert tone="warning" title="Unknown view">
@@ -234,7 +247,9 @@ function Router() {
  * and a dead link with an honest label beats a silently missing capability.
  * Every info page now has its panel — this stays empty until the next one.
  */
-const PENDING_VIEWS = new Set<string>([])
+// The standalone callback-detail route is not built; the Callbacks panel
+// handles detail inline.
+const PENDING_VIEWS = new Set<string>(['callback'])
 
 const KNOWN_VIEWS = [
   'overview',
@@ -276,6 +291,18 @@ function ComingSoon({ view }: { view: string }) {
       <PageHeader title={label.replace(/\b\w/g, (c) => c.toUpperCase())} />
       <Alert tone="info" title="Coming next">
         This screen is wired into the navigation but its panel is not built yet.
+      </Alert>
+    </div>
+  )
+}
+
+function NotForVertical({ view, vertical }: { view: string; vertical: string }) {
+  const label = view.replace(/-/g, ' ')
+  return (
+    <div>
+      <PageHeader title={label.replace(/\b\w/g, (c) => c.toUpperCase())} />
+      <Alert tone="warning" title="Not available for this tenant">
+        This screen belongs to the product-business toolset — {vertical} tenants do not use it.
       </Alert>
     </div>
   )

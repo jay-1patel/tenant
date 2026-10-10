@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Check, ListTree, MessageSquareQuote, Pencil, Send, X } from 'lucide-react'
+import { Check, ListTree, MessageSquareQuote, Pencil, Plus, Send, X } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { tenantsApi } from '@/lib/tenants'
@@ -7,7 +7,7 @@ import type { IntentSpec } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/input'
+import { Input, Textarea } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { TagInput } from '@/components/ui/tags'
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
@@ -255,13 +255,20 @@ export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: Info
             }
           />
           <CardBody className="space-y-5">
+            {page === 'careers' ? (
+              <CareersEditor
+                value={form.answer}
+                onChange={(answer) => setForm((f) => (f ? { ...f, answer } : f))}
+              />
+            ) : (
             <Textarea
               label="Answer text"
               rows={8}
               value={form.answer}
               onChange={(e) => setForm((f) => (f ? { ...f, answer: e.target.value } : f))}
               hint='What the bot sends, verbatim. One bullet per line starting with "• "; *stars* make a word bold. Leave empty to stop answering directly — questions then fall through to the knowledge-base pipeline.'
-            />
+              />
+            )}
             <TagInput
               value={form.keywords}
               onChange={(keywords) => setForm((f) => (f ? { ...f, keywords } : f))}
@@ -414,4 +421,181 @@ function renderInline(text: string): ReactNode[] {
       part
     ),
   )
+}
+
+// ── Careers: structured openings editor ─────────────────────────────────────
+
+/** One open role as an editable row. */
+interface Opening {
+  role: string
+  dept: string
+  exp: string
+  location: string
+}
+
+interface CareersShape {
+  intro: string
+  openings: Opening[]
+  closing: string
+}
+
+/**
+ * The careers page is a table of openings, not prose. The editor keeps one
+ * input row per role — role, department, experience and location are all
+ * editable, and the department doubles as the bold group heading — and
+ * serializes the rows into the WhatsApp-format answer the bot sends.
+ * Answers that do not fit the openings format (hand-written or legacy text)
+ * fall back to the plain textarea.
+ */
+function CareersEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [shape, setShape] = useState<CareersShape | null>(() => parseOpenings(value))
+
+  if (shape === null) {
+    return (
+      <Textarea
+        label="Answer text"
+        rows={10}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        hint='This answer is not in the openings format, so it is edited as plain text. One bullet per line starting with "• "; *stars* make a word bold.'
+      />
+    )
+  }
+
+  const emit = (next: CareersShape) => {
+    setShape(next)
+    onChange(serializeOpenings(next))
+  }
+  const update = (i: number, patch: Partial<Opening>) =>
+    emit({ ...shape, openings: shape.openings.map((o, j) => (j === i ? { ...o, ...patch } : o)) })
+  const remove = (i: number) => emit({ ...shape, openings: shape.openings.filter((_, j) => j !== i) })
+  const add = () =>
+    emit({ ...shape, openings: [...shape.openings, { role: '', dept: '', exp: '', location: '' }] })
+
+  return (
+    <div className="space-y-4">
+      <Input
+        label="Heading line"
+        value={shape.intro}
+        onChange={(e) => emit({ ...shape, intro: e.target.value })}
+        hint="The first line of the reply. *Stars* make it bold on WhatsApp."
+      />
+
+      <div className="space-y-2">
+        {shape.openings.map((o, i) => (
+          <div
+            key={i}
+            className="grid items-end gap-2 rounded-xl bg-surface-panel p-3 ring-1 ring-inset ring-surface-line sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+          >
+            <Input
+              label="Role"
+              value={o.role}
+              onChange={(e) => update(i, { role: e.target.value })}
+              placeholder="Sales Executive"
+            />
+            <Input
+              label="Department"
+              value={o.dept}
+              onChange={(e) => update(i, { dept: e.target.value })}
+              placeholder="Sales"
+            />
+            <Input
+              label="Experience"
+              value={o.exp}
+              onChange={(e) => update(i, { exp: e.target.value })}
+              placeholder="2-4 yrs"
+            />
+            <Input
+              label="Location"
+              value={o.location}
+              onChange={(e) => update(i, { location: e.target.value })}
+              placeholder="Mumbai"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<X className="h-4 w-4" />}
+              onClick={() => remove(i)}
+              aria-label="Remove role"
+            />
+          </div>
+        ))}
+        <Button variant="secondary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={add}>
+          Add role
+        </Button>
+      </div>
+
+      <Input
+        label="Closing line"
+        value={shape.closing}
+        onChange={(e) => emit({ ...shape, closing: e.target.value })}
+        hint="Sent after the openings, e.g. how to apply."
+      />
+
+      <div>
+        <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+          Preview — what the bot sends
+        </p>
+        <div className="rounded-xl bg-surface-panel p-3.5 ring-1 ring-inset ring-surface-line">
+          <AnswerPreview text={serializeOpenings(shape)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Parse the canonical openings answer; null when the text is not in the format. */
+function parseOpenings(text: string): CareersShape | null {
+  const lines = text.split('\n').map((s) => s.replace(/\r$/, '').trim()).filter(Boolean)
+  const intro: string[] = []
+  const closing: string[] = []
+  const openings: Opening[] = []
+  let dept = ''
+  let inOpenings = false
+  for (const line of lines) {
+    if (line.startsWith('•')) {
+      inOpenings = true
+      const body = line.slice(1).trim()
+      const m = body.match(/^(.+?)\s*[—–-]\s*(.+?)(?:\s*·\s*(.+))?$/)
+      if (m) openings.push({ role: m[1], dept, exp: m[2] ?? '', location: m[3] ?? '' })
+      else openings.push({ role: body, dept, exp: '', location: '' })
+      continue
+    }
+    const header = line.match(/^\*(.+)\*$/)
+    if (header) {
+      inOpenings = true
+      dept = header[1]
+      continue
+    }
+    if (inOpenings) closing.push(line)
+    else intro.push(line)
+  }
+  if (!openings.length) return null
+  return { intro: intro.join('\n'), openings, closing: closing.join('\n') }
+}
+
+/** Serialize the rows back into the WhatsApp-format answer. */
+function serializeOpenings(shape: CareersShape): string {
+  const groups: { dept: string; rows: Opening[] }[] = []
+  for (const o of shape.openings) {
+    const label = o.dept.trim() || 'Other'
+    const existing = groups.find((g) => g.dept === label)
+    if (existing) existing.rows.push(o)
+    else groups.push({ dept: label, rows: [o] })
+  }
+  const parts: string[] = []
+  if (shape.intro.trim()) parts.push(shape.intro.trim())
+  for (const g of groups) {
+    parts.push('')
+    parts.push(`*${g.dept}*`)
+    for (const o of g.rows) {
+      const tail = [o.exp.trim(), o.location.trim()].filter(Boolean).join(' · ')
+      parts.push(tail ? `• ${o.role.trim() || 'Role'} — ${tail}` : `• ${o.role.trim() || 'Role'}`)
+    }
+  }
+  if (shape.closing.trim()) {
+    parts.push('')
+    parts.push(shape.closing.trim())
+  }
+  return parts.join('\n')
 }

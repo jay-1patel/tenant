@@ -1,1090 +1,465 @@
-"""Callback Booking Management Panel for Chatbot2.
-
-This component provides the complete UI for managing callback booking pipeline:
-- Create and view callback requests
-- Schedule meetings with Google Meet
-- Manage agent assignments and availability
-- View analytics and reports
-- Handle rescheduling and cancellations
-"""
-
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Calendar, Clock, User, Video, Phone, Mail, Edit, Trash2, CheckCircle, XCircle, RefreshCw, Eye, Plus, Filter, Search, MoreVertical } from 'lucide-react'
-import { cn, useToast } from '@/lib/hooks'
-
+import { useState } from 'react'
+import { CalendarCheck, CheckCircle2, PhoneCall, Plus, Video, XCircle } from 'lucide-react'
+import { useAction, useAsync } from '@/lib/hooks'
 import {
-  useCallbacks,
-  useCallbackStats,
-  useUpcomingCallbacks,
-  useCreateCallback,
-  useUpdateCallback,
-  useScheduleCallback,
-  useCancelCallback,
-  useCompleteCallback,
-  useRescheduleCallback,
-  useTimeSlots,
-  type CallbackRequest,
-  type CreateCallbackRequest,
-  type ScheduleCallbackRequest,
-  type TimeSlot,
-  type CancelCallbackRequest,
-  type CompleteCallbackRequest,
-  type RescheduleCallbackRequest,
-  CALLBACK_TYPES,
-  CALLBACK_STATUSES,
   CALLBACK_PRIORITIES,
-  getStatusColor,
-  getStatusLabel,
-  getPriorityColor,
-  getTypeLabel,
-  canScheduleCallback,
-  canCancelCallback,
-  canRescheduleCallback,
-  canCompleteCallback,
-  formatDateTimeForDisplay,
-  parseISODate
+  CALLBACK_STATUSES,
+  CALLBACK_TYPES,
+  callbacksApi,
+  type Callback,
+  type CallbackInput,
 } from '@/lib/callbacks'
+import { formatDate, relativeTime } from '@/lib/format'
+import { cn } from '@/lib/cn'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardBody, CardHeader } from '@/components/ui/card'
+import { Input, Textarea } from '@/components/ui/input'
+import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
+import { PageHeader } from '@/components/layout/page-header'
+import { useToast } from '@/components/ui/toast'
 
-import { useTenants } from '@/lib/tenants'
-import { format } from 'date-fns'
+const FILTERS = ['all', ...CALLBACK_STATUSES]
 
-export interface CallbacksPanelProps {
-  className?: string
+const SELECT =
+  'rounded-lg bg-surface-raised px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-inset ring-surface-line focus:outline-none focus:ring-2 focus:ring-accent-500'
+
+const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'muted'> = {
+  pending: 'warning',
+  confirmed: 'accent',
+  scheduled: 'accent',
+  in_progress: 'neutral',
+  completed: 'success',
+  cancelled: 'muted',
+  no_show: 'danger',
 }
 
-// Mock agents for demo purposes - in production these would come from API
-const MOCK_AGENTS = [
-  { id: 'agent_001', name: 'John Smith', email: 'john@company.com', phone: '+919999999999' },
-  { id: 'agent_002', name: 'Sarah Johnson', email: 'sarah@company.com', phone: '+919999999998' },
-  { id: 'agent_003', name: 'Mike Davis', email: 'mike@company.com', phone: '+919999999997' },
-]
+const PRIORITY_TONE: Record<string, 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'muted'> = {
+  low: 'muted',
+  medium: 'neutral',
+  high: 'warning',
+  urgent: 'danger',
+}
 
-export function CallbacksPanel({ className }: CallbacksPanelProps) {
-  const { tenantId } = useParams() as { tenantId: string }
-  const navigate = useNavigate()
-  const { toast } = useToast()
-  
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('')
-  const [filterType, setFilterType] = useState<string>('')
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false)
-  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false)
-  const [isCompleteDialogOpen, setIsCompleteDialogOpen] = useState(false)
-  const [isRescheduleDialogOpen, setIsRescheduleDialogOpen] = useState(false)
-  const [selectedCallback, setSelectedCallback] = useState<CallbackRequest | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<TimeSlot | null>(null)
-  const [selectedAgent, setSelectedAgent] = useState<{id: string; name: string} | null>(null)
-  
-  // Form states
-  const [formData, setFormData] = useState<CreateCallbackRequest>({
-    customer_name: '',
-    wa_id: '',
-    callback_type: 'general',
-    purpose: '',
-    priority: 'medium',
-    customer_email: '',
-    customer_phone: '',
-    preferred_date: '',
-    preferred_time: '',
-    additional_info: ''
-  })
-  
-  const [cancelReason, setCancelReason] = useState('')
-  const [completionNotes, setCompletionNotes] = useState('')
-  const [completionOutcome, setCompletionOutcome] = useState('success')
-  const [rescheduleData, setRescheduleData] = useState({
-    new_date: selectedDate,
-    new_start_time: '',
-    new_end_time: '',
-    reason: ''
-  })
-  
-  // API hooks
-  const { data: callbacksData, isLoading, refetch } = useCallbacks(tenantId, {
-    status: filterStatus || undefined,
-    limit: 50
-  })
-  
-  const { data: statsData } = useCallbackStats(tenantId)
-  const { data: upcomingCallbacksData } = useUpcomingCallbacks(tenantId)
-  const { data: timeSlotsData } = useTimeSlots(tenantId, selectedDate, undefined, 30)
-  
-  const createMutation = useCreateCallback()
-  const updateMutation = useUpdateCallback()
-  const scheduleMutation = useScheduleCallback()
-  const cancelMutation = useCancelCallback()
-  const completeMutation = useCompleteCallback()
-  const rescheduleMutation = useRescheduleCallback()
-  
-  // Handlers
-  const handleCreateCallback = useCallback(async () => {
-    if (!tenantId) return
-    
-    try {
-      await createMutation.mutateAsync({
-        tenantId,
-        data: formData
-      })
-      
-      toast({ title: 'Success', description: 'Callback request created successfully' })
-      setIsCreateDialogOpen(false)
-      setFormData({
-        customer_name: '',
-        wa_id: '',
-        callback_type: 'general',
-        purpose: '',
-        priority: 'medium',
-        customer_email: '',
-        customer_phone: '',
-        preferred_date: '',
-        preferred_time: '',
-        additional_info: ''
-      })
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to create callback',
-        variant: 'destructive' 
-      })
+const EMPTY_FORM: CallbackInput = {
+  customer_name: '',
+  wa_id: '',
+  callback_type: 'general',
+  priority: 'medium',
+  purpose: '',
+  customer_phone: '',
+  preferred_date: '',
+  preferred_time: '',
+  additional_info: '',
+}
+
+/** True while the callback can still be acted on. */
+const OPEN = new Set(['pending', 'confirmed', 'scheduled', 'in_progress'])
+
+/**
+ * Callback requests customers raise through the bot, and the agent-side
+ * lifecycle: schedule a Google Meet, mark the call done, or cancel.
+ */
+export function CallbacksPanel({ tenantId }: { tenantId: string }) {
+  const toast = useToast()
+  const action = useAction()
+  const createAction = useAction()
+
+  const [status, setStatus] = useState('all')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState<CallbackInput>(EMPTY_FORM)
+  const [notes, setNotes] = useState('')
+  const [schedule, setSchedule] = useState({ agent_name: '', agent_id: '', start: '', end: '' })
+
+  const state = useAsync(
+    (signal) => callbacksApi.list(tenantId, { status: status === 'all' ? undefined : status }, signal),
+    [tenantId, status],
+  )
+
+  const callbacks = state.data?.callbacks ?? []
+  const active: Callback | null = callbacks.find((c) => c.id === selected) ?? null
+  const refresh = () => state.reload()
+
+  const openCount = callbacks.filter((c) => OPEN.has(c.status)).length
+
+  const update = (patch: Partial<CallbackInput>) => setForm((f) => ({ ...f, ...patch }))
+
+  const create = async () => {
+    if (!form.customer_name.trim() || !form.wa_id.trim()) return
+    const result = await createAction.run(() => callbacksApi.create(tenantId, form), 'Callback created')
+    if (result) {
+      setForm(EMPTY_FORM)
+      setShowForm(false)
+      refresh()
     }
-  }, [tenantId, formData, createMutation, refetch, toast])
-  
-  const handleUpdateCallback = useCallback(async (callback: CallbackRequest, updates: Partial<CallbackRequest>) => {
-    if (!tenantId) return
-    
-    try {
-      await updateMutation.mutateAsync({
-        tenantId,
-        callbackId: callback.id,
-        data: updates
-      })
-      toast({ title: 'Success', description: 'Callback updated successfully' })
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to update callback',
-        variant: 'destructive' 
-      })
+  }
+
+  const cancel = async () => {
+    if (!active) return
+    if (!window.confirm(`Cancel the callback from ${active.customer_name}? The customer can be notified.`)) return
+    const result = await action.run(() => callbacksApi.cancel(tenantId, active.id), 'Callback cancelled')
+    if (result) refresh()
+  }
+
+  const complete = async () => {
+    if (!active) return
+    const result = await action.run(
+      () => callbacksApi.complete(tenantId, active.id, notes),
+      'Callback completed',
+    )
+    if (result) {
+      setNotes('')
+      refresh()
     }
-  }, [tenantId, updateMutation, refetch, toast])
-  
-  const handleScheduleCallback = useCallback(async () => {
-    if (!tenantId || !selectedCallback || !selectedAgent || !selectedTimeSlot) return
-    
-    try {
-      const startTime = `${selectedDate}T${selectedTimeSlot.start_time}:00`
-      const endTime = `${selectedDate}T${selectedTimeSlot.end_time}:00`
-      
-      await scheduleMutation.mutateAsync({
-        tenantId,
-        callbackId: selectedCallback.id,
-        data: {
-          agent_id: selectedAgent.id,
-          agent_name: selectedAgent.name,
-          start_time: startTime,
-          end_time: endTime,
-          send_notifications: true
-        }
-      })
-      
-      toast({ title: 'Success', description: 'Callback scheduled successfully with Google Meet' })
-      setIsScheduleDialogOpen(false)
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to schedule callback',
-        variant: 'destructive' 
-      })
+  }
+
+  const book = async () => {
+    if (!active) return
+    if (!schedule.agent_name.trim() || !schedule.start || !schedule.end) return
+    const result = await action.run(
+      () =>
+        callbacksApi.schedule(tenantId, active.id, {
+          agent_id: schedule.agent_id.trim() || schedule.agent_name.trim(),
+          agent_name: schedule.agent_name.trim(),
+          start_time: new Date(schedule.start).toISOString(),
+          end_time: new Date(schedule.end).toISOString(),
+        }),
+      'Callback scheduled — meet link created',
+    )
+    if (result) {
+      setSchedule({ agent_name: '', agent_id: '', start: '', end: '' })
+      refresh()
     }
-  }, [tenantId, selectedCallback, selectedAgent, selectedTimeSlot, selectedDate, scheduleMutation, refetch, toast])
-  
-  const handleCancelCallback = useCallback(async () => {
-    if (!tenantId || !selectedCallback) return
-    
-    try {
-      await cancelMutation.mutateAsync({
-        tenantId,
-        callbackId: selectedCallback.id,
-        data: {
-          reason: cancelReason,
-          notify_customer: true,
-          notify_agent: true
-        }
-      })
-      
-      toast({ title: 'Success', description: 'Callback cancelled successfully' })
-      setIsCancelDialogOpen(false)
-      setCancelReason('')
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to cancel callback',
-        variant: 'destructive' 
-      })
-    }
-  }, [tenantId, selectedCallback, cancelReason, cancelMutation, refetch, toast])
-  
-  const handleCompleteCallback = useCallback(async () => {
-    if (!tenantId || !selectedCallback) return
-    
-    try {
-      await completeMutation.mutateAsync({
-        tenantId,
-        callbackId: selectedCallback.id,
-        data: {
-          meeting_notes: completionNotes,
-          outcome: completionOutcome,
-          follow_up_required: false,
-          follow_up_notes: ''
-        }
-      })
-      
-      toast({ title: 'Success', description: 'Callback marked as completed' })
-      setIsCompleteDialogOpen(false)
-      setCompletionNotes('')
-      setCompletionOutcome('success')
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to complete callback',
-        variant: 'destructive' 
-      })
-    }
-  }, [tenantId, selectedCallback, completionNotes, completionOutcome, completeMutation, refetch, toast])
-  
-  const handleRescheduleCallback = useCallback(async () => {
-    if (!tenantId || !selectedCallback) return
-    
-    try {
-      const startTime = `${rescheduleData.new_date}T${rescheduleData.new_start_time}:00`
-      const endTime = `${rescheduleData.new_date}T${rescheduleData.new_end_time}:00`
-      
-      await rescheduleMutation.mutateAsync({
-        tenantId,
-        callbackId: selectedCallback.id,
-        data: {
-          new_start_time: startTime,
-          new_end_time: endTime,
-          reason: rescheduleData.reason,
-          notify_participants: true
-        }
-      })
-      
-      toast({ title: 'Success', description: 'Callback rescheduled successfully' })
-      setIsRescheduleDialogOpen(false)
-      setRescheduleData({
-        new_date: format(new Date(), 'yyyy-MM-dd'),
-        new_start_time: '',
-        new_end_time: '',
-        reason: ''
-      })
-      refetch()
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to reschedule callback',
-        variant: 'destructive' 
-      })
-    }
-  }, [tenantId, selectedCallback, rescheduleData, rescheduleMutation, refetch, toast])
-  
-  const openScheduleDialog = useCallback((callback: CallbackRequest) => {
-    setSelectedCallback(callback)
-    setSelectedAgent(null)
-    setSelectedTimeSlot(null)
-    setIsScheduleDialogOpen(true)
-  }, [])
-  
-  const openCancelDialog = useCallback((callback: CallbackRequest) => {
-    setSelectedCallback(callback)
-    setCancelReason('')
-    setIsCancelDialogOpen(true)
-  }, [])
-  
-  const openCompleteDialog = useCallback((callback: CallbackRequest) => {
-    setSelectedCallback(callback)
-    setCompletionNotes('')
-    setCompletionOutcome('success')
-    setIsCompleteDialogOpen(true)
-  }, [])
-  
-  const openRescheduleDialog = useCallback((callback: CallbackRequest) => {
-    setSelectedCallback(callback)
-    setRescheduleData({
-      new_date: callback.preferred_date || format(new Date(), 'yyyy-MM-dd'),
-      new_start_time: '',
-      new_end_time: '',
-      reason: ''
-    })
-    setIsRescheduleDialogOpen(true)
-  }, [])
-  
-  // Filter callbacks based on search term and filters
-  const filteredCallbacks = callbacksData?.callbacks?.filter(callback => {
-    const matchesSearch = searchTerm.toLowerCase() === '' || 
-      callback.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      callback.wa_id.includes(searchTerm) ||
-      callback.id.includes(searchTerm) ||
-      callback.callback_type.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesStatus = !filterStatus || callback.status === filterStatus
-    const matchesType = !filterType || callback.callback_type === filterType
-    
-    return matchesSearch && matchesStatus && matchesType
-  }) || []
-  
+  }
+
   return (
-    <div className={cn('space-y-6', className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between space-x-2">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Callback Booking Pipeline</h2>
-          <p className="text-muted-foreground">
-            Manage customer callback requests, schedule meetings, and track conversions
-          </p>
-        </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Callback Request
-        </Button>
+    <div>
+      <PageHeader
+        title="Callbacks"
+        description="Call-back requests customers raise through the bot. Schedule them with a Google Meet link, mark them done, or cancel."
+        meta={
+          state.data && (
+            <>
+              <Badge tone={openCount ? 'warning' : 'success'}>{openCount} open</Badge>
+              <Badge tone="muted">{state.data.total_count} total</Badge>
+            </>
+          )
+        }
+        actions={
+          <Button size="sm" variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setShowForm((v) => !v)}>
+            New callback
+          </Button>
+        }
+      />
+
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {FILTERS.map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => {
+              setStatus(filter)
+              setSelected(null)
+            }}
+            className={cn(
+              'rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition',
+              status === filter
+                ? 'bg-accent-100 text-accent-800'
+                : 'text-slate-400 hover:bg-surface-panel hover:text-slate-200',
+            )}
+          >
+            {filter.replace(/_/g, ' ')}
+          </button>
+        ))}
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-x-2">
-            <CardTitle className="text-sm font-medium">Total Callbacks</CardTitle>
-            <Phone className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{statsData?.total_callbacks || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Last {statsData?.period?.days || 30} days
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-x-2">
-            <CardTitle className="text-sm font-medium">Scheduled Today</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{
-              upcomingCallbacksData?.upcoming_callbacks?.filter(cb => 
-                cb.status === 'scheduled' && 
-                new Date(cb.scheduled_start_time || '').toDateString() === new Date().toDateString()
-              ).length || 0
-            }</div>
-            <p className="text-xs text-muted-foreground">
-              Upcoming meetings
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-x-2">
-            <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {statsData?.completion_rate?.toFixed(1) || '0'}%
+      {showForm && (
+        <Card className="mb-4">
+          <CardHeader title="New callback request" icon={<PhoneCall className="h-4 w-4" />} />
+          <CardBody className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="Customer name"
+              value={form.customer_name}
+              onChange={(e) => update({ customer_name: e.target.value })}
+              placeholder="Jane Doe"
+            />
+            <Input
+              label="WhatsApp number"
+              value={form.wa_id}
+              onChange={(e) => update({ wa_id: e.target.value })}
+              placeholder="919876543210"
+            />
+            <Input
+              label="Phone (optional)"
+              value={form.customer_phone}
+              onChange={(e) => update({ customer_phone: e.target.value })}
+              placeholder="+91 98765 43210"
+            />
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Type
+              <select
+                value={form.callback_type}
+                onChange={(e) => update({ callback_type: e.target.value })}
+                className={SELECT}
+              >
+                {CALLBACK_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Priority
+              <select value={form.priority} onChange={(e) => update({ priority: e.target.value })} className={SELECT}>
+                {CALLBACK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Input
+              label="Preferred date"
+              type="date"
+              value={form.preferred_date ?? ''}
+              onChange={(e) => update({ preferred_date: e.target.value })}
+            />
+            <Input
+              label="Preferred time"
+              value={form.preferred_time ?? ''}
+              onChange={(e) => update({ preferred_time: e.target.value })}
+              placeholder="10:00 or 10:00-11:00"
+            />
+            <div className="sm:col-span-2">
+              <Input
+                label="Purpose"
+                value={form.purpose}
+                onChange={(e) => update({ purpose: e.target.value })}
+                placeholder="What should the call be about?"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Successful callbacks
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-x-2">
-            <CardTitle className="text-sm font-medium">Pending Actions</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {filteredCallbacks.filter(cb => cb.status === 'pending').length}
+            <div className="sm:col-span-2">
+              <Textarea
+                label="Additional info"
+                value={form.additional_info}
+                onChange={(e) => update({ additional_info: e.target.value })}
+                placeholder="Context from the customer…"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Awaiting confirmation
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters and Search */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filter Callbacks</CardTitle>
-          <CardDescription>
-            Find callbacks by status, type, or search term
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Search</label>
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Customer name, WhatsApp ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
+            {(createAction.error || action.error) && (
+              <div className="sm:col-span-2">
+                <Alert tone="danger" title="Action failed">
+                  {createAction.error || action.error}
+                </Alert>
               </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Status</label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
-                  {CALLBACK_STATUSES.map(status => (
-                    <SelectItem key={status} value={status}>
-                      <span className={cn("flex items-center", getStatusColor(status))}>
-                        {getStatusLabel(status)}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Type</label>
-              <Select value={filterType} onValueChange={setFilterType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All Types</SelectItem>
-                  {CALLBACK_TYPES.map(type => (
-                    <SelectItem key={type} value={type}>
-                      {getTypeLabel(type)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">&nbsp;</label>
-              <Button variant="outline" onClick={() => {
-                setSearchTerm('')
-                setFilterStatus('')
-                setFilterType('')
-              }}>
-                <XCircle className="mr-2 h-4 w-4" />
-                Clear Filters
+            )}
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <Button variant="primary" size="sm" loading={createAction.busy} onClick={create}>
+                Create
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>
+                Discard
               </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardBody>
+        </Card>
+      )}
 
-      {/* Callbacks Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Callback Requests</CardTitle>
-          <CardDescription>
-            {filteredCallbacks.length} callback requests found
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Scheduled</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-4">
-                      Loading...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredCallbacks.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
-                      No callbacks found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredCallbacks.map((callback) => {
-                    const canSchedule = canScheduleCallback(callback)
-                    const canCancel = canCancelCallback(callback)
-                    const canReschedule = canRescheduleCallback(callback)
-                    const canComplete = canCompleteCallback(callback)
-                    const { date: formattedDate, time: formattedTime } = parseISODate(callback.scheduled_start_time || '')
-                    
-                    return (
-                      <TableRow key={callback.id}>
-                        <TableCell>
-                          <div className="font-medium">{callback.customer_name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {callback.wa_id} {callback.customer_email && `| ${callback.customer_email}`}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={cn("capitalize", getStatusColor(callback.callback_type))}>
-                            {getTypeLabel(callback.callback_type)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={cn(getStatusColor(callback.status))}>
-                            {getStatusLabel(callback.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={cn(getPriorityColor(callback.priority))}>
-                            {callback.priority}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {callback.assigned_agent_name || '-'} {callback.assigned_agent_id && (
-                            <div className="text-xs text-muted-foreground">{callback.assigned_agent_id}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {formattedDate !== 'N/A' && formattedTime !== 'N/A' ? (
-                            <div>
-                              <div>{formattedDate}</div>
-                              <div className="text-sm text-muted-foreground">{formattedTime}</div>
-                            </div>
-                          ) : (
-                            callback.preferred_date && callback.preferred_time ? (
-                              <div>
-                                <div>{callback.preferred_date}</div>
-                                <div className="text-sm text-muted-foreground">{callback.preferred_time}</div>
-                              </div>
-                            ) : '-'
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            {(canSchedule || canReschedule) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openScheduleDialog(callback)}
-                                disabled={!canSchedule && !canReschedule}
-                              >
-                                <Calendar className="h-3 w-3" />
-                              </Button>
-                            )}
-                            {canComplete && callback.status !== 'completed' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openCompleteDialog(callback)}
-                              >
-                                <CheckCircle className="h-3 w-3" />
-                              </Button>
-                            )}
-                            {canCancel && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openCancelDialog(callback)}
-                              >
-                                <XCircle className="h-3 w-3" />
-                              </Button>
-                            )}
-                            {canReschedule && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openRescheduleDialog(callback)}
-                              >
-                                <RefreshCw className="h-3 w-3" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => navigate(`./${callback.id}`)}
-                            >
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
+      {action.error && !showForm && (
+        <Alert tone="danger" title="Action failed" className="mb-4">
+          {action.error}
+        </Alert>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
+        <Card className="overflow-hidden">
+          <CardHeader title="Requests" icon={<PhoneCall className="h-4 w-4" />} />
+          {state.loading && !callbacks.length ? (
+            <LoadingBlock label="Loading callbacks…" />
+          ) : state.error ? (
+            <CardBody>
+              <Alert tone="danger" title="Could not load">
+                {state.error}
+              </Alert>
+            </CardBody>
+          ) : callbacks.length === 0 ? (
+            <EmptyState title="No callbacks" description="Nothing matches this filter." />
+          ) : (
+            <ul className="max-h-[70vh] divide-y divide-surface-line overflow-y-auto scroll-thin">
+              {callbacks.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(item.id)}
+                    className={cn(
+                      'w-full px-4 py-3 text-left transition',
+                      item.id === selected ? 'bg-accent-50' : 'hover:bg-surface-panel',
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-100">
+                        {item.customer_name || item.wa_id}
+                      </span>
+                      <span className="shrink-0 text-2xs text-slate-500">{relativeTime(item.created_at)}</span>
+                    </div>
+                    <p className="mt-0.5 truncate text-2xs text-slate-500">{item.wa_id}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Badge tone={STATUS_TONE[item.status] ?? 'neutral'}>{item.status.replace(/_/g, ' ')}</Badge>
+                      <Badge tone={PRIORITY_TONE[item.priority] ?? 'neutral'}>{item.priority}</Badge>
+                      {item.meet_link && (
+                        <Badge tone="accent">
+                          <Video className="mr-1 h-3 w-3" />
+                          meet
+                        </Badge>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="flex min-h-[24rem] flex-col">
+          {!active ? (
+            <EmptyState
+              title="Pick a request"
+              description="Select a callback to read it and act on it."
+              icon={<PhoneCall className="h-6 w-6" />}
+            />
+          ) : (
+            <>
+              <CardHeader
+                title={active.customer_name || active.wa_id}
+                description={`${active.wa_id} · raised ${formatDate(active.created_at)}`}
+                icon={<PhoneCall className="h-4 w-4" />}
+              />
+              <CardBody className="flex-1 space-y-4 overflow-y-auto scroll-thin">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={STATUS_TONE[active.status] ?? 'neutral'}>{active.status.replace(/_/g, ' ')}</Badge>
+                  <Badge tone={PRIORITY_TONE[active.priority] ?? 'neutral'}>{active.priority} priority</Badge>
+                  <Badge tone="neutral">{active.callback_type.replace(/_/g, ' ')}</Badge>
+                  {active.assigned_agent_name && <Badge tone="accent">{active.assigned_agent_name}</Badge>}
+                </div>
+
+                <div className="rounded-xl bg-surface-panel p-3.5 text-sm leading-relaxed text-slate-200 ring-1 ring-inset ring-surface-line">
+                  {active.purpose || active.additional_info || 'No purpose recorded.'}
+                </div>
+
+                <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                  <p>
+                    Preferred:{' '}
+                    <span className="text-slate-200">
+                      {[active.preferred_date, active.preferred_time].filter(Boolean).join(' ') || 'any time'}
+                    </span>
+                  </p>
+                  <p>
+                    Phone: <span className="text-slate-200">{active.customer_phone || '—'}</span>
+                  </p>
+                  <p>
+                    Scheduled:{' '}
+                    <span className="text-slate-200">
+                      {active.scheduled_start_time ? formatDate(active.scheduled_start_time) : 'not yet'}
+                    </span>
+                  </p>
+                  <p>
+                    Updated: <span className="text-slate-200">{relativeTime(active.updated_at)}</span>
+                  </p>
+                </div>
+
+                {active.meet_link && (
+                  <a
+                    href={active.meet_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-accent-300 hover:underline"
+                  >
+                    <Video className="h-4 w-4" />
+                    Open Google Meet
+                  </a>
                 )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
 
-      {/* Create Callback Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Create New Callback Request</DialogTitle>
-            <DialogDescription>
-              Fill in the details to create a new callback request for a customer
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <label htmlFor="customer_name" className="text-sm font-medium">
-                Customer Name <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="customer_name"
-                value={formData.customer_name}
-                onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
-                placeholder="Enter customer name"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="wa_id" className="text-sm font-medium">
-                WhatsApp ID <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="wa_id"
-                value={formData.wa_id}
-                onChange={(e) => setFormData({...formData, wa_id: e.target.value})}
-                placeholder="919876543210"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="callback_type" className="text-sm font-medium">
-                Callback Type
-              </label>
-              <Select
-                value={formData.callback_type}
-                onValueChange={(value) => setFormData({...formData, callback_type: value})}
-              >
-                <SelectTrigger id="callback_type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CALLBACK_TYPES.map(type => (
-                    <SelectItem key={type} value={type}>
-                      {getTypeLabel(type)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="priority" className="text-sm font-medium">
-                Priority
-              </label>
-              <Select
-                value={formData.priority}
-                onValueChange={(value) => setFormData({...formData, priority: value})}
-              >
-                <SelectTrigger id="priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CALLBACK_PRIORITIES.map(priority => (
-                    <SelectItem key={priority} value={priority} className={getPriorityColor(priority)}>
-                      {priority.charAt(0).toUpperCase() + priority.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="customer_email" className="text-sm font-medium">
-                Email
-              </label>
-              <Input
-                id="customer_email"
-                type="email"
-                value={formData.customer_email || ''}
-                onChange={(e) => setFormData({...formData, customer_email: e.target.value})}
-                placeholder="customer@email.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="customer_phone" className="text-sm font-medium">
-                Phone
-              </label>
-              <Input
-                id="customer_phone"
-                value={formData.customer_phone || ''}
-                onChange={(e) => setFormData({...formData, customer_phone: e.target.value})}
-                placeholder="+91 98765 43210"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="purpose" className="text-sm font-medium">
-                Purpose
-              </label>
-              <Input
-                id="purpose"
-                value={formData.purpose}
-                onChange={(e) => setFormData({...formData, purpose: e.target.value})}
-                placeholder="Brief description of callback purpose"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="additional_info" className="text-sm font-medium">
-                Additional Info
-              </label>
-              <Input
-                id="additional_info"
-                value={formData.additional_info}
-                onChange={(e) => setFormData({...formData, additional_info: e.target.value})}
-                placeholder="Any additional context"
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateCallback} disabled={!formData.customer_name || !formData.wa_id}>
-              Create Callback
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Schedule Callback Dialog */}
-      <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Schedule Callback Meeting</DialogTitle>
-            <DialogDescription>
-              Schedule a Google Meet meeting for this callback request
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedCallback && (
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Customer</label>
-                <div className="p-3 border rounded-lg bg-muted/50">
-                  <div className="font-medium">{selectedCallback.customer_name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {selectedCallback.wa_id} | {selectedCallback.callback_type}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Preferred: {selectedCallback.preferred_date} {selectedCallback.preferred_time}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Select Date</label>
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  min={format(new Date(), 'yyyy-MM-dd')}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Available Time Slots</label>
-                <div className="max-h-[200px] overflow-y-auto border rounded-lg p-3 space-y-2">
-                  {timeSlotsData?.time_slots?.length ? (
-                    timeSlotsData.time_slots.map((slot) => (
+                {OPEN.has(active.status) && (
+                  <div className="space-y-3 rounded-xl bg-surface-panel p-3.5 ring-1 ring-inset ring-surface-line">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Schedule with Google Meet
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input
+                        label="Agent name"
+                        value={schedule.agent_name}
+                        onChange={(e) => setSchedule((s) => ({ ...s, agent_name: e.target.value }))}
+                        placeholder="Agent handling the call"
+                      />
+                      <Input
+                        label="Agent ID (optional)"
+                        value={schedule.agent_id}
+                        onChange={(e) => setSchedule((s) => ({ ...s, agent_id: e.target.value }))}
+                        placeholder="Defaults to the name"
+                      />
+                      <Input
+                        label="Start"
+                        type="datetime-local"
+                        value={schedule.start}
+                        onChange={(e) => setSchedule((s) => ({ ...s, start: e.target.value }))}
+                      />
+                      <Input
+                        label="End"
+                        type="datetime-local"
+                        value={schedule.end}
+                        onChange={(e) => setSchedule((s) => ({ ...s, end: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button
-                        key={slot.id}
-                        variant={selectedTimeSlot?.id === slot.id ? 'default' : 'outline'}
+                        variant="primary"
                         size="sm"
-                        className="w-full justify-start"
-                        onClick={() => setSelectedTimeSlot(slot)}
+                        icon={<CalendarCheck className="h-4 w-4" />}
+                        loading={action.busy}
+                        onClick={book}
                       >
-                        {slot.display_text}
+                        Schedule
                       </Button>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No time slots available</p>
-                  )}
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Assign Agent</label>
-                <Select
-                  value={selectedAgent?.id}
-                  onValueChange={(id) => {
-                    const agent = MOCK_AGENTS.find(a => a.id === id)
-                    setSelectedAgent(agent ? { id: agent.id, name: agent.name } : null)
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select an agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MOCK_AGENTS.map(agent => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name} ({agent.id})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleScheduleCallback}
-              disabled={!selectedAgent || !selectedTimeSlot}
-            >
-              <Video className="mr-2 h-4 w-4" />
-              Schedule with Google Meet
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        icon={<XCircle className="h-4 w-4" />}
+                        loading={action.busy}
+                        onClick={cancel}
+                      >
+                        Cancel request
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
-      {/* Cancel Callback Dialog */}
-      <Dialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Cancel Callback</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to cancel this callback? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedCallback && (
-            <div className="space-y-4 py-4">
-              <div className="p-3 border rounded-lg bg-muted/50">
-                <div className="font-medium">{selectedCallback.customer_name}</div>
-                <div className="text-sm text-muted-foreground">
-                  Status: {getStatusLabel(selectedCallback.status)}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Scheduled: {selectedCallback.scheduled_start_time ? parseISODate(selectedCallback.scheduled_start_time).date : 'Not scheduled'}
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label htmlFor="cancel_reason" className="text-sm font-medium">
-                  Reason for Cancellation
-                </label>
-                <Input
-                  id="cancel_reason"
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  placeholder="Enter reason for cancellation"
-                />
-              </div>
-            </div>
+                {OPEN.has(active.status) && (
+                  <div className="space-y-3 rounded-xl bg-surface-panel p-3.5 ring-1 ring-inset ring-surface-line">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Complete the call</p>
+                    <Textarea
+                      label="Meeting notes"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Outcome of the call…"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<CheckCircle2 className="h-4 w-4" />}
+                      loading={action.busy}
+                      onClick={complete}
+                    >
+                      Mark completed
+                    </Button>
+                  </div>
+                )}
+              </CardBody>
+            </>
           )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCancelDialogOpen(false)}>
-              Keep Callback
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCancelCallback}
-              disabled={!cancelReason}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel Callback
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Complete Callback Dialog */}
-      <Dialog open={isCompleteDialogOpen} onOpenChange={setIsCompleteDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Complete Callback Meeting</DialogTitle>
-            <DialogDescription>
-              Mark this callback as completed and add meeting notes
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedCallback && (
-            <div className="space-y-4 py-4">
-              <div className="p-3 border rounded-lg bg-muted/50">
-                <div className="font-medium">{selectedCallback.customer_name}</div>
-                <div className="text-sm text-muted-foreground">
-                  {selectedCallback.assigned_agent_name && `Agent: ${selectedCallback.assigned_agent_name}`}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {selectedCallback.meet_link && (
-                    <a href={selectedCallback.meet_link} target="_blank" className="text-primary underline">
-                      View Meeting
-                    </a>
-                  )}
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label htmlFor="completion_outcome" className="text-sm font-medium">
-                  Outcome
-                </label>
-                <Select
-                  value={completionOutcome}
-                  onValueChange={setCompletionOutcome}
-                >
-                  <SelectTrigger id="completion_outcome">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="success">Success - Converted</SelectItem>
-                    <SelectItem value="discussion">Success - Discussion Only</SelectItem>
-                    <SelectItem value="followup">Requires Follow-up</SelectItem>
-                    <SelectItem value="no_interest">No Interest</SelectItem>
-                    <SelectItem value="technical_issue">Technical Issue</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <label htmlFor="completion_notes" className="text-sm font-medium">
-                  Meeting Notes
-                </label>
-                <Input
-                  id="completion_notes"
-                  value={completionNotes}
-                  onChange={(e) => setCompletionNotes(e.target.value)}
-                  placeholder="Summary of the meeting, key points discussed, next steps..."
-                />
-              </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCompleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCompleteCallback}
-              disabled={!completionNotes}
-            >
-              <CheckCircle className="mr-2 h-4 w-4" />
-              Mark as Completed
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reschedule Callback Dialog */}
-      <Dialog open={isRescheduleDialogOpen} onOpenChange={setIsRescheduleDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Reschedule Callback</DialogTitle>
-            <DialogDescription>
-              Change the date and time for this callback meeting
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedCallback && (
-            <div className="space-y-4 py-4">
-              <div className="p-3 border rounded-lg bg-muted/50">
-                <div className="font-medium">{selectedCallback.customer_name}</div>
-                <div className="text-sm text-muted-foreground">
-                  Current: {selectedCallback.scheduled_start_time ? 
-                    `${format(new Date(selectedCallback.scheduled_start_time), 'PPpp')}` : 'Not scheduled'}
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="reschedule_date" className="text-sm font-medium">
-                    New Date
-                  </label>
-                  <Input
-                    id="reschedule_date"
-                    type="date"
-                    value={rescheduleData.new_date}
-                    onChange={(e) => setRescheduleData({...rescheduleData, new_date: e.target.value})}
-                    min={format(new Date(), 'yyyy-MM-dd')}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="reschedule_reason" className="text-sm font-medium">
-                    Reason
-                  </label>
-                  <Input
-                    id="reschedule_reason"
-                    value={rescheduleData.reason}
-                    onChange={(e) => setRescheduleData({...rescheduleData, reason: e.target.value})}
-                    placeholder="Why reschedule?"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="reschedule_start" className="text-sm font-medium">
-                    Start Time
-                  </label>
-                  <Input
-                    id="reschedule_start"
-                    type="time"
-                    value={rescheduleData.new_start_time}
-                    onChange={(e) => setRescheduleData({...rescheduleData, new_start_time: e.target.value})}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="reschedule_end" className="text-sm font-medium">
-                    End Time
-                  </label>
-                  <Input
-                    id="reschedule_end"
-                    type="time"
-                    value={rescheduleData.new_end_time}
-                    onChange={(e) => setRescheduleData({...rescheduleData, new_end_time: e.target.value})}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRescheduleDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleRescheduleCallback}
-              disabled={!rescheduleData.new_date || !rescheduleData.new_start_time || !rescheduleData.new_end_time || !rescheduleData.reason}
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Reschedule Callback
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </Card>
+      </div>
     </div>
   )
 }
-
-export default CallbacksPanel

@@ -330,6 +330,31 @@ export const customers = [
   },
 ]
 
+export const callbacks = [
+  {
+    id: 'cb-1',
+    tenant_id: 'acme',
+    wa_id: '919876543210',
+    customer_name: 'Priya Patel',
+    customer_email: null,
+    customer_phone: '+91 98765 43210',
+    callback_type: 'support',
+    priority: 'high',
+    preferred_date: '2026-10-12',
+    preferred_time: '10:00',
+    purpose: 'Demo of the dashboard',
+    additional_info: '',
+    assigned_agent_id: null,
+    assigned_agent_name: null,
+    meet_link: null,
+    status: 'pending',
+    scheduled_start_time: null,
+    scheduled_end_time: null,
+    created_at: '2026-10-10T09:00:00Z',
+    updated_at: '2026-10-10T09:00:00Z',
+  },
+]
+
 export const orders = [
   {
     id: 1,
@@ -415,6 +440,7 @@ export const fixtures = {
   campaignStats,
   distributors,
   customers,
+  callbacks,
   orders,
   orderCounts,
   files,
