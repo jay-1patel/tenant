@@ -202,6 +202,14 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
         await send_text_message(wa_id, answer)
         return {"new_state": cfg.B2C_MAIN_MENU_STATE}
 
+    if sel in ("book a callback", "menu_callback", "callback", "request a callback", "book appointment"):
+        buttons = [
+            {"id": "b2c_callback_virtual", "title": "Virtual"},
+            {"id": "b2c_callback_personal", "title": "Personal"},
+        ]
+        await send_button_message(wa_id, "How would you like to meet?", buttons)
+        return {"new_state": cfg.B2C_AWAITING_CALLBACK_TYPE}
+
     # Anything else while in the main menu: answer via the RAG pipeline.
     return await _fallback_to_rag(wa_id, message, cfg)
 
