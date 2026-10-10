@@ -22,7 +22,7 @@ from database import (
     get_admin_record,
     list_admin_records,
     count_admins_by_role,
-    set_admin_otp,
+    count_tenant_admins,    set_admin_otp,
     get_admin_otp,
     clear_admin_otp,
 )
@@ -536,10 +536,10 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
             role = "sub_admin"
 
     current_role = current_admin.get("role")
-    if role == "super_admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only a super admin can create another super admin")
-    if role == "admin" and current_role not in ("super_admin", "admin"):
-        raise HTTPException(status_code=403, detail="Only super admin or admin can create an admin")
+    if role == "super_admin":
+        raise HTTPException(status_code=403, detail="There can be only one super admin")
+    if role == "admin" and current_role != "super_admin":
+        raise HTTPException(status_code=403, detail="Only a super admin can create a company admin")
     if role == "sub_admin" and current_role not in ("super_admin", "admin"):
         raise HTTPException(status_code=403, detail="Only an admin or super admin can create a sub admin")
 
@@ -562,6 +562,9 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         # strictly scoped to their own tenant.
         tenant_id = current_admin.get("tenant_id")
     # If super_admin creating super_admin, tenant_id is None
+
+    if role == "admin" and tenant_id and count_tenant_admins(tenant_id):
+        raise HTTPException(status_code=409, detail="This company already has an admin")
 
     try:
         with get_db_context() as conn:
@@ -659,8 +662,10 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
             new_role = target["role"]
 
         current_role = current_admin.get("role")
-        if new_role == "super_admin" and current_role != "super_admin":
-            raise HTTPException(status_code=403, detail="Only a super admin can promote to super admin")
+        if new_role == "super_admin" and target["role"] != "super_admin":
+            raise HTTPException(status_code=403, detail="There can be only one super admin")
+        if new_role == "admin" and current_role != "super_admin":
+            raise HTTPException(status_code=403, detail="Only a super admin can grant the admin role")
         if target["role"] == "super_admin" and new_role != "super_admin" and current_role != "super_admin":
             raise HTTPException(status_code=403, detail="Only a super admin can demote a super admin")
         if target["role"] == "super_admin" and new_role != "super_admin" and count_admins_by_role("super_admin") <= 1:
@@ -683,6 +688,10 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     # Only a super admin may re-scope an admin to another tenant; for everyone
     # else tenant_id is left untouched (None means "no change" here).
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
+
+    after_tenant = tenant_id if tenant_id is not None else target.get("tenant_id")
+    if new_role == "admin" and after_tenant and count_tenant_admins(after_tenant, exclude_username=username):
+        raise HTTPException(status_code=409, detail="This company already has an admin")
 
     before = {
         "role": target.get("role"),

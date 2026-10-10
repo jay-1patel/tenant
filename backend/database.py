@@ -319,6 +319,21 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )"""
         )
+        try:
+            # The platform has exactly one super admin.
+            conn.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS ux_admins_one_super_admin
+                   ON admins(role) WHERE role = 'super_admin'"""
+            )
+            # Each company (tenant) may have at most one admin-role account.
+            conn.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS ux_admins_one_admin_per_tenant
+                   ON admins(tenant_id) WHERE role = 'admin' AND tenant_id IS NOT NULL"""
+            )
+        except Exception:
+            # Pre-existing data may violate the constraint; the API layer
+            # still enforces it for every new write.
+            pass
         conn.execute(
             """CREATE TABLE IF NOT EXISTS admin_otps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3064,6 +3079,20 @@ def delete_admin(username: str) -> bool:
 def count_admins_by_role(role: str) -> int:
     with get_db_context() as conn:
         row = conn.execute("SELECT COUNT(*) as cnt FROM admins WHERE role = ?", (role,)).fetchone()
+    return row["cnt"] if row else 0
+
+
+def count_tenant_admins(tenant_id: str, exclude_username: str = None) -> int:
+    """Count admin-role accounts in a tenant (optionally ignoring one username)."""
+    if not tenant_id:
+        return 0
+    query = "SELECT COUNT(*) as cnt FROM admins WHERE role = 'admin' AND tenant_id = ?"
+    params = [tenant_id]
+    if exclude_username:
+        query += " AND username != ?"
+        params.append(exclude_username)
+    with get_db_context() as conn:
+        row = conn.execute(query, params).fetchone()
     return row["cnt"] if row else 0
 
 

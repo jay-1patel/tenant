@@ -257,8 +257,7 @@ export function TeamScreen() {
               disabled={identity?.role === 'sub_admin'}
             >
               <option value="sub_admin">Sub admin �?" permissions apply</option>
-              {(isSuperAdmin || identity?.role === 'admin') && <option value="admin">Admin �?" all permissions for their tenant</option>}
-              {isSuperAdmin && <option value="super_admin">Super admin �?" everything</option>}
+              {isSuperAdmin && <option value="admin">Admin �?" all permissions for their tenant</option>}
             </Select>
 
             {draft.role === 'sub_admin' && (
@@ -408,8 +407,7 @@ export function TeamScreen() {
                       className="w-40"
                     >
                       {(identity?.role === 'admin' || isSuperAdmin) && <option value="sub_admin">sub admin</option>}
-                      {(identity?.role === 'admin' || isSuperAdmin) && <option value="admin">admin</option>}
-                      {isSuperAdmin && <option value="super_admin">super admin</option>}
+                      {isSuperAdmin && <option value="admin">admin</option>}
                     </Select>
                   </div>
                 )}

@@ -55,7 +55,9 @@ const DAYS = [
 
 /** Dropdown for the working-hours timezone — free text invited typos. */
 
-const WABA_ID_RE = /^\d{15}$/
+// Either the Meta phone-number id (all digits) or the WhatsApp number
+// itself (+91 8000305305); the backend stores digits only.
+const WABA_ID_RE = /^\+?[\d\s\-()]{10,24}$/
 
 // The super admin only registers the company basics; an admin completes the
 // tenant from WhatsApp onwards, and that completion goes for approval.
@@ -73,7 +75,7 @@ const ADMIN_STEPS = [
 
 type StepId = (typeof SUPER_STEPS | typeof ADMIN_STEPS)[number]['id']
 
-export function RegisterWizard() {
+export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {}) {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<WizardDraft>(emptyDraft)
   const { reload, tenants } = useTenants()
@@ -152,7 +154,8 @@ export function RegisterWizard() {
     if (!submitted) return
     toast.push(`${draft.companyName} submitted — a super admin must approve it before it goes live.`)
     reload()
-    navigate('/tenant-requests')
+    if (onSubmitted) onSubmitted()
+    else navigate('/tenant-requests')
   }
 
   return (
@@ -428,12 +431,12 @@ function WhatsAppStep({ draft, patch }: StepProps) {
       icon={<CalendarClock className="h-4 w-4" />}
     >
       <Input
-        label="WhatsApp phone number id *"
+        label="WhatsApp phone number *"
         value={draft.wabaPhoneId}
         onChange={(e) => patch({ wabaPhoneId: e.target.value })}
-        placeholder="100012345678901"
-        inputMode="numeric"
-        hint="Digits only, from the Meta Business account (WABA). Each number belongs to exactly one tenant."
+        placeholder="+91 8000305305"
+        inputMode="tel"
+        hint="The WhatsApp number itself (+91 8000305305) or its 15-digit id from the Meta Business account (WABA). Each number belongs to exactly one tenant."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -864,9 +867,10 @@ function validationError(
       if (!tenantSelected) return 'Pick the tenant you are completing.'
       return null
     case 'whatsapp': {
-      if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number id is required.'
-      if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()))
-        return 'The WhatsApp phone number id must be exactly 15 digits.'
+      if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number (or its id) is required.'
+      const phoneDigits = draft.wabaPhoneId.replace(/\D/g, '')
+      if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()) || phoneDigits.length < 10 || phoneDigits.length > 16)
+        return 'Enter the WhatsApp number in international format (+91 8000305305) or its 15-digit id from Meta.'
       if (!draft.timezone.trim()) return 'Select a timezone.'
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null

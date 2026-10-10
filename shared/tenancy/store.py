@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -107,6 +108,24 @@ def list_tenants(status: Optional[str] = None) -> List[dict]:
         else:
             rows = conn.execute("SELECT * FROM tenants ORDER BY id").fetchall()
     return [dict(r) for r in rows]
+
+
+def normalize_waba_phone_id(value: str) -> str:
+    """Normalize a WhatsApp phone binding to digits only.
+
+    Accepts either the Meta phone-number id (all digits) or the WhatsApp
+    number itself in ``+91 8000305305`` form. Inbound webhook payloads
+    carry the number without the plus sign (``metadata.display_phone_number``),
+    so digits-only is the form the resolver matches against.
+    """
+    raw = str(value or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    if not 10 <= len(digits) <= 16:
+        raise ValueError(
+            "waba_phone_id must be the WhatsApp phone number id or the "
+            "number itself in international format (10-16 digits)"
+        )
+    return digits
 
 
 def set_waba_phone_id(tenant_id: str, phone_id: str, conn=None) -> bool:

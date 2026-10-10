@@ -62,11 +62,14 @@ class TenantCreate(BaseModel):
     @classmethod
     def _check_waba_phone_id(cls, value: str) -> str:
         v = (value or "").strip()
-        if v and not re.fullmatch(r"\d{15}", v):
+        if not v:
+            return ""
+        try:
+            return tenancy_store.normalize_waba_phone_id(v)
+        except ValueError:
             raise ValueError(
-                "waba_phone_id must be the 15-digit WhatsApp phone number id"
+                "waba_phone_id must be the WhatsApp phone number id or the number itself"
             )
-        return v
 
 
 class PhoneBind(BaseModel):
@@ -663,11 +666,10 @@ def bind_phone(
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
     phone_id = (body.waba_phone_id or "").strip()
-    if not re.fullmatch(r"\d{15}", phone_id):
-        raise HTTPException(
-            status_code=422,
-            detail="waba_phone_id must be the 15-digit WhatsApp phone number id",
-        )
+    try:
+        phone_id = tenancy_store.normalize_waba_phone_id(phone_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     with get_db_context() as conn:
         if not tenancy_store.set_waba_phone_id(tenant_id, phone_id, conn=conn):
             raise HTTPException(

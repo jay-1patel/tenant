@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { Blocks } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { TenantProvider, useTenants } from '@/lib/tenants'
 import { usePermissions } from '@/lib/permissions'
@@ -38,6 +40,64 @@ import { AuditHistory } from '@/components/team/audit-history'
 import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
 import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { CallbackDetailPanel } from '@/components/tenants/callback-detail-panel'
+
+/**
+ * First login for a company admin: until the company's registration has been
+ * approved and published (live version >= 1), the console shows nothing but
+ * the registration wizard. The full dashboard unlocks with the super admin's
+ * approval - see AuthedApp.
+ */
+function OnboardingGate() {
+  const { identity, logout } = useAuth()
+  const [tab, setTab] = useState<'register' | 'requests'>('register')
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center justify-between border-b border-surface-line bg-white px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
+            <Blocks className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-100">Tenant Console</p>
+            <p className="text-xs text-slate-500">Registration pending approval</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <p className="truncate text-sm text-slate-200">{identity?.username}</p>
+          <Button variant="secondary" size="sm" onClick={logout}>
+            Sign out
+          </Button>
+        </div>
+      </header>
+      <main className="min-w-0 flex-1 overflow-y-auto bg-surface scroll-thin">
+        <div className="mx-auto max-w-6xl px-8 py-8">
+          <div className="mb-6 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant={tab === 'register' ? 'primary' : 'secondary'}
+              onClick={() => setTab('register')}
+            >
+              Register a tenant
+            </Button>
+            <Button
+              size="sm"
+              variant={tab === 'requests' ? 'primary' : 'secondary'}
+              onClick={() => setTab('requests')}
+            >
+              My change requests
+            </Button>
+          </div>
+          {tab === 'register' ? (
+            <RegisterWizard onSubmitted={() => setTab('requests')} />
+          ) : (
+            <MyTenantChangeRequests />
+          )}
+        </div>
+      </main>
+    </div>
+  )
+}
 
 function Router() {
   const route = parseRoute(useRoute())
@@ -269,6 +329,26 @@ function AuthedApp() {
         <LoadingBlock label="Loading tenants…" />
       </div>
     )
+  }
+
+  // A company admin who has not finished onboarding sees only the
+  // registration wizard: the company must exist and carry an approved,
+  // published version before the dashboard unlocks.
+  if (identity?.role === 'admin' && tenantsLoading && !tenants.length) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoadingBlock label="Loading tenants…" />
+      </div>
+    )
+  }
+  const ownTenant = identity?.tenant_id
+    ? tenants.find((t) => t.id === identity.tenant_id)
+    : undefined
+  if (
+    identity?.role === 'admin' &&
+    (!identity.tenant_id || !ownTenant || (ownTenant.current_version ?? 0) < 1)
+  ) {
+    return <OnboardingGate />
   }
 
   return <Router />
