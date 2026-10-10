@@ -11,6 +11,7 @@ def _clean(text: str) -> str:
     if not text:
         return ""
     text = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", text)
+    text = re.sub(r"\[id:[^\]]+\]", "", text, flags=re.IGNORECASE)
     return " ".join((text or "").strip().lower().split())
 
 
@@ -99,6 +100,57 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     # ── Shipping help ─────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_SHIPPING_QUERY:
         await send_text_message(wa_id, "Standard delivery takes 3-5 business days. Need anything else?")
+        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+
+    # ── Callback ──────────────────────────────────────────────────────────────
+    if state == cfg.B2C_AWAITING_CALLBACK_TYPE:
+        sel = _clean(message)
+        if sel in ("virtual", "b2c_callback_virtual"):
+            from database import get_db_context
+            tenant_id = None
+            with get_db_context() as conn:
+                from services.whatsapp_sender import send_text_message
+                await send_text_message(wa_id, "Sorry, I couldn't create a Google Meet link right now. A human agent will contact you shortly.")
+            return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        elif sel in ("personal", "b2c_callback_personal"):
+            from services.whatsapp_sender import send_text_message
+            await send_text_message(wa_id, "Please provide the details for your personal meeting (preferred date, time, and topic).")
+            return {"new_state": cfg.B2C_AWAITING_CALLBACK_DETAILS}
+        else:
+            from services.whatsapp_sender import send_button_message
+            buttons = [
+                {"id": "b2c_callback_virtual", "title": "Virtual"},
+                {"id": "b2c_callback_personal", "title": "Personal"},
+            ]
+            await send_button_message(wa_id, "Please select an option:\n\nHow would you like to meet?", buttons)
+            return {"new_state": cfg.B2C_AWAITING_CALLBACK_TYPE}
+
+    if state == cfg.B2C_AWAITING_CALLBACK_DETAILS:
+        details = message
+        from database import get_db_context
+        import json
+        try:
+            with get_db_context() as conn:
+                tenant_id = None
+                from datetime import datetime
+                import uuid
+                cb_id = str(uuid.uuid4())
+                cb_data = json.dumps({
+                    "customer_name": "Customer",
+                    "wa_id": wa_id,
+                    "purpose": f"Personal meeting details: {details}",
+                    "callback_type": "personal"
+                })
+                conn.execute(
+                    "INSERT INTO callbacks (id, tenant_id, wa_id, data, status) VALUES (?, ?, ?, ?, ?)",
+                    (cb_id, tenant_id, wa_id, cb_data, "pending")
+                )
+                from services.whatsapp_sender import send_text_message
+                await send_text_message(wa_id, "Your personal meeting request has been logged. We will contact you soon to confirm.")
+        except Exception as e:
+            logger.error(f"Failed to log callback: {e}")
+            from services.whatsapp_sender import send_text_message
+            await send_text_message(wa_id, "Sorry, there was an error processing your request. We'll be in touch soon.")
         return {"new_state": cfg.B2C_MAIN_MENU_STATE}
 
     # ── Unknown / stale state: fall back to RAG ───────────────────────────────

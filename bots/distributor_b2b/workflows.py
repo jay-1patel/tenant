@@ -1,4 +1,4 @@
-﻿"""B2B Distributor state-machine handler.
+"""B2B Distributor state-machine handler.
 
 This module is the single entry point the orchestrator calls for B2B users:
 
@@ -25,6 +25,7 @@ def _clean(text: str) -> str:
     if not text:
         return ""
     text = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", text)
+    text = re.sub(r"\[id:[^\]]+\]", "", text, flags=re.IGNORECASE)
     return " ".join((text or "").strip().lower().split())
 
 
