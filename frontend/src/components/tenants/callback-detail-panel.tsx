@@ -1,9 +1,5 @@
-"""Callback Detail Panel for Chatbot2.
-
-This component provides a detailed view of a single callback request,
-including customer information, scheduling details, conversation history,
-and action buttons for managing the callback lifecycle.
-"""
+// Callback Detail Panel for Chatbot2.
+// Provides detailed view of a single callback request.
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -60,6 +56,11 @@ export function CallbackDetailPanel({ className }: CallbackDetailPanelProps) {
   const [editingNotes, setEditingNotes] = useState('')
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
+  // Schedule Meeting state
+  const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false)
+  const [scheduleStart, setScheduleStart] = useState('')
+  const [scheduleEnd, setScheduleEnd] = useState('')
+  const [isScheduling, setIsScheduling] = useState(false)
   
   // Fetch callback details
   useEffect(() => {
@@ -136,6 +137,45 @@ export function CallbackDetailPanel({ className }: CallbackDetailPanelProps) {
     const calendarUrl = `https://calendar.google.com/calendar?action=VIEW&eid=${callback.calendar_event_id}`
     window.open(calendarUrl, '_blank')
   }, [callback])
+
+  // Share meet link via WhatsApp
+  const handleShareWhatsApp = useCallbackHook(() => {
+    if (!callback?.meet_link || !callback?.wa_id) return
+    const message = encodeURIComponent(`Join our meeting: ${callback.meet_link}`)
+    const url = `https://wa.me/${callback.wa_id}?text=${message}`
+    window.open(url, '_blank')
+  }, [callback])
+
+  // Schedule a Google Meet meeting
+  const handleScheduleMeeting = useCallbackHook(async () => {
+    if (!callback || !scheduleStart || !scheduleEnd) return
+    try {
+      setIsScheduling(true)
+      const response = await fetch(
+        `/api/tenants/${tenantId}/callbacks/${callbackId}/schedule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start_time: scheduleStart,
+            end_time: scheduleEnd,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            summary: `Callback with ${callback.customer_name}`,
+            attendee_email: callback.customer_email ?? ''
+          })
+        }
+      )
+      if (!response.ok) throw new Error(await response.text())
+      const data = await response.json()
+      setCallback({ ...callback, meet_link: data.meet_link, calendar_event_id: data.calendar_event_id })
+      setIsScheduleDialogOpen(false)
+      toast({ title: 'Meeting Scheduled!', description: `Google Meet link: ${data.meet_link}` })
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to schedule meeting', variant: 'destructive' })
+    } finally {
+      setIsScheduling(false)
+    }
+  }, [callback, tenantId, callbackId, scheduleStart, scheduleEnd, toast])
   
   if (isLoading) {
     return (
@@ -198,10 +238,22 @@ export function CallbackDetailPanel({ className }: CallbackDetailPanelProps) {
           <Badge className={cn(getStatusColor(callback.status))}>
             {getLabelFromStatus(callback.status)}
           </Badge>
+          {!callback.meet_link && (
+            <Button size="sm" onClick={() => setIsScheduleDialogOpen(true)}>
+              <Video className="mr-2 h-3 w-3" />
+              Schedule Meeting
+            </Button>
+          )}
           {callback.meet_link && (
             <Button variant="outline" size="sm" onClick={handleCopyMeetLink}>
               <Copy className="mr-2 h-3 w-3" />
               Copy Meet Link
+            </Button>
+          )}
+          {callback.meet_link && callback.wa_id && (
+            <Button variant="outline" size="sm" onClick={handleShareWhatsApp}>
+              <MessageSquare className="mr-2 h-3 w-3" />
+              Share via WhatsApp
             </Button>
           )}
           {callback.calendar_event_id && (
@@ -545,6 +597,54 @@ export function CallbackDetailPanel({ className }: CallbackDetailPanelProps) {
             </Button>
             <Button onClick={handleUpdateNotes}>
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule Meeting Dialog */}
+      <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Schedule a Google Meet</DialogTitle>
+            <DialogDescription>
+              Pick a start and end time. A Google Calendar event with a Meet link will be created.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label htmlFor="schedule-start" className="text-sm font-medium">
+                Start Time
+              </label>
+              <input
+                id="schedule-start"
+                type="datetime-local"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={scheduleStart}
+                onChange={(e) => setScheduleStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="schedule-end" className="text-sm font-medium">
+                End Time
+              </label>
+              <input
+                id="schedule-end"
+                type="datetime-local"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={scheduleEnd}
+                onChange={(e) => setScheduleEnd(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleScheduleMeeting} disabled={isScheduling || !scheduleStart || !scheduleEnd}>
+              {isScheduling ? 'Scheduling...' : 'Schedule Meeting'}
             </Button>
           </DialogFooter>
         </DialogContent>

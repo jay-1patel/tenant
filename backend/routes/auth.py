@@ -601,7 +601,7 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
                 resource_id=cur.lastrowid,
                 target_username=body.username,
                 tenant_id=tenant_id,
-                details={"role": role},
+                details={"role": role, "created_admin": {"username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id}},
             )
     except Exception:
         raise HTTPException(status_code=409, detail="Username already taken")
@@ -760,6 +760,8 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
                 "tenant_id_before": before["tenant_id"],
                 "tenant_id_after": after_tenant,
                 "permission_keys_changed": changed_permissions,
+                "permissions_before": before["permissions"],
+                "permissions_after": permissions,
             },
         )
 
@@ -799,7 +801,7 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
             resource_id=target.get("id"),
             target_username=username,
             tenant_id=target.get("tenant_id"),
-            details={"role": target.get("role")},
+            details={"role": target.get("role"), "deleted_admin": dict(target)},
         )
     logger.info(f"Admin deleted by {current_admin['username']}: {username}")
     return {"status": "ok", "username": username}
@@ -986,6 +988,20 @@ async def request_otp(request: Request, body: RequestOtpRequest):
             detail="Failed to send OTP email. Check that SMTP is configured in the backend .env.",
         )
 
+    with get_db_context() as conn:
+        try:
+            record_admin_audit_event(
+                conn,
+                action="otp_requested",
+                actor={"id": admin["id"], "username": body.username},
+                resource_type="admin",
+                resource_id=admin["id"],
+                target_username=body.username,
+                details={"email": _mask_email(email)}
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record audit event for OTP request: {e}")
+
     logger.info(f"OTP sent to admin: {body.username}")
     return {
         "status": "ok",
@@ -1034,6 +1050,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
             resource_id=target["id"] if target else None,
             target_username=body.username,
             tenant_id=target["tenant_id"] if target else None,
+            details={"changed_fields": ["password_hash"]}
         )
     clear_admin_otp(body.username)
 

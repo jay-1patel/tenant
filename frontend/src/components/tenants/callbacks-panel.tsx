@@ -1,12 +1,4 @@
-"""Callback Booking Management Panel for Chatbot2.
-
-This component provides the complete UI for managing callback booking pipeline:
-- Create and view callback requests
-- Schedule meetings with Google Meet
-- Manage agent assignments and availability
-- View analytics and reports
-- Handle rescheduling and cancellations
-"""
+// Callback Booking Management Panel for Chatbot2.
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'

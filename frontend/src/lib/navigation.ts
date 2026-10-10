@@ -33,6 +33,7 @@ import {
   Phone,
   Calendar,
   type LucideIcon,
+  Video,
 } from 'lucide-react'
 import type { FeatureFlag, Features } from './types'
 import { getVertical } from './verticals'
@@ -140,6 +141,12 @@ export function buildTenantNav(opts: {
       permissions: ['manage_operations'],
       feature: 'callback',
       showsCount: true,
+    },
+    {
+      id: 'google-connect',
+      label: 'Google Account',
+      icon: Video,
+      permissions: ['manage_operations'],
     },
     { id: 'tokens', label: 'API tokens', icon: KeyRound, permissions: ['manage_operations'] },
   ]
