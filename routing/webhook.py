@@ -31,11 +31,20 @@ OPT_OUT_CONFIRMATION = (
 )
 OPT_IN_CONFIRMATION = "Welcome back! You will receive campaign messages again. \U0001f64f"
 
+# Only EXPLICIT requests for a person hand the chat over. Generic support
+# wording ("customer support", a bare "agent"/"human", "connect to") is a
+# question the bot must answer itself; the menu's "Talk to Human" row is the
+# other allowed trigger and routes through the handoff intent, not this list.
 HUMAN_HANDOVER_PHRASES = [
-    "human", "agent", "real person", "talk to a human", "speak to a human",
-    "customer support", "representative", "talk to agent", "speak to agent",
-    "connect me", "connect to", "talk to someone", "speak to someone",
-    "real human", "live person", "live agent",
+    "human handover", "handover to human", "hand over to human",
+    "talk to human", "talk to a human", "talk to the human",
+    "speak to human", "speak to a human", "speak to the human",
+    "talk to agent", "talk to an agent", "talk to the agent",
+    "speak to agent", "speak to an agent",
+    "talk to someone", "speak to someone",
+    "talk to a person", "speak to a person",
+    "real person", "real human", "live person", "live agent",
+    "human agent",
 ]
 
 HANDOVER_CONFIRMATION = "You're now connected to a human agent. Please hold on while we pick up your conversation. 🙏\n\nType *hi* anytime to continue with the chatbot."

@@ -161,7 +161,7 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg, t
         from . import ticket_flow
         return await ticket_flow.handle_ticket_message(wa_id, message, cfg.DIST_TICKET_START, context, tier)
 
-    if sel == "menu_human" or sel in ("talk to human", "human", "agent"):
+    if sel == "menu_human" or sel in ("talk to human", "human handover", "talk to a human"):
         rep = tools.get_assigned_sales_rep(wa_id)
         await send_text_message(wa_id, f"Your assigned sales representative is {rep['name']} ({rep['phone']}).")
         return {"new_state": cfg.B2B_MAIN_MENU_STATE}

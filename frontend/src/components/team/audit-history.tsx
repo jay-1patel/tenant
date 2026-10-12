@@ -36,7 +36,7 @@ const FilterPresets = ({ onApplyPreset }: { onApplyPreset: (preset: Record<strin
         Presets
       </Button>
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg bg-white shadow-lg ring-1 ring-slate-200">
+        <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg bg-surface-overlay shadow-lg ring-1 ring-surface-line">
           <div className="py-1">
             {presets.map((preset) => (
               <button
@@ -95,7 +95,7 @@ const ExportMenu = ({ events, filters, onExportSuccess }: { events: AuditEventEx
         Export
       </Button>
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-2 w-40 rounded-lg bg-white shadow-lg ring-1 ring-slate-200 p-2">
+        <div className="absolute right-0 z-50 mt-2 w-40 rounded-lg bg-surface-overlay shadow-lg ring-1 ring-surface-line p-2">
           <button
             onClick={() => handleExport('csv')}
             className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
@@ -231,33 +231,33 @@ const TableView = ({ events, sortBy, sortOrder, onSort }: { events: AuditEventEx
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
-        <thead className="bg-slate-800">
+        <thead className="bg-surface-panel">
           <tr>
-            <th onClick={() => onSort('created_at')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-slate-700">
+            <th onClick={() => onSort('created_at')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-surface-panel">
               Date/Time {getSortIcon('created_at')}
             </th>
-            <th onClick={() => onSort('action')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-slate-700">
+            <th onClick={() => onSort('action')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-surface-panel">
               Action {getSortIcon('action')}
             </th>
-            <th onClick={() => onSort('actor_username')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-slate-700">
+            <th onClick={() => onSort('actor_username')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-surface-panel">
               Actor {getSortIcon('actor_username')}
             </th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300">
               Target
             </th>
-            <th onClick={() => onSort('tenant_label')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-slate-700">
+            <th onClick={() => onSort('tenant_label')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-surface-panel">
               Tenant {getSortIcon('tenant_label')}
             </th>
-            <th onClick={() => onSort('outcome')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-slate-700">
+            <th onClick={() => onSort('outcome')} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300 cursor-pointer hover:bg-surface-panel">
               Outcome {getSortIcon('outcome')}
             </th>
           </tr>
         </thead>
-        <tbody className="bg-slate-800 divide-y divide-slate-700">
+        <tbody className="bg-surface-raised divide-y divide-surface-line">
           {events.map((event) => {
             const formattedEvent = formatEventForDisplay(event)
             return (
-              <tr key={event.id} className="hover:bg-slate-700/50">
+              <tr key={event.id} className="hover:bg-surface-panel">
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-200">
                   {formattedEvent.formatted_date}
                   <div className="text-xs text-slate-500">{formattedEvent.relative_time}</div>
@@ -301,11 +301,11 @@ const StatisticsView = ({ statistics, events }: { statistics: AuditStatistics; e
             <div className="text-sm text-slate-500">Total Events</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-400">{statistics.by_outcome.success.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-emerald-600">{statistics.by_outcome.success.toLocaleString()}</div>
             <div className="text-sm text-slate-500">Success</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-red-400">{statistics.by_outcome.failure.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-rose-600">{statistics.by_outcome.failure.toLocaleString()}</div>
             <div className="text-sm text-slate-500">Failures</div>
           </div>
           <div className="text-center">
@@ -314,7 +314,7 @@ const StatisticsView = ({ statistics, events }: { statistics: AuditStatistics; e
           </div>
         </div>
         {events.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-slate-700">
+          <div className="mt-4 pt-4 border-t border-surface-line">
             <h4 className="text-sm font-semibold text-slate-300 mb-2">Top Actions</h4>
             <div className="flex flex-wrap gap-2">
               {Object.entries(statistics.by_action || {})
@@ -351,11 +351,11 @@ const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
           <h3 className="text-lg font-semibold text-slate-200">
             {date} <span className="text-xs font-normal text-slate-500">{dateEvents.length} events</span>
           </h3>
-          <div className="space-y-3 border-l border-slate-700 pl-4">
+          <div className="space-y-3 border-l border-surface-line pl-4">
             {dateEvents.map(event => {
               const formattedEvent = formatEventForDisplay(event)
               return (
-                <Card key={event.id} className="bg-slate-800/50 border-slate-700">
+                <Card key={event.id} className="bg-surface-panel border-surface-line">
                   <CardHeader 
                     title={LABELS[event.action] || event.action.replace(/_/g, ' ')} 
                     description={`${event.actor_label || event.actor_username || 'System'}${event.actor_role ? ` · ${event.actor_role}` : ''} · ${relativeTime(event.created_at)}`} 
@@ -732,7 +732,7 @@ export function AuditHistory() {
             <div className="space-y-3">
               {formattedEvents.map(event => {
                 return (
-                  <Card key={event.id} className="bg-slate-800/50 border-slate-700">
+                  <Card key={event.id} className="bg-surface-panel border-surface-line">
                     <CardHeader 
                       title={LABELS[event.action] || event.action.replace(/_/g, ' ')} 
                       description={`${event.actor_label || event.actor_username || 'System'}${event.actor_role ? ` · ${event.actor_role}` : ''} · ${formatDate(event.created_at)}`}
