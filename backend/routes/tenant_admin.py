@@ -30,7 +30,7 @@ from backend.database_multi_tenant import (
     list_tenants, get_tenant_by_id, get_tenant_by_slug,
     get_tenant_by_whatsapp_number, tenant_query, get_current_tenant_id
 )
-from backend.database import get_db_context
+from backend.database import get_db_context, record_admin_audit_event, get_db
 from backend.services.tenant_menu_service import get_tenant_menu_service
 from backend.kb.services.tenant_rag import add_document_to_tenant
 
@@ -173,6 +173,20 @@ async def register_tenant(
             welcome_message=tenant_data.welcome_message
         )
         
+        with get_db_context() as conn:
+            try:
+                record_admin_audit_event(
+                    conn,
+                    action="tenant_created",
+                    actor=super_admin,
+                    resource_type="tenant",
+                    resource_id=tenant_id,
+                    tenant_id=str(tenant_id),
+                    details={"created_tenant": tenant_data.dict()}
+                )
+            except Exception as e:
+                logger.error(f"Audit log failed: {e}")
+                
         logger.info(f"Registered new tenant: {tenant_data.company_name} (ID: {tenant_id})")
         
         return {
@@ -282,6 +296,19 @@ async def update_tenant_details(
         if success:
             # Return updated tenant info
             updated_tenant = get_tenant_by_id(tenant_id)
+            with get_db_context() as conn:
+                try:
+                    record_admin_audit_event(
+                        conn,
+                        action="tenant_updated",
+                        actor=tenant_admin.get('admin'),
+                        resource_type="tenant",
+                        resource_id=tenant_id,
+                        tenant_id=str(tenant_id),
+                        details={"before_state": tenant, "after_state": updated_tenant}
+                    )
+                except Exception as e:
+                    logger.error(f"Audit log failed: {e}")
             updated_tenant_safe = {k: v for k, v in updated_tenant.items() if k != 'send2_password'}
             
             logger.info(f"Updated tenant {tenant_id}")
@@ -306,9 +333,23 @@ async def delete_tenant_endpoint(
     This permanently removes all tenant data.
     """
     try:
+        tenant_to_delete = get_tenant_by_id(tenant_id)
         success = delete_tenant(tenant_id)
         
         if success:
+            with get_db_context() as conn:
+                try:
+                    record_admin_audit_event(
+                        conn,
+                        action="tenant_deleted",
+                        actor=super_admin,
+                        resource_type="tenant",
+                        resource_id=tenant_id,
+                        tenant_id=str(tenant_id),
+                        details={"deleted_tenant": tenant_to_delete}
+                    )
+                except Exception as e:
+                    logger.error(f"Audit log failed: {e}")
             logger.info(f"Deleted tenant {tenant_id} and all associated data")
             return {
                 "status": "success",
@@ -341,6 +382,19 @@ async def deactivate_tenant_endpoint(
         success = deactivate_tenant(tenant_id)
         
         if success:
+            with get_db_context() as conn:
+                try:
+                    record_admin_audit_event(
+                        conn,
+                        action="tenant_deactivated",
+                        actor=tenant_admin,
+                        resource_type="tenant",
+                        resource_id=tenant_id,
+                        tenant_id=str(tenant_id),
+                        details={"before_state": tenant}
+                    )
+                except Exception as e:
+                    logger.error(f"Audit log failed: {e}")
             logger.info(f"Deactivated tenant {tenant_id}")
             return {
                 "status": "success",
