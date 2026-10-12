@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Check, ClipboardCheck, Send, X } from 'lucide-react'
 import {
   tenantApprovalsApi,
@@ -6,6 +6,8 @@ import {
   type TenantChangeStatus,
 } from '@/lib/tenant-approvals'
 import { useAsync, useAction } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
+import { navigate } from '@/lib/router'
 import { formatDate, isTruthyFlag } from '@/lib/format'
 import { tenantsApi } from '@/lib/tenants'
 import { Badge } from '@/components/ui/badge'
@@ -491,7 +493,25 @@ export function TenantChangeReview() {
 /** Admin side: the requests this admin submitted and where they stand. */
 export function MyTenantChangeRequests() {
   const state = useAsync((signal) => tenantApprovalsApi.mine(signal), [])
+  const { refreshIdentity } = useAuth()
   const [open, setOpen] = useState<number | null>(null)
+
+  // Onboarding ends the moment a super admin approves a request. Re-read the
+  // identity here so the lock lifts without a hard refresh, and drop the now
+  // onboarded admin straight into their tenant dashboard.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const me = await refreshIdentity()
+      if (cancelled || !me) return
+      if (me.role === 'admin' && me.onboarding_approved && me.tenant_id) {
+        navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshIdentity])
 
   return (
     <div>

@@ -24,7 +24,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const [switcherOpen, setSwitcherOpen] = useState(false)
 
   const tenantScoped = Boolean(route.tenantId)
-  const locked = isOnboardingLocked(identity, tenants)
+  const locked = isOnboardingLocked(identity)
   const features = useTenantFeatures(route.tenantId)
   const nav = locked ? [] : buildTenantNav({ vertical: active?.vertical, features, can })
   const contentCount = useOfferingsCount(
@@ -45,7 +45,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
 
         <div className="px-3">
-          {can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
+          {locked ? null : can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
             <Button
               variant="primary"
               className="w-full"
@@ -124,7 +124,43 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         )}
 
         <nav className="mt-4 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
-          {tenantScoped && route.tenantId && !locked ? (
+          {locked ? (
+            <div className="space-y-0.5">
+              <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+                Onboarding
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/register')}
+                className={cn(
+                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                  route.view === 'register'
+                    ? 'bg-accent-100 font-medium text-accent-800'
+                    : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                )}
+              >
+                <PlusCircle className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Register a tenant</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/tenant-requests')}
+                className={cn(
+                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                  route.view === 'tenant-requests'
+                    ? 'bg-accent-100 font-medium text-accent-800'
+                    : 'text-slate-400 hover:bg-accent-50 hover:text-slate-100',
+                )}
+              >
+                <Send className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">My change requests</span>
+              </button>
+              <p className="px-3 pt-2 text-xs leading-relaxed text-slate-500">
+                Your registration is awaiting super admin approval. Once it is approved, the full
+                dashboard unlocks.
+              </p>
+            </div>
+          ) : tenantScoped && route.tenantId ? (
             <div className="space-y-0.5">
               <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
                 {active?.display_name || active?.id || route.tenantId}
@@ -155,11 +191,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 )
               })}
             </div>
-          ) : locked ? (
-            <p className="rounded-lg bg-surface-raised px-3 py-2.5 text-xs leading-relaxed text-slate-500 ring-1 ring-surface-line">
-              Your registration is awaiting super admin approval. Until it is approved, only
-              Register a tenant and My change requests are available.
-            </p>
           ) : identity?.role !== 'super_admin' && identity?.tenant_id ? (
             <div className="space-y-0.5">
               <p className="px-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-slate-500">
@@ -182,7 +213,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </p>
           )}
 
-          {(identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && can('manage_operations'))) && (
+          {!locked && (identity?.role === 'super_admin' || (identity && identity.role !== 'super_admin' && can('manage_operations'))) && (
             <div className="border-t border-surface-line pt-3">
               {identity?.role === 'super_admin' ? (
                 <div>

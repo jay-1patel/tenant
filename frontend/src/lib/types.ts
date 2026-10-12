@@ -412,6 +412,7 @@ export interface AdminIdentity {
   email: string | null
   permissions: Record<string, boolean>
   tenant_id?: string | null
+  onboarding_approved?: boolean
 }
 
 export interface PublishResult {

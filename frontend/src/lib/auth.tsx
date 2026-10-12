@@ -20,6 +20,8 @@ interface AuthState {
   setup: (username: string, password: string, email?: string) => Promise<void>
   logout: () => void
   can: (permission: string) => boolean
+  /** Re-read the current admin (e.g. to notice an onboarding approval). */
+  refreshIdentity: () => Promise<AdminIdentity | null>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -99,6 +101,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIdentity(null)
   }, [])
 
+  const refreshIdentity = useCallback(async () => {
+    try {
+      const me = await api.get<AdminIdentity>('/api/auth/me')
+      setIdentity(me)
+      return me
+    } catch {
+      /* leave the last known identity in place */
+      return null
+    }
+  }, [])
+
   const can = useCallback(
     (permission: string) => {
       if (!identity) return false
@@ -111,8 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ loading, needsSetup, identity, login, setup, logout, can }),
-    [loading, needsSetup, identity, login, setup, logout, can],
+    () => ({ loading, needsSetup, identity, login, setup, logout, can, refreshIdentity }),
+    [loading, needsSetup, identity, login, setup, logout, can, refreshIdentity],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -166,22 +166,18 @@ export function contentWritePerms(vertical?: string | null): {
 }
 
 /**
- * First-login lock: a tenant admin whose tenant has never had a profile
- * published (i.e. whose registration a super admin has not approved yet)
- * is still onboarding. Until the approval lands they only get
- * "Register a tenant" and "My change requests".
+ * First-login lock: a company admin stays in onboarding until a super admin
+ * approves one of the tenant change requests they filed from "Register a
+ * tenant". Until then they only get "Register a tenant" and "My change
+ * requests". Super admins and sub admins are never gated, and a missing flag
+ * (older backend) is treated as unlocked.
  */
 export function isOnboardingLocked(
-  identity: { role?: string | null; tenant_id?: string | null } | null,
-  tenants: { id: string; current_version?: number }[],
+  identity: { role?: string | null; onboarding_approved?: boolean } | null,
 ): boolean {
-  if (!identity || identity.role === 'super_admin' || !identity.tenant_id) return false
-  const own = tenants.find((t) => t.id === identity.tenant_id)
-  return Boolean(own && !own.current_version)
+  if (!identity || identity.role !== 'admin') return false
+  return identity.onboarding_approved === false
 }
-
-/** The views a locked (onboarding) admin may use. */
-export const ONBOARDING_VIEWS = new Set(['register', 'tenant-requests'])
 
 export function usePermissions() {
   const { can, identity } = useAuth()

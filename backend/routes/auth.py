@@ -861,6 +861,24 @@ def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current
     return {"status": "ok", "message": "Password reset successfully"}
 
 
+def _onboarding_approved(admin: dict) -> bool:
+    """Whether this company admin has cleared first-time onboarding.
+
+    Only the company ``admin`` role is gated. An admin is cleared once a super
+    admin approves one of the tenant change requests they filed from the
+    "Register a tenant" panel. Super admins and sub admins are never gated.
+    """
+    if admin.get("role") != "admin":
+        return True
+    with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM tenant_change_requests "
+            "WHERE requester_username = ? AND status = 'approved' LIMIT 1",
+            (admin.get("username"),),
+        ).fetchone()
+    return row is not None
+
+
 @router.get("/me")
 def admin_me(current_admin: dict = Depends(get_current_admin)):
     """Return the currently authenticated admin."""
@@ -869,6 +887,7 @@ def admin_me(current_admin: dict = Depends(get_current_admin)):
         "role": current_admin["role"],
         "permissions": current_admin["permissions"],
         "tenant_id": current_admin.get("tenant_id"),
+        "onboarding_approved": _onboarding_approved(current_admin),
     }
 
 
