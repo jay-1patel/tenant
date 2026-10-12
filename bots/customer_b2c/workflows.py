@@ -94,8 +94,62 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
 
     # ── Order tracking ────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_ORDER_ID:
-        await send_text_message(wa_id, "I'm checking that order now. (Order lookup coming soon.)")
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        query = (message or "").strip()
+        from database import get_db_context
+        found_order = None
+        shipment_info = None
+
+        with get_db_context() as conn:
+            # 1. Try finding by exact or pattern order number
+            row = conn.execute(
+                """SELECT order_number, status, payment_status, total_amount, items, created_at, wa_id
+                   FROM orders
+                   WHERE (order_number = ? OR order_number LIKE ? OR id = ?)
+                   ORDER BY id DESC LIMIT 1""",
+                (query, f"%{query}%", query),
+            ).fetchone()
+            if row:
+                found_order = dict(row)
+                ship_row = conn.execute(
+                    """SELECT awb_number, tracking_url, status, provider
+                       FROM tenant_shipments
+                       WHERE order_id = ? OR order_id = ?
+                       ORDER BY id DESC LIMIT 1""",
+                    (found_order["order_number"], str(query)),
+                ).fetchone()
+                if ship_row:
+                    shipment_info = dict(ship_row)
+
+        if found_order:
+            order_text = (
+                f"📦 *Order #{found_order['order_number']}*\n\n"
+                f"• Status: *{found_order['status'].capitalize()}*\n"
+                f"• Payment: *{found_order['payment_status'].capitalize()}*\n"
+                f"• Total: *₹{float(found_order['total_amount'] or 0):.2f}*\n"
+                f"• Date: {str(found_order['created_at'])[:10]}\n"
+            )
+            if shipment_info:
+                order_text += (
+                    f"\n🚚 *Courier:* {shipment_info['provider'].capitalize()}\n"
+                    f"🏷️ *AWB:* {shipment_info['awb_number']}\n"
+                    f"🔗 *Tracking:* {shipment_info.get('tracking_url') or 'In transit'}\n"
+                )
+            else:
+                order_text += "\n🚚 *Shipment:* Packing & dispatch in progress.\n"
+
+            await send_text_message(wa_id, order_text)
+            return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        else:
+            # Fall back to listing all recent orders for this WhatsApp user
+            from services.order_service import format_orders_text
+            recent_text = format_orders_text(wa_id)
+            fallback_msg = (
+                f"Couldn't find an order matching '{query}'.\n\n"
+                f"{recent_text}\n\n"
+                "Please check your Order ID or select *Main Menu* to continue."
+            )
+            await send_text_message(wa_id, fallback_msg)
+            return {"new_state": cfg.B2C_MAIN_MENU_STATE}
 
     # ── Shipping help ─────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_SHIPPING_QUERY:

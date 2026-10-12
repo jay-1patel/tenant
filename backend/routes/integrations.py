@@ -534,9 +534,13 @@ async def track_shipment(
 
 @router.post("/api/webhooks/payments/{tenant_id}/{provider}")
 async def payment_webhook(tenant_id: str, provider: str, request: Request):
-    """Universal webhook handler for incoming payment events (Stripe / Razorpay)."""
+    """Universal webhook handler for incoming payment events (Stripe / Razorpay).
+    
+    Verifies signature, records payment completion, marks order as paid, and sends
+    a WhatsApp payment confirmation to the customer.
+    """
     prov = provider.lower().strip()
-    payload = await request.body()
+    body_bytes = await request.body()
     headers = request.headers
 
     with get_db_context() as conn:
@@ -545,12 +549,111 @@ async def payment_webhook(tenant_id: str, provider: str, request: Request):
 
         if "stripe" in prov:
             sig = headers.get("stripe-signature", "")
-            if secret and not StripeService.verify_webhook_signature(payload, sig, secret):
+            if secret and not StripeService.verify_webhook_signature(body_bytes, sig, secret):
                 raise HTTPException(status_code=400, detail="Invalid Stripe signature")
         elif "razorpay" in prov:
             sig = headers.get("x-razorpay-signature", "")
-            if secret and not RazorpayService.verify_webhook_signature(payload, sig, secret):
+            if secret and not RazorpayService.verify_webhook_signature(body_bytes, sig, secret):
                 raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
 
     logger.info(f"Payment webhook received for tenant={tenant_id}, provider={prov}")
-    return {"status": "received", "tenant_id": tenant_id, "provider": prov}
+
+    # Parse payload
+    try:
+        data = json.loads(body_bytes.decode("utf-8"))
+    except Exception:
+        data = {}
+
+    order_id = None
+    payment_id = None
+    amount = 0.0
+    is_success = False
+
+    if "razorpay" in prov:
+        event = data.get("event", "")
+        if event in ("payment.captured", "payment_link.paid", "order.paid"):
+            is_success = True
+            payment_entity = (
+                data.get("payload", {}).get("payment", {}).get("entity")
+                or data.get("payload", {}).get("payment_link", {}).get("entity")
+                or {}
+            )
+            payment_id = payment_entity.get("id")
+            amount = float(payment_entity.get("amount", 0)) / 100.0
+            notes = payment_entity.get("notes") or {}
+            order_id = notes.get("order_id") or notes.get("order_number") or payment_entity.get("reference_id")
+    elif "stripe" in prov:
+        event_type = data.get("type", "")
+        if event_type in ("checkout.session.completed", "payment_intent.succeeded"):
+            is_success = True
+            obj = data.get("data", {}).get("object", {})
+            payment_id = obj.get("id")
+            amount = float(obj.get("amount_total") or obj.get("amount") or 0) / 100.0
+            order_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("order_id")
+
+    if is_success and order_id:
+        try:
+            with get_db_context() as conn:
+                # 1. Update orders table
+                conn.execute(
+                    """UPDATE orders
+                       SET payment_status = 'paid', status = 'confirmed'
+                       WHERE (order_number = ? OR id = ?) AND (tenant_id = ? OR tenant_id IS NULL)""",
+                    (order_id, order_id, tenant_id),
+                )
+
+                # 2. Update tenant_payments table
+                conn.execute(
+                    """UPDATE tenant_payments
+                       SET status = 'paid', payment_id = COALESCE(NULLIF(?, ''), payment_id), updated_at = CURRENT_TIMESTAMP
+                       WHERE (order_id = ? OR session_id = ?) AND tenant_id = ?""",
+                    (payment_id, order_id, payment_id, tenant_id),
+                )
+
+                # 3. Retrieve customer wa_id
+                order_row = conn.execute(
+                    """SELECT wa_id, order_number, total_amount FROM orders
+                       WHERE (order_number = ? OR id = ?) LIMIT 1""",
+                    (order_id, order_id),
+                ).fetchone()
+
+                # 4. Audit event (defensive so audit table schema variance never blocks fulfillment)
+                try:
+                    record_admin_audit_event(
+                        conn,
+                        action="payment_webhook_processed",
+                        actor={"username": f"webhook_{prov}"},
+                        resource_type="payment",
+                        resource_id=f"{order_id}/{payment_id}",
+                        tenant_id=tenant_id,
+                        details={"provider": prov, "order_id": order_id, "payment_id": payment_id, "amount": amount},
+                    )
+                except Exception as audit_err:
+                    logger.warning(f"Could not write audit log for payment webhook: {audit_err}")
+
+            # 5. Dispatch automated WhatsApp receipt message
+            if order_row and order_row["wa_id"]:
+                customer_wa = order_row["wa_id"]
+                disp_amount = amount if amount > 0 else (order_row["total_amount"] or 0.0)
+                receipt_msg = (
+                    f"✅ *Payment Confirmed!*\n\n"
+                    f"Thank you! Your payment of ₹{disp_amount:.2f} for Order *{order_row['order_number']}* has been successfully received.\n\n"
+                    f"📦 Status: *Confirmed & Processing*\n"
+                    f"We'll share shipping updates as soon as your order is dispatched! 🙏"
+                )
+                try:
+                    from services.whatsapp_sender import send_text_message
+                    await send_text_message(customer_wa, receipt_msg)
+                    logger.info(f"Payment confirmation receipt dispatched to {customer_wa} for order {order_id}")
+                except Exception as ws_err:
+                    logger.error(f"Failed to send WhatsApp receipt to {customer_wa}: {ws_err}")
+
+        except Exception as exc:
+            logger.error(f"Error updating order {order_id} on payment webhook: {exc}", exc_info=True)
+
+    return {
+        "status": "processed" if is_success else "received",
+        "tenant_id": tenant_id,
+        "provider": prov,
+        "order_id": order_id,
+    }

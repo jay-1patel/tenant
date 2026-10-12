@@ -23,24 +23,28 @@ from .database import (
 )
 
 
-# ── Tenant Context Management ────────────────────────────────────────────
-# Global tenant context for the current request (set by middleware)
-_current_tenant = None
+import contextvars
 
-def set_current_tenant(tenant: Dict[str, Any] = None):
-    """Set the current tenant for this request."""
-    global _current_tenant
-    _current_tenant = tenant
+# ── Tenant Context Management ────────────────────────────────────────────
+# Request-isolated tenant context using ContextVar (safe across concurrent async tasks)
+_current_tenant: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("current_tenant", default=None)
+
+def set_current_tenant(tenant: Optional[Dict[str, Any]] = None):
+    """Set the current tenant for this async request context."""
+    return _current_tenant.set(tenant)
 
 def get_current_tenant() -> Optional[Dict[str, Any]]:
-    """Get the current tenant for this request."""
-    global _current_tenant
-    return _current_tenant
+    """Get the current tenant for this async request context."""
+    return _current_tenant.get()
 
-def get_current_tenant_id() -> Optional[int]:
-    """Get the current tenant ID for this request."""
+def get_current_tenant_id() -> Optional[Any]:
+    """Get the current tenant ID for this async request context."""
     tenant = get_current_tenant()
-    return tenant['id'] if tenant else None
+    if not tenant:
+        return None
+    if isinstance(tenant, dict):
+        return tenant.get('id')
+    return tenant
 
 
 # ── Tenant Core Functions ────────────────────────────────────────────────
@@ -402,7 +406,7 @@ class TenantContext:
         self.tenant_id = tenant_id
         self.whatsapp_number = whatsapp_number
         self.wa_id = wa_id
-        self.previous_tenant = None
+        self._token = None
     
     def __enter__(self):
         # If we have a whatsapp_number but not tenant_id, look it up
@@ -420,16 +424,13 @@ class TenantContext:
         if self.tenant_id:
             tenant = get_tenant_by_id(self.tenant_id)
             if tenant:
-                self.previous_tenant = get_current_tenant()
-                set_current_tenant(tenant)
+                self._token = set_current_tenant(tenant)
         
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.previous_tenant:
-            set_current_tenant(self.previous_tenant)
-        else:
-            set_current_tenant(None)
+        if self._token is not None:
+            _current_tenant.reset(self._token)
 
 
 def with_tenant(tenant_id: int = None, whatsapp_number: str = None, wa_id: str = None):

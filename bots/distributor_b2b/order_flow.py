@@ -582,13 +582,49 @@ async def _place_order(wa_id: str, context: dict, tier: str) -> dict:
     context.pop(CHECKOUT_KEY, None)
 
     name = checkout.get("name", "")
-    await send_text_message(
-        wa_id,
-        f"🎉 Order confirmed! Thanks, {name}!\n\n"
-        f"📦 Order number: *{order_number}*\n"
-        f"📍 Delivering to: {checkout.get('address', '')}\n"
-        f"💰 Total: Rs {summary['subtotal']:.2f}\n\n"
-        "💳 Payment options are coming soon — our team will reach out shortly "
-        "to complete payment and confirm delivery. Stay tuned! 😊",
-    )
+    address = checkout.get("address", "")
+    subtotal = summary["subtotal"]
+
+    # Generate online payment link if tenant has active gateway
+    payment_link_info = None
+    try:
+        from database import get_db_context
+        tenant_id = None
+        with get_db_context() as conn:
+            dist_row = conn.execute("SELECT tenant_id FROM distributors WHERE wa_id = ?", (wa_id,)).fetchone()
+            if dist_row and dist_row["tenant_id"]:
+                tenant_id = dist_row["tenant_id"]
+        if tenant_id:
+            from services.payment_flow_service import generate_payment_link_for_order
+            payment_link_info = await generate_payment_link_for_order(
+                tenant_id=tenant_id,
+                order_id=order_number,
+                amount=float(subtotal),
+                customer_phone=checkout.get("mobile", wa_id),
+                customer_name=name,
+                description=f"B2B Order {order_number}",
+            )
+    except Exception as e:
+        logger.warning(f"Could not generate payment link for {order_number}: {e}")
+
+    confirmation_lines = [
+        f"🎉 Order confirmed! Thanks, {name}!",
+        "",
+        f"📦 Order number: *{order_number}*",
+        f"📍 Delivering to: {address}",
+        f"💰 Total: Rs {subtotal:.2f}",
+        "",
+    ]
+
+    if payment_link_info and payment_link_info.get("payment_url"):
+        confirmation_lines.append(f"💳 *Pay Online via Link:*")
+        confirmation_lines.append(payment_link_info["payment_url"])
+        confirmation_lines.append("\n(Or settle upon invoice/delivery as per agreed terms) 🙏")
+    else:
+        confirmation_lines.append(
+            "💳 *Payment & Invoicing:* Our finance team will generate your GST invoice "
+            "and contact you shortly to coordinate payment and dispatch. 🙏"
+        )
+
+    await send_text_message(wa_id, "\n".join(confirmation_lines))
     return {"new_state": cfg.B2B_MAIN_MENU_STATE, "context": context}

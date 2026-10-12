@@ -1,18 +1,14 @@
-// Google Account Connect Panel for Chatbot2.
-// Allows admins/tenants to connect Google OAuth account for Meet scheduling.
-
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { CheckCircle, XCircle, Video, RefreshCw, ExternalLink } from 'lucide-react'
-import { cn, useToast } from '@/lib/hooks'
+import { Alert, LoadingBlock } from '@/components/ui/feedback'
+import { Video, RefreshCw, ExternalLink, ShieldCheck } from 'lucide-react'
+import { useToast } from '@/components/ui/toast'
+import { PageHeader } from '@/components/layout/page-header'
 
 export interface GoogleConnectPanelProps {
-  tenantId?: string
-  className?: string
+  tenantId: string
 }
 
 interface ConnectionStatus {
@@ -22,50 +18,44 @@ interface ConnectionStatus {
   scope?: string
 }
 
-export function GoogleConnectPanel({ tenantId: propTenantId, className }: GoogleConnectPanelProps) {
-  const params = useParams() as { tenantId?: string }
-  const tenantId = propTenantId || params.tenantId || ''
-  const { toast } = useToast()
-
+export function GoogleConnectPanel({ tenantId }: GoogleConnectPanelProps) {
+  const { push: showToast } = useToast()
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [isConnecting, setIsConnecting] = useState(false)
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     if (!tenantId) return
     try {
-      setIsLoading(true)
+      setLoading(true)
       const resp = await fetch(`/api/tenants/${tenantId}/google-connect/status`)
       if (resp.ok) {
         const data = await resp.json()
         setStatus(data)
+      } else {
+        setStatus({ connected: false })
       }
     } catch (err) {
       console.error('Failed to fetch Google connection status:', err)
+      setStatus({ connected: false })
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
-  }
+  }, [tenantId])
 
   useEffect(() => {
     fetchStatus()
 
-    // Check URL for success/error from OAuth callback redirect
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('success') === 'true') {
-      toast({ title: 'Google Connected!', description: 'Your Google account has been connected successfully.' })
-      // Clean URL
+      showToast('Google Account connected successfully!', 'success')
       window.history.replaceState({}, '', window.location.pathname)
       fetchStatus()
     } else if (urlParams.get('error')) {
-      toast({
-        title: 'Connection Failed',
-        description: `OAuth error: ${urlParams.get('error')}`,
-        variant: 'destructive',
-      })
+      showToast(`OAuth connection error: ${urlParams.get('error')}`, 'error')
       window.history.replaceState({}, '', window.location.pathname)
     }
-  }, [tenantId])
+  }, [fetchStatus, showToast])
 
   const handleConnectGoogle = async () => {
     if (!tenantId) return
@@ -74,123 +64,101 @@ export function GoogleConnectPanel({ tenantId: propTenantId, className }: Google
       const resp = await fetch(`/api/tenants/${tenantId}/google-connect/oauth-url`)
       if (!resp.ok) {
         const err = await resp.json()
-        throw new Error(err.detail || 'Failed to get OAuth URL')
+        throw new Error(err.detail || 'Failed to generate OAuth URL')
       }
       const { oauth_url } = await resp.json()
-      // Redirect to Google consent screen
       window.location.href = oauth_url
     } catch (err) {
-      toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to start OAuth flow',
-        variant: 'destructive',
-      })
+      showToast(err instanceof Error ? err.message : 'Failed to start OAuth flow', 'error')
       setIsConnecting(false)
     }
   }
 
-  const isConnected = status?.connected && !status?.token_expired
-  const isExpired = status?.connected && status?.token_expired && !status?.has_refresh_token
+  const isConnected = Boolean(status?.connected && !status?.token_expired)
+  const isExpired = Boolean(status?.connected && status?.token_expired && !status?.has_refresh_token)
 
   return (
-    <div className={cn('space-y-6', className)}>
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Google Account</h2>
-        <p className="text-muted-foreground">
-          Connect your Google account to enable Google Meet scheduling for callback requests.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Google Calendar & Meet"
+        description="Connect your business Google Workspace account to generate Google Meet links automatically for callback appointments."
+      />
 
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50">
-                <Video className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <CardTitle>Google Calendar & Meet</CardTitle>
-                <CardDescription>
-                  Schedule meetings directly from callback requests using Google Meet
-                </CardDescription>
-              </div>
-            </div>
-            {!isLoading && (
-              <Badge
-                className={cn(
-                  isConnected
-                    ? 'bg-green-100 text-green-800 border-green-200'
-                    : isExpired
-                    ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                    : 'bg-gray-100 text-gray-700 border-gray-200'
-                )}
-              >
+        <CardHeader
+          title="Google Meet Integration"
+          description="Enables automated video meeting scheduling on WhatsApp callback flows."
+          icon={<Video className="h-5 w-5" />}
+          actions={
+            !loading && (
+              <Badge tone={isConnected ? 'success' : isExpired ? 'warning' : 'neutral'}>
                 {isConnected ? 'Connected' : isExpired ? 'Token Expired' : 'Not Connected'}
               </Badge>
-            )}
-          </div>
-        </CardHeader>
+            )
+          }
+        />
 
-        <CardContent className="space-y-4">
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+        <CardBody className="space-y-5">
+          {loading ? (
+            <LoadingBlock label="Checking Google connection status…" />
           ) : isConnected ? (
-            <>
-              <Alert className="border-green-200 bg-green-50">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <AlertTitle className="text-green-800">Google account connected</AlertTitle>
-                <AlertDescription className="text-green-700">
-                  You can now schedule Google Meet meetings directly from callback requests.
-                  {status?.scope && (
-                    <p className="mt-1 text-xs">Scopes: {status.scope}</p>
-                  )}
-                </AlertDescription>
+            <div className="space-y-4">
+              <Alert tone="success" title="Google Account Connected">
+                Your Google Calendar and Meet integration is active. Virtual callback requests from WhatsApp will automatically create Google Meet calendar invitations.
+                {status?.scope && (
+                  <p className="mt-2 text-xs opacity-75 font-mono">Granted scopes: {status.scope}</p>
+                )}
               </Alert>
 
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={fetchStatus}>
-                  <RefreshCw className="mr-2 h-3 w-3" />
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Button variant="secondary" size="sm" onClick={fetchStatus} icon={<RefreshCw className="h-3.5 w-3.5" />}>
                   Refresh Status
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleConnectGoogle}>
+                <Button variant="ghost" size="sm" onClick={handleConnectGoogle}>
                   Reconnect / Switch Account
                 </Button>
               </div>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="space-y-5">
               {isExpired && (
-                <Alert variant="destructive" className="mb-2">
-                  <XCircle className="h-4 w-4" />
-                  <AlertTitle>Token expired</AlertTitle>
-                  <AlertDescription>
-                    Your Google token has expired and there is no refresh token stored. Please reconnect your account.
-                  </AlertDescription>
+                <Alert tone="warning" title="Authorization Expired">
+                  Your Google OAuth token has expired without a valid refresh token. Please reconnect your account.
                 </Alert>
               )}
 
-              <div className="rounded-lg border border-dashed p-6 text-center space-y-3">
-                <Video className="mx-auto h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No Google account connected</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Connect your Google account to start scheduling meetings with Google Meet.
-                  </p>
+              <div className="rounded-xl border border-dashed border-surface-line bg-surface-overlay/50 p-8 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent-500/10 text-accent-400 mb-3">
+                  <Video className="h-6 w-6" />
                 </div>
-                <Button onClick={handleConnectGoogle} disabled={isConnecting} className="mt-2">
-                  {isConnecting ? 'Redirecting to Google…' : 'Connect Google Account'}
-                  {!isConnecting && <ExternalLink className="ml-2 h-3 w-3" />}
-                </Button>
+                <h3 className="text-sm font-semibold text-slate-100">Connect Google Calendar</h3>
+                <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-slate-400">
+                  Allow the AI bot to access Google Calendar to schedule live consultation appointments and send Google Meet video links instantly over WhatsApp.
+                </p>
+                <div className="mt-5">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={handleConnectGoogle}
+                    loading={isConnecting}
+                    icon={!isConnecting ? <ExternalLink className="h-4 w-4" /> : undefined}
+                  >
+                    {isConnecting ? 'Opening Google Sign-in…' : 'Connect Google Workspace Account'}
+                  </Button>
+                </div>
               </div>
 
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>• We request access to Google Calendar to create events and Meet links</p>
-                <p>• Each admin/tenant has their own independent Google connection</p>
-                <p>• You can revoke access at any time from your Google account settings</p>
+              <div className="rounded-lg bg-surface-overlay/30 p-4 text-xs text-slate-400 space-y-1.5 border border-surface-line/50">
+                <p className="font-medium text-slate-300 flex items-center gap-1.5">
+                  <ShieldCheck className="h-4 w-4 text-accent-400" /> Security &amp; Permissions
+                </p>
+                <p>• Only calendar event creation permissions are requested (Google Calendar API).</p>
+                <p>• Credentials and tokens are securely isolated per tenant in the encrypted database.</p>
+                <p>• You can revoke access at any time through your Google Security Dashboard.</p>
               </div>
-            </>
+            </div>
           )}
-        </CardContent>
+        </CardBody>
       </Card>
     </div>
   )

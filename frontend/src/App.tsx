@@ -39,6 +39,8 @@ import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
 import { AuditHistory } from '@/components/team/audit-history'
 import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants/tenant-approvals-panel'
+import { IntegrationsPanel } from '@/components/tenants/integrations-panel'
+import { GoogleConnectPanel } from '@/components/tenants/google-connect-panel'
 
 /**
  * First login for a company admin: until the company's registration has been
@@ -215,6 +217,8 @@ function Router() {
       {route.view === 'versions' && <VersionsPanel tenantId={route.tenantId} />}
       {route.view === 'layers' && <LayersPanel tenantId={route.tenantId} />}
       {route.view === 'tokens' && <TokensPanel tenantId={route.tenantId} />}
+      {route.view === 'integrations' && <IntegrationsPanel tenantId={route.tenantId} />}
+      {route.view === 'google-connect' && <GoogleConnectPanel tenantId={route.tenantId} />}
       {route.view === 'test' && <TestAndSmoke tenantId={route.tenantId} />}
       {PENDING_VIEWS.has(route.view) && <ComingSoon view={route.view} />}
       {!KNOWN_VIEWS.includes(route.view) && (
@@ -260,6 +264,8 @@ const KNOWN_VIEWS = [
   'versions',
   'layers',
   'tokens',
+  'integrations',
+  'google-connect',
   'test',
   'callbacks',
   'callback',
