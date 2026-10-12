@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquare, Paperclip, Send, Trash2, Users, Wifi, WifiOff } from 'lucide-react'
 import { api, getToken } from '@/lib/api'
-import { attachmentsApi, type Attachment } from '@/lib/attachments'
+import { attachmentsApi, ATTACHMENT_ACCEPT, ATTACHMENT_TYPES_LABEL, MAX_ATTACHMENT_LABEL, type Attachment } from '@/lib/attachments'
 import { useAuth } from '@/lib/auth'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
@@ -345,7 +345,7 @@ export function AdminChatPanel({ tenantId }: { tenantId: string }) {
                     ref={fileInput}
                     type="file"
                     className="hidden"
-                    accept="image/*,.pdf,.doc,.docx,.txt,.xlsx,.xls"
+                    accept={ATTACHMENT_ACCEPT}
                     onChange={(e) => void pickFile(e.target.files?.[0])}
                   />
                   <Button
@@ -380,6 +380,9 @@ export function AdminChatPanel({ tenantId }: { tenantId: string }) {
                     Send
                   </Button>
                 </div>
+                <p className="mt-1 text-2xs text-slate-600">
+                  {ATTACHMENT_TYPES_LABEL} · Max {MAX_ATTACHMENT_LABEL} per file
+                </p>
               </div>
             </>
           )}

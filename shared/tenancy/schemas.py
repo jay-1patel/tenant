@@ -239,6 +239,8 @@ class Brand(_Base):
     support_phone: str = ""
     signature: str = ""
     bot_name: str = ""
+    # Publicly hosted company logo, shown in the tenant's console header.
+    logo_url: str = ""
 
     @field_validator("website")
     @classmethod

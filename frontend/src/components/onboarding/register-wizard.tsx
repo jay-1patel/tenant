@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarClock,
   Check,
+  ImageIcon,
   MessageSquareText,
   Rocket,
   ShieldAlert,
@@ -28,6 +29,7 @@ import { useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { tenantsApi, useTenants } from '@/lib/tenants'
 import { tenantApprovalsApi } from '@/lib/tenant-approvals'
+import { uploadImage } from '@/lib/uploads'
 import { navigate } from '@/lib/router'
 import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
 import type { ResolvedProfile, Tenant } from '@/lib/types'
@@ -345,6 +347,72 @@ function StepShell({
   )
 }
 
+/**
+ * Company logo uploader for the registration wizard. The image is stored by the
+ * backend and its URL is written to the profile's `brand.logo_url`, which the
+ * console header then shows instead of the generic product mark. PNG only.
+ */
+function LogoField({ logoUrl, onChange }: { logoUrl: string; onChange: (url: string) => void }) {
+  const action = useAction()
+  const toast = useToast()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    if (file.type !== 'image/png') {
+      toast.push('Choose a PNG image.', 'error')
+      return
+    }
+    const url = await action.run(() => uploadImage(file))
+    if (url) {
+      onChange(url)
+      toast.push('Logo uploaded.')
+    }
+  }
+
+  return (
+    <div>
+      <p className="field-label">Company logo</p>
+      <div className="mt-1.5 flex items-center gap-4">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-panel ring-1 ring-inset ring-surface-line">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Company logo" className="h-full w-full object-contain" />
+          ) : (
+            <ImageIcon className="h-6 w-6 text-slate-500" />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/png,.png"
+            className="hidden"
+            onChange={(event) => {
+              void pick(event.target.files?.[0])
+              event.target.value = ''
+            }}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={action.busy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {logoUrl ? 'Replace logo' : 'Upload logo'}
+          </Button>
+          {logoUrl && (
+            <Button size="sm" variant="ghost" onClick={() => onChange('')}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="hint mt-1.5">PNG only, up to 5 MB. Shown in your console header once approved.</p>
+      {action.error && <p className="hint mt-1.5 text-rose-400">{action.error}</p>}
+    </div>
+  )
+}
+
 function CompanyStep({ draft, patch }: StepProps) {
   return (
     <StepShell
@@ -519,6 +587,8 @@ function BrandStep({ draft, patch }: StepProps) {
       description="How the bot introduces itself and how it talks. These strings are used verbatim in menus and prompts."
       icon={<MessageSquareText className="h-4 w-4" />}
     >
+      <LogoField logoUrl={draft.logoUrl} onChange={(logoUrl) => patch({ logoUrl })} />
+
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
         label="Bot name *"
@@ -789,6 +859,15 @@ function ReviewStep({
     { label: 'Tenant id', value: draft.tenantId || '—', step: 0 },
     { label: 'Field', value: v.label, step: 0 },
     { label: 'Website', value: draft.website || '—', step: 0 },
+    {
+      label: 'Logo',
+      value: draft.logoUrl ? (
+        <img src={draft.logoUrl} alt="Logo" className="h-10 w-10 rounded object-contain" />
+      ) : (
+        'not uploaded'
+      ),
+      step: companyEditable ? 0 : 2,
+    },
     { label: 'Phone number id', value: draft.wabaPhoneId || 'not bound', step: 1 },
     {
       label: 'Working hours',

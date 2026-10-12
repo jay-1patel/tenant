@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, PlusCircle, ScrollText, Send, UserRound, Users, ShieldCheck, KeyRound } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { useTenantFeatures, useTenants } from '@/lib/tenants'
+import { useTenantProfile, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav } from '@/lib/navigation'
 import { navigate, type RouteMatch } from '@/lib/router'
@@ -25,7 +25,17 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
   const tenantScoped = Boolean(route.tenantId)
   const locked = isOnboardingLocked(identity)
-  const features = useTenantFeatures(route.tenantId)
+  const isSuperAdmin = identity?.role === 'super_admin'
+  // The header shows the tenant's own brand for admins and sub admins. Super
+  // admins (who span tenants) keep the generic product mark instead.
+  const chromeTenantId =
+    route.tenantId ?? (!isSuperAdmin ? identity?.tenant_id ?? null : null)
+  const profile = useTenantProfile(chromeTenantId)
+  const features = profile?.features ?? null
+  const logoUrl = profile?.brand?.logo_url?.trim() || null
+  const brandName =
+    profile?.brand?.name?.trim() || active?.display_name || active?.id || identity?.tenant_id || ''
+  const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
   const nav = locked ? [] : buildTenantNav({ vertical: active?.vertical, features, can })
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
@@ -35,12 +45,27 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
     <div className="flex h-full">
       <aside className="flex w-64 shrink-0 flex-col border-r border-surface-line bg-white">
         <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
-            <Blocks className="h-4 w-4" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
+            {!isSuperAdmin && logoUrl ? (
+              <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
+            ) : (
+              <Blocks className="h-4 w-4" />
+            )}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-100">Tenant Console</p>
-            <p className="text-xs text-slate-500">Multi-tenant WhatsApp</p>
+            {!isSuperAdmin ? (
+              <>
+                <p className="truncate text-sm font-semibold text-slate-100">
+                  {brandName || 'Company console'}
+                </p>
+                <p className="truncate text-xs text-slate-500">{brandTagline || 'WhatsApp console'}</p>
+              </>
+            ) : (
+              <>
+                <p className="truncate text-sm font-semibold text-slate-100">Tenant Console</p>
+                <p className="text-xs text-slate-500">Multi-tenant WhatsApp</p>
+              </>
+            )}
           </div>
         </div>
 

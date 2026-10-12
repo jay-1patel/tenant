@@ -307,6 +307,12 @@ UPLOADED_DIR = os.path.join(os.path.dirname(__file__), "uploaded_files")
 if os.path.isdir(UPLOADED_DIR):
     app.mount("/uploaded_files", StaticFiles(directory=UPLOADED_DIR), name="uploaded-files")
 
+# Company logos live on disk and are served under /api so the Vite dev proxy
+# (which only forwards /api) reaches them; no third-party host or key needed.
+LOGOS_DIR = os.path.join(UPLOADED_DIR, "logos")
+os.makedirs(LOGOS_DIR, exist_ok=True)
+app.mount("/api/logos", StaticFiles(directory=LOGOS_DIR), name="logos")
+
 ADMIN_BUILD_DIR = os.path.join(os.path.dirname(__file__), "admin_build")
 
 

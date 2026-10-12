@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
-import { FILE_MODULES, formatBytes, openBlob, saveBlob, uploadsApi, type AdminFile } from '@/lib/uploads'
+import { FILE_MODULES, UPLOAD_ACCEPT, UPLOAD_TYPES_LABEL, MAX_UPLOAD_LABEL, formatBytes, openBlob, saveBlob, uploadsApi, type AdminFile } from '@/lib/uploads'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
@@ -114,10 +114,14 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.docx,.doc,.txt,.xlsx,.xls,.csv"
+        accept={UPLOAD_ACCEPT}
         className="hidden"
         onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
       />
+
+      <p className="mb-4 text-2xs text-slate-500">
+        Supported formats: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL} per file
+      </p>
 
       {action.error && (
         <Alert tone="danger" title="Upload failed" className="mb-4">

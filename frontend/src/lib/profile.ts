@@ -154,6 +154,8 @@ export interface WizardDraft {
   supportEmail: string
   supportPhone: string
   greeting: string
+  /** Publicly hosted company logo URL, shown in the console header. */
+  logoUrl: string
   // capabilities
   features: FeatureFlag[]
   // vertical-specific answers (chips store arrays, others strings)
@@ -203,6 +205,7 @@ export function emptyDraft(): WizardDraft {
     supportEmail: '',
     supportPhone: '',
     greeting: '',
+    logoUrl: '',
     features: [...v.recommended],
     answers: {},
     salesEmail: '',
@@ -289,6 +292,7 @@ export function draftFromProfile(profile: ResolvedProfile, tenant: Tenant): Wiza
     supportEmail: brand.support_email ?? '',
     supportPhone: brand.support_phone ?? '',
     greeting: (profile.menu as { body?: string } | null)?.body ?? '',
+    logoUrl: brand.logo_url ?? '',
     features: FEATURE_FLAGS.filter((f) => Boolean(profile.features?.[f])),
     salesEmail: notes.sales_email ?? '',
     notificationsSupportEmail: notes.support_email ?? '',
@@ -322,6 +326,7 @@ export function draftToSnapshot(draft: WizardDraft): ProfileSnapshot {
       support_phone: draft.supportPhone,
       signature: draft.signature,
       bot_name: draft.botName,
+      ...(draft.logoUrl.trim() ? { logo_url: draft.logoUrl.trim() } : {}),
     },
     vocabulary: {
       item_noun: v.nouns.item,

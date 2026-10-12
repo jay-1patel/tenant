@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import logging
+import uuid
 import aiohttp
 from typing import List
 from pathlib import Path
@@ -26,6 +27,8 @@ router = APIRouter(prefix="/api/admin")
 
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploaded_files"))
 SUPPORTED = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls")
+#: Knowledge-base / FAQ uploads (the Uploads screen and the live inbox share it).
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 def _find_uploaded_file(filename: str) -> str | None:
@@ -707,6 +710,12 @@ async def run_upload(
     if not filename:
         raise HTTPException(status_code=400, detail="Missing filename")
 
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Files must be under {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
+        )
+
     ext = Path(filename).suffix.lower()
     image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     if ext in image_exts or is_image:
@@ -945,6 +954,33 @@ async def upload_image_to_imghippo(file: UploadFile = File(...)):
             url = data["data"]["url"]
             return {"url": url, "media_type": file.content_type}
 
+
+LOGOS_DIR = os.path.join(UPLOAD_DIR, "logos")
+os.makedirs(LOGOS_DIR, exist_ok=True)
+MAX_LOGO_BYTES = 5 * 1024 * 1024
+
+
+@router.post("/upload/logo")
+async def upload_logo(file: UploadFile = File(...)):
+    """Store a company logo on disk and return a URL the console can render.
+
+    Kept local (served at ``/api/logos/...``) so it needs no third-party host or
+    API key; the profile stores the returned URL as ``brand.logo_url``. PNG only.
+    """
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext != ".png" or not (file.content_type or "").startswith("image/png"):
+        raise HTTPException(status_code=400, detail="The logo must be a PNG image")
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The file is empty")
+    if len(contents) > MAX_LOGO_BYTES:
+        raise HTTPException(status_code=413, detail="The logo must be under 5 MB")
+
+    name = f"{uuid.uuid4().hex}.png"
+    with open(os.path.join(LOGOS_DIR, name), "wb") as handle:
+        handle.write(contents)
+    return {"url": f"/api/logos/{name}", "media_type": "image/png"}
 
 @router.post("/upload/catbox")
 async def upload_to_catbox(file: UploadFile = File(...)):
