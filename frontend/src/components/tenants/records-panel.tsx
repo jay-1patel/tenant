@@ -166,9 +166,9 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
       <PageHeader
         title={content.label}
         description={`A table the bot reads from. Its columns are this tenant's own — add a ${content.singular} column the business needs and the bot can answer with it.`}
-        actions={
-          <div className="flex items-center gap-2">
-            {canRead && (
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canRead && (
               <Button
                 variant="ghost"
                 icon={<Settings2 className="h-4 w-4" />}
@@ -261,8 +261,8 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
           title={`${filtered.length} ${filtered.length === 1 ? content.singular : content.label.toLowerCase()}`}
           icon={<Layers className="h-4 w-4" />}
           actions={
-            <div className="flex items-center gap-3">
-              <div className="relative w-48">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-48 max-w-full">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
                 <input
                   value={search}
@@ -275,7 +275,7 @@ export function RecordsPanel({ tenantId }: { tenantId: string }) {
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="rounded-lg bg-surface-raised px-2 py-1.5 text-xs text-slate-200 ring-1 ring-inset ring-surface-line focus:outline-none focus:ring-2 focus:ring-accent-500"
+                  className="max-w-full rounded-lg bg-surface-raised px-2 py-1.5 text-xs text-slate-200 ring-1 ring-inset ring-surface-line focus:outline-none focus:ring-2 focus:ring-accent-500"
                 >
                   <option value="">All groups</option>
                   {categories.map((c) => (

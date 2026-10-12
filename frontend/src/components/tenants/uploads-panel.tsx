@@ -82,7 +82,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
 
   if (!can('view_files')) {
     return (
-      <div>
+      <div className="min-w-0">
         <PageHeader title="Uploads" />
         <Alert tone="warning" title="Not permitted">
           This screen needs the <strong>view_files</strong> permission.
@@ -92,13 +92,13 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div>
+    <div className="min-w-0">
       <PageHeader
         title="Uploads"
         description="Documents the bot learns from. A successful upload is extracted, embedded and made searchable for this tenant."
         meta={state.data && <Badge tone="accent">{files.length} files</Badge>}
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" icon={<RefreshCw className={cn('h-4 w-4', state.loading && 'animate-spin')} />} onClick={state.reload}>
               Refresh
             </Button>
@@ -107,7 +107,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
                 Upload file
               </Button>
             )}
-          </>
+          </div>
         }
       />
 
@@ -151,7 +151,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter by name…"
-          className="w-56"
+          className="w-full sm:w-56"
         />
       </div>
 
@@ -162,7 +162,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         </Alert>
       )}
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader title={`${activeModule.label} files`} icon={<FolderUp className="h-4 w-4" />} />
         {state.loading && !files.length ? (
           <LoadingBlock label="Loading files…" />
@@ -185,15 +185,23 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         ) : (
           <ul className="divide-y divide-surface-line">
             {files.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 px-5 py-3.5">
-                <FileText className="h-4 w-4 shrink-0 text-accent-400" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-100">{item.name}</p>
-                  <p className="mt-0.5 text-2xs text-slate-500">
-                    {(item.ext || 'file').toUpperCase()} · {formatBytes(item.size)} · {formatDate(item.created_at)}
-                  </p>
+              <li
+                key={item.id}
+                className="flex flex-col gap-2 px-5 py-3.5 sm:flex-row sm:items-center sm:gap-3"
+              >
+                <div className="flex min-w-0 items-start gap-3 sm:flex-1 sm:items-center">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-accent-400 sm:mt-0" />
+                  <div className="min-w-0 flex-1">
+                    {/* break-all: file names have no spaces, so they must be able to wrap anywhere. */}
+                    <p className="break-all text-sm font-medium text-slate-100 sm:truncate" title={item.name}>
+                      {item.name}
+                    </p>
+                    <p className="mt-0.5 text-2xs text-slate-500">
+                      {(item.ext || 'file').toUpperCase()} · {formatBytes(item.size)} · {formatDate(item.created_at)}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1 pl-7 sm:pl-0">
                   <Button
                     size="icon"
                     variant="ghost"

@@ -18,7 +18,9 @@ export function PageHeader({
         {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">{description}</p>}
         {meta && <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 lg:w-auto">{actions}</div>
+      )}
     </header>
   )
 }

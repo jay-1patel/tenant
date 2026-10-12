@@ -917,7 +917,7 @@ function SegmentsManager({
                     Criteria: {criteriaSummary(segment)}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                   <Badge tone="muted">{segment.target_count} contacts</Badge>
                   <Button size="sm" variant="ghost" onClick={() => startEdit(segment)}>
                     <Pencil className="h-3.5 w-3.5" /> Edit

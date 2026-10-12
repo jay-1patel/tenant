@@ -22,7 +22,7 @@ import httpx
 from routing.config import (
     SEND2_USERNAME,
     SEND2_PASSWORD,
-    SEND2_INCOMING_REPORT_URL,
+    SEND2_INCOMING_URL,
 )
 from routing.whatsapp import (
     send_whatsapp_message,
@@ -108,7 +108,7 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
     the last hour, processes them through the orchestrator, and sends replies.
     """
     logger.info("Incoming message listener started (interval=%ds, url=%s)",
-                POLL_INTERVAL_SECONDS, SEND2_INCOMING_REPORT_URL)
+                POLL_INTERVAL_SECONDS, SEND2_INCOMING_URL)
 
     if not SEND2_USERNAME or not SEND2_PASSWORD:
         logger.error("SEND2_USERNAME or SEND2_PASSWORD not set — listener cannot start")
@@ -133,7 +133,7 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
             }
 
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
-                response = await client.post(SEND2_INCOMING_REPORT_URL, json=payload)
+                response = await client.post(SEND2_INCOMING_URL, json=payload)
 
                 if response.status_code != 200:
                     logger.warning("Incoming report returned non-200: %s", response.status_code)
@@ -168,6 +168,14 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
 
                     # Skip if no message ID (test/dummy entries) or empty text.
                     if not message_id or not wa_id or not text:
+                        continue
+
+                    # Only inbound rows spawn a bot reply + customer record;
+                    # outbound statuses (sent/delivered/failed/read) are handled
+                    # by the reporters and must not echo back.
+                    if status and str(status).strip().lower() in (
+                        "sent", "delivered", "failed", "read",
+                    ):
                         continue
 
                     # Skip if already processed.

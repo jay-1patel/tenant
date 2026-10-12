@@ -1113,11 +1113,55 @@ def list_recipients(
     distributor network, de-duplicated by WhatsApp id. The console's Sync
     button reads this so an admin can pick exactly who receives a campaign."""
     with get_db_context() as conn:
-        customers = conn.execute(
-            """SELECT wa_id, name, phone, city, company FROM customers
-               WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
-            (tenant_id,),
+        customer_ids = conn.execute(
+            """SELECT wa_id FROM (
+                   SELECT wa_id FROM customers WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM orders WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM complaints WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM chat_history WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM user_states WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+               )""",
+            (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
         ).fetchall()
+        customers = []
+        for row in customer_ids:
+            wa_id = row["wa_id"]
+            cust = conn.execute(
+                """SELECT name, phone, city, company FROM customers
+                   WHERE tenant_id = ? AND wa_id = ?""",
+                (tenant_id, wa_id),
+            ).fetchone()
+            name = cust["name"] if cust and cust["name"] else ""
+            phone = cust["phone"] if cust and cust["phone"] else ""
+            city = cust["city"] if cust and cust["city"] else ""
+            company = cust["company"] if cust and cust["company"] else ""
+            if not name:
+                order = conn.execute(
+                    """SELECT customer_name, customer_mobile FROM orders
+                       WHERE tenant_id = ? AND wa_id = ? AND customer_name IS NOT NULL AND customer_name != ''
+                       ORDER BY id DESC LIMIT 1""",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                if order:
+                    name = order["customer_name"]
+                    phone = phone or order["customer_mobile"] or ""
+            if not name:
+                chat = conn.execute(
+                    """SELECT sender_name FROM chat_history
+                       WHERE tenant_id = ? AND wa_id = ? AND sender_name IS NOT NULL AND sender_name != ''
+                       ORDER BY id DESC LIMIT 1""",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                if chat:
+                    name = chat["sender_name"]
+            customers.append({
+                "wa_id": wa_id, "name": name, "phone": phone,
+                "city": city, "company": company,
+            })
         distributors = conn.execute(
             """SELECT wa_id, name, phone, region, tier, city FROM distributors
                WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
@@ -2351,11 +2395,55 @@ def list_recipients(
     distributor network, de-duplicated by WhatsApp id. The console's Sync
     button reads this so an admin can pick exactly who receives a campaign."""
     with get_db_context() as conn:
-        customers = conn.execute(
-            """SELECT wa_id, name, phone, city, company FROM customers
-               WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
-            (tenant_id,),
+        customer_ids = conn.execute(
+            """SELECT wa_id FROM (
+                   SELECT wa_id FROM customers WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM orders WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM complaints WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM chat_history WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   UNION
+                   SELECT wa_id FROM user_states WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+               )""",
+            (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
         ).fetchall()
+        customers = []
+        for row in customer_ids:
+            wa_id = row["wa_id"]
+            cust = conn.execute(
+                """SELECT name, phone, city, company FROM customers
+                   WHERE tenant_id = ? AND wa_id = ?""",
+                (tenant_id, wa_id),
+            ).fetchone()
+            name = cust["name"] if cust and cust["name"] else ""
+            phone = cust["phone"] if cust and cust["phone"] else ""
+            city = cust["city"] if cust and cust["city"] else ""
+            company = cust["company"] if cust and cust["company"] else ""
+            if not name:
+                order = conn.execute(
+                    """SELECT customer_name, customer_mobile FROM orders
+                       WHERE tenant_id = ? AND wa_id = ? AND customer_name IS NOT NULL AND customer_name != ''
+                       ORDER BY id DESC LIMIT 1""",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                if order:
+                    name = order["customer_name"]
+                    phone = phone or order["customer_mobile"] or ""
+            if not name:
+                chat = conn.execute(
+                    """SELECT sender_name FROM chat_history
+                       WHERE tenant_id = ? AND wa_id = ? AND sender_name IS NOT NULL AND sender_name != ''
+                       ORDER BY id DESC LIMIT 1""",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                if chat:
+                    name = chat["sender_name"]
+            customers.append({
+                "wa_id": wa_id, "name": name, "phone": phone,
+                "city": city, "company": company,
+            })
         distributors = conn.execute(
             """SELECT wa_id, name, phone, region, tier, city FROM distributors
                WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",

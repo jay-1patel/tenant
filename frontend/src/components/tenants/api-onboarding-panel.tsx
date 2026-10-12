@@ -277,7 +277,7 @@ export function ApiOnboardingPanel() {
         <div className="space-y-6">
           {/* Payment Gateways Section */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
                 <CreditCard className="h-5 w-5 text-emerald-400" />
                 Payment Gateways (Stripe · Razorpay · Custom)
@@ -323,7 +323,7 @@ export function ApiOnboardingPanel() {
 
           {/* Delivery & Shipping Section */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
                 <Truck className="h-5 w-5 text-blue-400" />
                 Logistics & Delivery Carriers (Blue Dart · Xpressbees · Custom)
@@ -608,7 +608,7 @@ export function ApiOnboardingPanel() {
 
               {demoPaymentResult && (
                 <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-4 space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase text-emerald-300">
                       Payment Link Generated ({demoPaymentResult.provider})
                     </span>
@@ -672,7 +672,7 @@ export function ApiOnboardingPanel() {
 
               {demoAwbResult && (
                 <div className="rounded-lg border border-blue-500/40 bg-blue-950/30 p-4 space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase text-blue-300">
                       AWB Generated: {demoAwbResult.awb_number} ({demoAwbResult.provider})
                     </span>
@@ -712,7 +712,7 @@ export function ApiOnboardingPanel() {
       {/* TAB 3: REQUESTS & APPROVAL QUEUE */}
       {activeTab === 'requests' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
               Submitted Integration Requests ({requests.length})
             </h3>
@@ -838,7 +838,7 @@ function ProviderConfigCard({
   return (
     <Card className={`border transition-all ${isVerified ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-slate-800 bg-slate-900/40'}`}>
       <CardBody className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-2xl">{icon}</span>
           {isVerified ? (
             <Badge tone="success">Connected ✅</Badge>

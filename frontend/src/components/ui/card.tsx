@@ -24,15 +24,17 @@ export function CardHeader({
   className?: string
 }) {
   return (
-    <div className={cn('flex items-start justify-between gap-4 border-b border-surface-line px-5 py-4', className)}>
-      <div className="flex min-w-0 items-start gap-3">
+    <div className={cn('flex flex-wrap items-start justify-between gap-4 border-b border-surface-line px-5 py-4', className)}>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         {icon && <span className="mt-0.5 text-accent-400">{icon}</span>}
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-slate-100">{title}</h2>
           {description && <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 lg:w-auto">{actions}</div>
+      )}
     </div>
   )
 }

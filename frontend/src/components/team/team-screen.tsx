@@ -414,7 +414,7 @@ export function TeamScreen() {
 
                 {isEditing && (
                   <div className="mt-4 border-t border-surface-line pt-4">
-                    <div className="mb-3 flex items-center justify-between">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <SectionTitle>Edit {admin.username}</SectionTitle>
                       <div className="flex gap-2">
                         <Button size="sm" variant="ghost" onClick={() => setEditPerms(Object.fromEntries(ALL_PERMISSIONS.map((p) => [p, true])))}>

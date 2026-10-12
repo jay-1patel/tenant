@@ -37,12 +37,12 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
   const customers = state.data?.customers ?? []
 
   return (
-    <div>
+    <div className="min-w-0">
       <PageHeader
         title="Customers"
         description="Customer details aggregated across orders, complaints and chat history, keyed by WhatsApp number."
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               icon={<Download className="h-4 w-4" />}
@@ -59,7 +59,7 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
             >
               Excel
             </Button>
-          </>
+          </div>
         }
         meta={
           state.data && (
@@ -97,13 +97,19 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
       )}
 
       {customers.length > 0 && (
-        <Card>
+        <Card className="min-w-0">
           <CardBody className="divide-y divide-surface-line">
             {customers.map((customer) => (
-              <div key={customer.wa_id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-100">{customer.name || customer.wa_id}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
+              <div
+                key={customer.wa_id}
+                className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3"
+              >
+                {/* Full width on mobile (badges drop below); beside the badges from sm up. */}
+                <div className="min-w-0 sm:flex-1">
+                  <p className="break-words text-sm font-medium text-slate-100 sm:truncate">
+                    {customer.name || customer.wa_id}
+                  </p>
+                  <p className="mt-0.5 break-words text-xs text-slate-500 sm:truncate">
                     {customer.wa_id}
                     {customer.mobile && customer.mobile !== customer.wa_id ? ` · ${customer.mobile}` : ''}
                     {customer.city ? ` · ${customer.city}` : ''}
@@ -112,7 +118,7 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
                     {customer.last_active ? ` · last seen ${relativeTime(customer.last_active)}` : ''}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
                   <Badge tone="accent">{customer.total_orders} orders</Badge>
                   {customer.total_complaints > 0 && (
                     <Badge tone={customer.open_complaints > 0 ? 'danger' : 'muted'}>
