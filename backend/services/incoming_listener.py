@@ -58,6 +58,10 @@ async def _send_reply(wa_id: str, messages: list) -> None:
         {"type": "list", "header": "...", "body": "...", "button_text": "...", "sections": [...]}
     """
     for msg in messages:
+        if msg.get("sent_live"):
+            # Already delivered to WhatsApp by whatsapp_sender during orchestrator run
+            logger.info(f"Skipping reply to {wa_id} — already sent live by sender")
+            continue
         msg_type = msg.get("type", "text")
         try:
             if msg_type == "text":

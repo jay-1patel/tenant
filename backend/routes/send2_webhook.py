@@ -76,6 +76,10 @@ async def receive_send2_webhook(request: Send2WebhookRequest):
         sent_count = 0
 
         for msg in outgoing:
+            if msg.get("sent_live"):
+                logger.info(f"Skipping send2_webhook reply to {wa_id} — already sent live by sender")
+                sent_count += 1
+                continue
             msg_type = msg.get("type", "text")
             try:
                 if msg_type == "text":

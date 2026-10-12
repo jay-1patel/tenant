@@ -183,36 +183,33 @@ def _format_careers_content(text: str) -> str:
 
 
 def _format_technologies_content(text: str) -> str:
-    """Format technologies content with bullet points."""
+    """Format technologies content with proper layout."""
     if not text or not text.strip():
         return text
-    
-    # Check if this is already well formatted
+
+    # If already formatted, preserve it
     if _has_proper_formatting(text):
-        # Just enhance with header
-        text = _add_technologies_header(text)
+        if not text.strip().startswith('💻') and not text.strip().startswith('🚀'):
+            text = _add_technologies_header(text)
         return text
-    
-    # Convert comma-separated lists to newlines
-    text = re.sub(r',\s+', '\n', text)
-    
-    # Ensure each line starts with a bullet if it doesn't have one
+
+    # If the text has explicit newlines or bullet lines, ensure bullet styling
     lines = text.split('\n')
-    formatted_lines = []
-    
-    for line in lines:
-        stripped = line.strip()
-        if stripped:
-            # Check if already starts with bullet or number
-            if not re.match(r'^[•\-*\d\.]+', stripped) and not _is_header_line(stripped):
-                stripped = f"• {stripped}"
-            formatted_lines.append(stripped)
-        else:
-            formatted_lines.append('')
-    
-    result = '\n'.join(formatted_lines)
-    # Add technologies header with emoji
-    return _add_technologies_header(result)
+    if len(lines) > 1:
+        formatted_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped:
+                if not re.match(r'^[•\-\*◦\d\.]+', stripped) and not _is_header_line(stripped):
+                    stripped = f"• {stripped}"
+                formatted_lines.append(stripped)
+            else:
+                formatted_lines.append('')
+        text = '\n'.join(formatted_lines)
+
+    if not text.strip().startswith('💻') and not text.strip().startswith('🚀'):
+        text = _add_technologies_header(text)
+    return text
 
 
 def _is_job_posting(text: str) -> bool:
