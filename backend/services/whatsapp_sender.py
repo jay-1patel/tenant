@@ -11,53 +11,60 @@ It exposes exactly:
     send_button_message(wa_id, body, buttons)
     send_list_menu(wa_id, header, body, button_text, sections)
 
-Every sender works in two ways simultaneously:
-
-1. LIVE MODE: actually delivers the message through the configured send2.digital
-   endpoints (via the same corrected senders used by the main KB/FAQ bots).
-2. CAPTURE MODE: every outgoing message is also recorded into an in-memory
-   buffer so the Local WhatsApp Tester simulator can render exactly what a real
-   WhatsApp connection would send (``begin_capture()`` / ``drain_captured()``).
+Senders record outgoing messages during capture. By default they also deliver
+messages live; callers can request capture-only mode and send the captured
+messages themselves (``begin_capture(capture_only=True)`` / ``drain_captured()``).
 """
 
 import logging
-import threading
+from contextvars import ContextVar
 
 logger = logging.getLogger("whatsapp_sender")
 
 # Outgoing-message capture buffer shared by all personas during a single
 # orchestrator invocation.
-_captured: list = []
-_capture_lock = threading.Lock()
+_captured: ContextVar[list | None] = ContextVar("whatsapp_capture", default=None)
+_capture_only: ContextVar[bool] = ContextVar("whatsapp_capture_only", default=False)
 
 
-def begin_capture() -> None:
-    """Reset the capture buffer and enable capture mode."""
-    global _captured
-    with _capture_lock:
-        _captured = []
+def begin_capture(capture_only: bool = False):
+    """Start request-local capture; optionally suppress live delivery."""
+    capture_token = _captured.set([])
+    live_token = _capture_only.set(capture_only)
+    return capture_token, live_token
+
+
+def end_capture(tokens) -> None:
+    """Restore the previous request-local capture state."""
+    capture_token, live_token = tokens
+    _captured.reset(capture_token)
+    _capture_only.reset(live_token)
 
 
 def drain_captured() -> list:
-    """Return all captured outgoing messages and reset the buffer."""
-    global _captured
-    with _capture_lock:
-        items = list(_captured)
-        _captured = []
-    return items
+    """Return captured outgoing messages and clear the current buffer."""
+    items = _captured.get()
+    if items is None:
+        return []
+    result = list(items)
+    items.clear()
+    return result
 
 
 def _record(payload: dict) -> None:
-    with _capture_lock:
-        _captured.append(payload)
+    items = _captured.get()
+    if items is not None:
+        items.append(payload)
 
 
 def _live_sender(kind: str):
     """Lazily import the concrete send2.digital sender for a message kind.
 
     Returns a callable ``(wa_id, *args) -> bool`` that performs a real send, or
-    ``None`` if the live senders cannot be imported (e.g. outside the app).
+    ``None`` if delivery is suppressed or unavailable.
     """
+    if _capture_only.get():
+        return None
     try:
         if kind == "text":
             from kb.services.whatsapp import send_whatsapp_message

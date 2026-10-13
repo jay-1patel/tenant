@@ -220,14 +220,33 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
 
     answer = None
 
+    # 0. Check Tenant Intent Answers first (safety net for tenant menu options/queries)
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        from backend.services import intent_answers
+        tid = resolve_tenant_for_user(wa_id)
+        intent_rep = (
+            intent_answers.answer_for_button(wa_id, message, tenant_id=tid)
+            or intent_answers.answer_for_intent(wa_id, message, tenant_id=tid)
+            or intent_answers.answer_for_text(wa_id, message, tenant_id=tid)
+        )
+        if intent_rep:
+            await send_text_message(wa_id, intent_rep)
+            return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+    except Exception as exc:
+        logger.debug(f"B2C tenant intent fallback check: {exc}")
+
     # 1. FAQ index: covers the uploaded FAQ text docs and catalogue/new-arrival PDFs.
     try:
         from faq.service import faq_index
         if faq_index.is_built:
-            hits = faq_index.search(message, k=1)
-            if hits:
-                # faq_index.search returns (text, metadata, score) tuples.
-                answer = hits[0][0]
+            hits = faq_index.search(message, k=5)
+            for h in hits:
+                candidate = h[0] if isinstance(h, (list, tuple)) else str(h)
+                # Skip Table of Contents dotted lines / artifacts
+                if ". . . ." not in candidate and "...." not in candidate:
+                    answer = candidate
+                    break
     except Exception as e:
         logger.warning(f"FAQ index lookup failed: {e}")
 
@@ -237,19 +256,22 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             import json as _json
             from kb.services.rag import search_kb_faiss
             from database import get_db_context
-            hits = search_kb_faiss(message, limit=3)
+            hits = search_kb_faiss(message, limit=5)
             if hits:
-                top = hits[0]
-                with get_db_context() as conn:
-                    row = conn.execute(
-                        "SELECT chunks_json FROM knowledge_base WHERE id=?",
-                        (top["doc_id"],),
-                    ).fetchone()
-                if row and row[0]:
-                    chunks = _json.loads(row[0])
-                    ci = top.get("chunk_index")
-                    if isinstance(ci, int) and 0 <= ci < len(chunks):
-                        answer = chunks[ci]
+                for top in hits:
+                    with get_db_context() as conn:
+                        row = conn.execute(
+                            "SELECT chunks_json FROM knowledge_base WHERE id=?",
+                            (top["doc_id"],),
+                        ).fetchone()
+                    if row and row[0]:
+                        chunks = _json.loads(row[0])
+                        ci = top.get("chunk_index")
+                        if isinstance(ci, int) and 0 <= ci < len(chunks):
+                            candidate = chunks[ci]
+                            if ". . . ." not in candidate and "...." not in candidate:
+                                answer = candidate
+                                break
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
 

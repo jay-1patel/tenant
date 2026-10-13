@@ -22,7 +22,7 @@ import httpx
 from routing.config import (
     SEND2_USERNAME,
     SEND2_PASSWORD,
-    SEND2_INCOMING_REPORT_URL,
+    SEND2_INCOMING_URL,
 )
 from routing.whatsapp import (
     send_whatsapp_message,
@@ -37,17 +37,6 @@ POLL_INTERVAL_SECONDS = 5
 
 # Request timeout for each poll attempt.
 HTTP_TIMEOUT_SECONDS = 10.0
-
-# Track processed message IDs to avoid duplicates. Keep a bounded set.
-_processed_message_ids: set = set()
-_MAX_PROCESSED_IDS = 5000
-
-
-def _cleanup_processed_ids() -> None:
-    """Keep the processed-IDs set bounded."""
-    if len(_processed_message_ids) > _MAX_PROCESSED_IDS:
-        _processed_message_ids.clear()
-
 
 async def _send_reply(wa_id: str, messages: list) -> None:
     """Send the orchestrator's captured messages via send2.digital.
@@ -108,7 +97,7 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
     the last hour, processes them through the orchestrator, and sends replies.
     """
     logger.info("Incoming message listener started (interval=%ds, url=%s)",
-                POLL_INTERVAL_SECONDS, SEND2_INCOMING_REPORT_URL)
+                POLL_INTERVAL_SECONDS, SEND2_INCOMING_URL)
 
     if not SEND2_USERNAME or not SEND2_PASSWORD:
         logger.error("SEND2_USERNAME or SEND2_PASSWORD not set — listener cannot start")
@@ -133,7 +122,7 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
             }
 
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
-                response = await client.post(SEND2_INCOMING_REPORT_URL, json=payload)
+                response = await client.post(SEND2_INCOMING_URL, json=payload)
 
                 if response.status_code != 200:
                     logger.warning("Incoming report returned non-200: %s", response.status_code)
@@ -170,12 +159,10 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                     if not message_id or not wa_id or not text:
                         continue
 
-                    # Skip if already processed.
-                    if message_id in _processed_message_ids:
+                    from services.dedup import is_duplicate
+                    if is_duplicate(message_id, wa_id):
+                        logger.info("Skipping duplicate message %s from %s", message_id, wa_id)
                         continue
-
-                    # Mark as processed.
-                    _processed_message_ids.add(message_id)
 
                     logger.info(f"New message from {wa_id}: {text[:80]}... (id={message_id[:20]}...)")
 
@@ -184,7 +171,9 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                         from services.orchestrator import process_incoming_message
 
                         # Process through the orchestrator (captures outgoing messages).
-                        result = await process_incoming_message(wa_id, text)
+                        result = await process_incoming_message(
+                            wa_id, text, capture_only=True
+                        )
 
                         # Send the captured replies via send2.digital.
                         outgoing = result.get("messages", [])
@@ -196,9 +185,6 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
 
                     except Exception as e:
                         logger.error(f"Failed to process message from {wa_id}: {e}", exc_info=True)
-
-                # Periodic cleanup of the processed-IDs set.
-                _cleanup_processed_ids()
 
         except Exception as e:
             logger.error("Incoming listener poll failed: %s", e, exc_info=True)

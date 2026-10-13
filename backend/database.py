@@ -239,6 +239,16 @@ def init_db():
             (_fallback_tenant,),
         )
         conn.execute("CREATE INDEX IF NOT EXISTS ix_chat_history_tenant ON chat_history(tenant_id, created_at)")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS webhook_dedup (
+                message_id VARCHAR(255) PRIMARY KEY,
+                wa_id VARCHAR(20),
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dedup_processed ON webhook_dedup(processed_at)"
+        )
         # SECURITY FIX: Store payload hash instead of raw payload to prevent sensitive data leakage
         conn.execute(
             """CREATE TABLE IF NOT EXISTS webhook_logs (

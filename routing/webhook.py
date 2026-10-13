@@ -17,8 +17,6 @@ from backend.integrations.company_api import log_incoming_message, log_outgoing_
 logger = logging.getLogger("chiki_webhook")
 router = APIRouter()
 
-_processed_ids = set()
-
 # Phrases that trigger human handover
 # Campaign consent (WhatsApp policy): STOP unsubscribes from broadcasts,
 # START resubscribes. Every audience count excludes opted-out contacts.
@@ -304,15 +302,9 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
     return False
 
 
-def _is_duplicate(msg_id: str) -> bool:
-    if not msg_id:
-        return False
-    if msg_id in _processed_ids:
-        return True
-    _processed_ids.add(msg_id)
-    if len(_processed_ids) > 5000:
-        _processed_ids.clear()
-    return False
+def _is_duplicate(msg_id: str, wa_id: str) -> bool:
+    from backend.services.dedup import is_duplicate
+    return is_duplicate(msg_id, wa_id)
 
 
 async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id=None):
@@ -701,7 +693,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         "message": user_text, "message_id": msg_id
     }), 200, f"Message from {sender_name}")
 
-    if _is_duplicate(msg_id):
+    if _is_duplicate(msg_id, wa_id):
         logger.info(f"Skipping duplicate message {msg_id}")
         return {"status": "ok", "type": "duplicate"}
 

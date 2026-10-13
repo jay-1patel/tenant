@@ -8,21 +8,22 @@ to the correct modular persona workflow and persists the resulting FSM state.
 Shared infrastructure (WhatsApp sender, database context, RAG) is reused —
 no duplication here.
 
-This function captures every outgoing message (via services.whatsapp_sender
-capture mode) so the caller (e.g. services.incoming_listener) can retrieve and
-send exactly what would be shown to a real WhatsApp connection.
+This function captures every outgoing message via services.whatsapp_sender.
+Callers can request capture-only mode when they own outbound delivery.
 """
 
 import json
 import logging
 
 from database import get_db_context
-from services.whatsapp_sender import begin_capture, drain_captured
+from services.whatsapp_sender import begin_capture, drain_captured, end_capture
 
 logger = logging.getLogger("orchestrator")
 
 
-async def process_incoming_message(wa_id: str, message: str) -> dict:
+async def process_incoming_message(
+    wa_id: str, message: str, *, capture_only: bool = False
+) -> dict:
     """Route a single incoming message through the correct persona workflow.
 
     Returns a dict describing the outcome:
@@ -36,8 +37,15 @@ async def process_incoming_message(wa_id: str, message: str) -> dict:
         }
     """
     # Capture every outgoing message produced while processing this message.
-    begin_capture()
+    capture_tokens = begin_capture(capture_only=capture_only)
 
+    try:
+        return await _process_captured_message(wa_id, message)
+    finally:
+        end_capture(capture_tokens)
+
+
+async def _process_captured_message(wa_id: str, message: str) -> dict:
     with get_db_context() as db:
         # 1. Check Human Handover first (Global rule)
         user_state = db.execute(
@@ -54,6 +62,63 @@ async def process_incoming_message(wa_id: str, message: str) -> dict:
                 "status": "ignored",
                 "error": None,
             }
+
+        # 1b. Check Tenant Profile Intents, Flows, and Services
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            from backend.services import intent_answers, flow_runner, service_answers
+            from services.whatsapp_sender import send_text_message
+
+            tenant_id = resolve_tenant_for_user(wa_id)
+
+            # Check intent by button ID or typed text (Careers, Technologies, Projects, Benefits, etc.)
+            intent_reply = (
+                intent_answers.answer_for_button(wa_id, message, tenant_id=tenant_id)
+                or intent_answers.answer_for_intent(wa_id, message, tenant_id=tenant_id)
+                or intent_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
+            )
+            if intent_reply:
+                await send_text_message(wa_id, intent_reply)
+                return {
+                    "status": "processed",
+                    "messages": drain_captured(),
+                    "new_state": user_state[0] if user_state else None,
+                    "human_handover": False,
+                    "user_type": "b2c",
+                    "error": None,
+                }
+
+            # Check flow trigger for button
+            flow_name = flow_runner.flow_for_button(wa_id, message)
+            if flow_name:
+                outcome = flow_runner.start_flow(wa_id, flow_name)
+                if outcome.get("handled") and outcome.get("messages"):
+                    for msg in outcome["messages"]:
+                        await send_text_message(wa_id, msg)
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": outcome.get("new_state", user_state[0] if user_state else None),
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+
+            # Check service query
+            if service_answers.is_service_query(message):
+                service_reply = service_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
+                if service_reply:
+                    await send_text_message(wa_id, service_reply)
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": user_state[0] if user_state else None,
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+        except Exception as exc:
+            logger.debug(f"Tenant profile intent routing fallback for {wa_id}: {exc}")
 
         # 2. Determine User Type (B2B vs B2C)
         is_distributor = db.execute(

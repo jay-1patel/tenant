@@ -453,7 +453,7 @@ def get_greeting_response(text: str) -> str:
     return generate_greeting(text)
 
 
-async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None):
+async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None, tenant_id=None):
     # A tenant that switched the FAQ or KB substrate off gets the profile's
     # polite refusal instead of an answer from a pipeline it disabled. The
     # refusal is returned as a normal answer so callers send it unchanged;
@@ -480,7 +480,11 @@ async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None):
 
     if query_type == "faq":
         from backend.faq.service import handle_faq_query
-        data = await handle_faq_query({"message": user_text, "wa_id": wa_id})
+        data = await handle_faq_query({
+            "message": user_text,
+            "wa_id": wa_id,
+            "tenant_id": tenant_id,
+        })
     else:
         from kb.service import handle_kb_query
         data = await handle_kb_query(
@@ -684,7 +688,9 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
     # tenant configured no answer for the matched intent.
     try:
         from backend.services import intent_answers
-        intent_reply = intent_answers.answer_for_text(wa_id, user_text)
+        intent_reply = intent_answers.answer_for_text(
+            wa_id, user_text, tenant_id=tenant_id
+        )
         if intent_reply:
             result["answer"] = intent_reply
             result["query_type"] = "intent"
@@ -702,14 +708,18 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             result["interactive"] = greeting_menu
         return result
 
-    data = await forward_to_bot(query_type, user_text, wa_id, raw_message)
+    data = await forward_to_bot(
+        query_type, user_text, wa_id, raw_message, tenant_id=tenant_id
+    )
 
     skip_fallback = query_type == "kb" and any(kw in user_text.lower() for kw in NO_FALLBACK_KB_QUERIES)
 
     if not skip_fallback and (not data.get("answer") or is_uncertain_answer(data.get("answer"))):
         fallback_type = "kb" if query_type == "faq" else "faq"
         logger.info(f"Falling back to {fallback_type} bot: primary returned empty/uncertain answer")
-        data = await forward_to_bot(fallback_type, user_text, wa_id, raw_message)
+        data = await forward_to_bot(
+            fallback_type, user_text, wa_id, raw_message, tenant_id=tenant_id
+        )
 
     answer = data.get("answer", "")
     if not answer or is_uncertain_answer(answer):
