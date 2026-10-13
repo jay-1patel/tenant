@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, getActiveTenantId, setActiveTenantId } from './api'
 import { useAuth } from './auth'
 import type {
-  Features,
   LayerDetail,
   ProfileSnapshot,
   ResolvedProfile,
@@ -196,28 +195,29 @@ export function useTenants(): TenantState {
 }
 
 /**
- * The tenant's resolved feature flags, for gating the sidebar.
+ * The tenant's resolved profile, for chrome (logo, brand name) and for gating
+ * the sidebar.
  *
- * Null means "not known yet" (still loading, or this admin cannot read the
- * resolved profile) — callers treat that as "do not hide anything on account of
- * a feature".
+ * Null means "not known yet" (still loading, no tenant selected, or this admin
+ * cannot read the resolved profile) — callers treat that as "do not hide
+ * anything on account of a feature".
  */
-export function useTenantFeatures(tenantId: string | null): Features | null {
-  const [features, setFeatures] = useState<Features | null>(null)
+export function useTenantProfile(tenantId: string | null): ResolvedProfile | null {
+  const [profile, setProfile] = useState<ResolvedProfile | null>(null)
 
   useEffect(() => {
     if (!tenantId) {
-      setFeatures(null)
+      setProfile(null)
       return
     }
     const controller = new AbortController()
-    setFeatures(null)
+    setProfile(null)
     tenantsApi
       .resolved(tenantId, controller.signal)
-      .then((profile) => setFeatures(profile.features))
-      .catch(() => setFeatures(null))
+      .then((resolved) => setProfile(resolved))
+      .catch(() => setProfile(null))
     return () => controller.abort()
   }, [tenantId])
 
-  return features
+  return profile
 }

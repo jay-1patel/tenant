@@ -419,9 +419,13 @@ class NotificationService:
         template_id: Optional[str] = None,
         template_params: Optional[Dict[str, str]] = None
     ) -> bool:
-        """Send WhatsApp notification via official WhatsApp Business API."""
-        # Implementation to send WhatsApp messages
-        return True
+        """Send WhatsApp notification via Send2 / WhatsApp."""
+        try:
+            from routing.whatsapp import send_whatsapp_message
+            return send_whatsapp_message(phone_number, message)
+        except Exception as e:
+            logger.error(f"Failed to send callback WhatsApp notification to {phone_number}: {e}")
+            return False
     
     async def send_email_notification(
         self,

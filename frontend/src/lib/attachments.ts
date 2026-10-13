@@ -14,6 +14,12 @@ const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tena
 
 /** Keep in step with `MAX_ATTACHMENT_BYTES` in `backend/routes/admin.py`. */
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
+export const MAX_ATTACHMENT_LABEL = `${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`
+
+/** What the file picker offers and what the hint tells the admin. */
+export const ATTACHMENT_ACCEPT = 'image/*,.pdf,.doc,.docx,.txt,.xlsx,.xls'
+export const ATTACHMENT_TYPES_LABEL =
+  'Images (JPG, PNG, GIF, WEBP, BMP) and documents (PDF, DOC, DOCX, TXT, XLS, XLSX)'
 
 export interface Attachment {
   url: string

@@ -83,13 +83,13 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY","MISTRAL_API_BACKUP")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL")
 
 # ── Bot messaging defaults ────────────────────────────────────────────────
-BUSINESS_NAME = os.getenv("BRAND_NAME")
+BUSINESS_NAME = os.getenv("BRAND_NAME") or "Chatbot"
 BOT_NAME = os.getenv("BOT_NAME", BUSINESS_NAME)
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", f"Welcome to {BUSINESS_NAME}! How can I help you today?")
 MENU_HEADER = os.getenv("MENU_HEADER", BUSINESS_NAME)
 MENU_BODY = os.getenv("MENU_BODY", "What would you like help with?")
 MENU_FOOTER = os.getenv("MENU_FOOTER", "Or type your question directly")
-TEMPLATE_PREFIX = os.getenv("TEMPLATE_PREFIX", BUSINESS_NAME.replace(" ", "_"))
+TEMPLATE_PREFIX = os.getenv("TEMPLATE_PREFIX", (BUSINESS_NAME or "").replace(" ", "_"))
 IMAGE_BASE_URL = os.getenv("IMAGE_BASE_URL")
 
 # ── Auth / admin ──────────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ CATALOGUE_BUTTON_TITLE = os.getenv("CATALOGUE_BUTTON_TITLE", "New Releases")
 CATALOGUE_BODY_TEXT = os.getenv("CATALOGUE_BODY_TEXT", "Choose an option:")
 
 # ── Tunnel / public URL ───────────────────────────────────────────────────
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL").rstrip("/")
+PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
 HKDEK_WEBHOOK_URL = os.getenv("HKDEK_WEBHOOK_URL")
 
 # ── Logging ───────────────────────────────────────────────────────────────

@@ -661,20 +661,39 @@ def append_signature(text: str, wa_id: str = "") -> str:
 
 def normalize_whatsapp_formatting(text: str) -> str:
     """
-    Normalize Markdown-ish emphasis so WhatsApp renders it as true bold/italic
-    (native *bold* / _italic_) instead of showing literal asterisks.
-
-    - **bold**  -> *bold*   (WhatsApp bold)
-    - _italic_ already works, but `__italic__` / `**...**` are collapsed.
-    - Trailing single/double asterisks on their own line are dropped.
-
-    Single-asterisk WhatsApp formatting (*bold* / _italic_) is preserved.
+    Normalize Markdown-ish emphasis, headers, links, and bullets so WhatsApp
+    renders clean bold/italic (*bold* / _italic_) and clickable URLs instead of
+    broken raw markdown syntax.
     """
     if not text:
         return text or ""
-    # Markdown bold / strong -> WhatsApp bold (single asterisk)
+
+    # 1. Markdown headers (# Header, ## Subheading) -> WhatsApp bold (*Header*)
+    text = re.sub(r"(?m)^#{1,6}\s*(.+?)\s*$", r"*\1*", text)
+
+    # 2. Markdown links: [Title](https://...) -> Title: https://...
+    def _link_repl(m):
+        title = m.group(1).strip()
+        url = m.group(2).strip()
+        if not title or title.lower() == url.lower():
+            return url
+        return f"{title}: {url}"
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+)\)", _link_repl, text)
+
+    # 3. Bold + Italic: ***text*** / ___text___ -> *_text_*
+    text = re.sub(r"\*\*\*(.+?)\*\*\*", r"*_\1_*", text)
+    text = re.sub(r"___(.+?)___", r"*_\1_*", text)
+
+    # 4. Bold: **text** / __text__ -> *text*
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-    # Markdown italic underscores -> WhatsApp italic already; leave as is.
+    text = re.sub(r"__(.+?)__", r"*\1*", text)
+
+    # 5. Strikethrough: ~~text~~ -> ~text~
+    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
+
+    # 6. Asterisk bullet points at line starts (* Item) -> • Item
+    text = re.sub(r"(?m)^\*\s+", r"• ", text)
+
     return text
 
 

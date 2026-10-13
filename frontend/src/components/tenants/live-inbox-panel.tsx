@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
-import { attachmentsApi, type Attachment } from '@/lib/attachments'
+import { attachmentsApi, ATTACHMENT_ACCEPT, ATTACHMENT_TYPES_LABEL, MAX_ATTACHMENT_LABEL, type Attachment } from '@/lib/attachments'
 import { conversationsApi, stripRoute } from '@/lib/conversations'
 import { relativeTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
@@ -375,7 +375,7 @@ function Composer({
           ref={fileInput}
           type="file"
           className="hidden"
-          accept="image/*,.pdf,.doc,.docx,.txt,.xlsx,.xls"
+          accept={ATTACHMENT_ACCEPT}
           onChange={(e) => void pick(e.target.files?.[0])}
         />
         <Button
@@ -412,7 +412,8 @@ function Composer({
         </Button>
       </div>
       <p className="mt-1 text-2xs text-slate-600">
-        Ctrl/⌘ + Enter to send. Attachments are shared as a link (WhatsApp media sending is off).
+        Ctrl/⌘ + Enter to send. {ATTACHMENT_TYPES_LABEL} · Max {MAX_ATTACHMENT_LABEL} per file.
+        Attachments are shared as a link (WhatsApp media sending is off).
       </p>
     </div>
   )

@@ -160,19 +160,12 @@ class Send2CallbackNotificationService:
     
     async def _send_whatsapp_message(self, phone: str, message: str) -> bool:
         """Send a WhatsApp message through Send2 Digital."""
-        # Implementation based on your Send2 Digital API
-        # Adjust based on your actual Send2 Digital integration
-        
-        payload = {
-            "recipient_phone": phone,
-            "message_type": "text",
-            "message": message,
-            "business_id": self.whatsapp_business_id,
-            "phone_number_id": self.phone_number_id
-        }
-        
-        result = await self._make_request("POST", "/v1/messages", payload)
-        return result.get("ok", False)
+        try:
+            from routing.whatsapp import send_whatsapp_message
+            return send_whatsapp_message(phone, message)
+        except Exception as e:
+            logger.error(f"Send2 WhatsApp message send failed for {phone}: {e}")
+            return False
     
     def _format_callback_confirmation(self, callback_request: CallbackRequest) -> str:
         """Format callback confirmation message for customer."""
@@ -291,7 +284,8 @@ class Send2CallbackNotificationService:
     
     def is_configured(self) -> bool:
         """Check if Send2 Digital is properly configured."""
-        return bool(self.api_key and self.api_secret)
+        from routing.config import SEND2_USERNAME, SEND2_PASSWORD
+        return bool(SEND2_USERNAME and SEND2_PASSWORD) or bool(self.api_key and self.api_secret)
 
 
 # Singleton instance

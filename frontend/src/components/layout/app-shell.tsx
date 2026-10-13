@@ -1,7 +1,7 @@
-import { type ReactNode, useState } from 'react'
-import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, PlusCircle, ScrollText, Send, UserRound, Users, ShieldCheck, KeyRound } from 'lucide-react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { ArrowLeft, Blocks, ChevronDown, ClipboardCheck, LayoutGrid, LogOut, Menu, PlusCircle, ScrollText, Send, UserRound, Users, ShieldCheck, KeyRound, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { useTenantFeatures, useTenants } from '@/lib/tenants'
+import { useTenantProfile, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav } from '@/lib/navigation'
 import { navigate, type RouteMatch } from '@/lib/router'
@@ -22,10 +22,38 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const { can } = usePermissions()
   const { tenants, active, setActive } = useTenants()
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // Below `lg` the sidebar lives behind a hamburger; this tracks that drawer.
+  const [navOpen, setNavOpen] = useState(false)
+
+  // Any navigation collapses the drawer so it never covers the page asked for.
+  useEffect(() => {
+    setNavOpen(false)
+    setSwitcherOpen(false)
+  }, [route.view, route.tenantId])
+
+  // Escape dismisses the drawer without waiting for a navigation.
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
 
   const tenantScoped = Boolean(route.tenantId)
   const locked = isOnboardingLocked(identity)
-  const features = useTenantFeatures(route.tenantId)
+  const isSuperAdmin = identity?.role === 'super_admin'
+  // The header shows the tenant's own brand for admins and sub admins. Super
+  // admins (who span tenants) keep the generic product mark instead.
+  const chromeTenantId =
+    route.tenantId ?? (!isSuperAdmin ? identity?.tenant_id ?? null : null)
+  const profile = useTenantProfile(chromeTenantId)
+  const features = profile?.features ?? null
+  const logoUrl = profile?.brand?.logo_url?.trim() || null
+  const brandName =
+    profile?.brand?.name?.trim() || active?.display_name || active?.id || identity?.tenant_id || ''
+  const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
   const nav = locked ? [] : buildTenantNav({ vertical: active?.vertical, features, can })
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
@@ -33,15 +61,55 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-surface-line bg-white">
+      {/* Small / medium: the sidebar is an off-canvas drawer behind a hamburger. */}
+      {navOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-100/60 backdrop-blur-[1px] lg:hidden"
+        />
+      )}
+
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-surface-line bg-white transition-transform duration-200 ease-out',
+          navOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+          'lg:static lg:z-auto lg:translate-x-0 lg:shadow-none',
+        )}
+      >
         <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
-            <Blocks className="h-4 w-4" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
+            {!isSuperAdmin && logoUrl ? (
+              <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
+            ) : (
+              <Blocks className="h-4 w-4" />
+            )}
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-100">Tenant Console</p>
-            <p className="text-xs text-slate-500">Multi-tenant WhatsApp</p>
+          <div className="min-w-0 flex-1">
+            {!isSuperAdmin ? (
+              <>
+                <p className="truncate text-sm font-semibold text-slate-100">
+                  {brandName || 'Company console'}
+                </p>
+                <p className="truncate text-xs text-slate-500">{brandTagline || 'WhatsApp console'}</p>
+              </>
+            ) : (
+              <>
+                <p className="truncate text-sm font-semibold text-slate-100">Tenant Console</p>
+                <p className="text-xs text-slate-500">Multi-tenant WhatsApp</p>
+              </>
+            )}
           </div>
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label="Close navigation"
+            title="Close navigation"
+            className="shrink-0 rounded-md p-1.5 text-slate-500 transition hover:bg-surface-panel hover:text-slate-300 lg:hidden"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="px-3">
@@ -334,8 +402,38 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto bg-surface scroll-thin">
-        <div className="mx-auto max-w-6xl px-8 py-8">{children}</div>
+      <main
+        className={cn(
+          'min-w-0 flex-1 overflow-y-auto bg-surface scroll-thin',
+          navOpen && 'overflow-hidden lg:overflow-y-auto',
+        )}
+      >
+        {/* Small / medium: a sticky top bar with the hamburger and the brand. */}
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-surface-line bg-white px-4 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open navigation"
+            title="Open navigation"
+            className="rounded-md p-1.5 text-slate-500 transition hover:bg-surface-panel hover:text-slate-300"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent-100 text-accent-800 ring-1 ring-inset ring-accent-300">
+              {!isSuperAdmin && logoUrl ? (
+                <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
+              ) : (
+                <Blocks className="h-4 w-4" />
+              )}
+            </div>
+            <p className="truncate text-sm font-semibold text-slate-100">
+              {isSuperAdmin ? 'Tenant Console' : brandName || 'Company console'}
+            </p>
+          </div>
+        </header>
+
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>
     </div>
   )

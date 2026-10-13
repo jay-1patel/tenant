@@ -46,6 +46,19 @@ async def process_incoming_message(
 
 
 async def _process_captured_message(wa_id: str, message: str) -> dict:
+    # Customer directory: whoever talks to the bot gets a record on their very
+    # first message, whichever channel delivered it (Meta webhook, send2 push,
+    # or the send2 poller). Keyed on (tenant_id, wa_id) so nobody is duplicated
+    # and later messages only refresh the row. Runs before the handover early
+    # return below, so an agent-handled chat still registers the contact.
+    try:
+        from database import get_request_tenant, set_request_tenant, _resolve_tenant, touch_customer
+        effective_tenant = get_request_tenant() or _resolve_tenant()
+        set_request_tenant(effective_tenant)
+        touch_customer(effective_tenant, wa_id, "")
+    except Exception as exc:
+        logger.debug(f"Could not touch customer {wa_id}: {exc}")
+
     with get_db_context() as db:
         # 1. Check Human Handover first (Global rule)
         user_state = db.execute(

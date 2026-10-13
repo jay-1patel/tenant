@@ -53,6 +53,7 @@ export interface Brand {
   support_phone: string
   signature: string
   bot_name: string
+  logo_url?: string
 }
 
 export interface PromptSpec {

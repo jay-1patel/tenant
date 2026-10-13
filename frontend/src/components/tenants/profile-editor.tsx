@@ -20,6 +20,10 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
   const { identity } = useAuth()
   const isSuperAdmin = identity?.role === 'super_admin'
+  // Company admins and sub admins never edit the profile here: it is a
+  // read-only mirror of what was entered under "Register a tenant". Only the
+  // super admin edits the data layer directly.
+  const readOnly = !isSuperAdmin
   const action = useAction()
   const toast = useToast()
   const [form, setForm] = useState<EditorForm | null>(null)
@@ -110,10 +114,10 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         description={
           isSuperAdmin
             ? "This form is the tenant's data layer. Saving writes a draft; publishing validates it, versions it and swaps the live profile. Publishing is the only thing the bot ever sees."
-            : "This form is the tenant's data layer. Your edits are saved as a draft and submitted to a super admin — nothing goes live until they approve."
+            : 'Read-only. This shows exactly what was entered under "Register a tenant". To change it, submit a new registration or profile change there for super admin approval.'
         }
         actions={
-          editing ? (
+          readOnly ? undefined : editing ? (
             <>
               <Button
                 size="sm"
@@ -185,11 +189,13 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         meta={
           <>
             <span className={`text-xs ${dirty ? 'text-amber-700' : 'text-slate-500'}`}>
-              {!editing
-                ? 'Read-only — click Edit profile to make changes'
-                : dirty
-                  ? 'Unsaved changes'
-                  : 'In sync with the live profile'}
+              {readOnly
+                ? 'Read-only — managed from Register a tenant'
+                : !editing
+                  ? 'Read-only — click Edit profile to make changes'
+                  : dirty
+                    ? 'Unsaved changes'
+                    : 'In sync with the live profile'}
             </span>
             <span className="text-xs text-slate-600">v{effective.vertical} · {vertical.label}</span>
           </>

@@ -49,15 +49,41 @@ def _normalize_msg_type(msg_type: str) -> str:
 
 def normalize_whatsapp_formatting(text: str) -> str:
     """
-    Normalize Markdown-ish emphasis so WhatsApp renders true bold/italic
-    (*bold* / _italic_) instead of showing literal asterisks.
+    Normalize Markdown-ish emphasis, headers, links, and bullets so WhatsApp
+    renders clean bold/italic (*bold* / _italic_) and clickable URLs instead of
+    broken raw markdown syntax.
     """
     if not text:
         return text or ""
     import re
-    # Markdown **bold** / __bold__ -> WhatsApp *bold*
+
+    # 1. Markdown headers (# Header, ## Subheading) -> WhatsApp bold (*Header*)
+    text = re.sub(r"(?m)^#{1,6}\s*(.+?)\s*$", r"*\1*", text)
+
+    # 2. Markdown links: [Title](https://...) -> Title: https://...
+    def _link_repl(m):
+        title = m.group(1).strip()
+        url = m.group(2).strip()
+        if not title or title.lower() == url.lower():
+            return url
+        return f"{title}: {url}"
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+)\)", _link_repl, text)
+
+    # 3. Bold + Italic: ***text*** / ___text___ -> *_text_*
+    text = re.sub(r"\*\*\*(.+?)\*\*\*", r"*_\1_*", text)
+    text = re.sub(r"___(.+?)___", r"*_\1_*", text)
+
+    # 4. Bold: **text** / __text__ -> *text*
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
     text = re.sub(r"__(.+?)__", r"*\1*", text)
+
+    # 5. Strikethrough: ~~text~~ -> ~text~
+    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
+
+    # 6. Asterisk bullet points at line starts (* Item) -> • Item
+    # Prevents WhatsApp from pairing asterisks across lines and bolding entire lists
+    text = re.sub(r"(?m)^\*\s+", r"• ", text)
+
     return text
 
 
@@ -94,6 +120,7 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
             # OPT OUT notice, ...) is a failure even with status 200.
             return resp.status_code == 200 and (
                 '"success":true' in body
+                or '"success": 1' in body
                 or '"success":1' in body
                 or "message sent successfully" in body
             )
@@ -105,29 +132,33 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
 
 
 def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, footer_text=None):
+    # Enforce WhatsApp / Send2 character limits:
+    # row title <= 24, row desc <= 72, section title <= 24, button <= 20
     api_sections = []
     for section in sections:
         api_section = {
-            "title": section.get("title", ""),
+            "title": str(section.get("title", "") or "")[:24],
             "rows": []
         }
         for row in section.get("rows", []):
             api_row = {
-                "id": row.get("id", ""),
-                "title": row.get("title", ""),
-                "description": row.get("description", ""),
+                "id": str(row.get("id", ""))[:200],
+                "title": str(row.get("title", "") or "")[:24],
+                "description": str(row.get("description", "") or "")[:72],
             }
             api_section["rows"].append(api_row)
         api_sections.append(api_section)
+
+    norm_body = normalize_whatsapp_formatting(body_text or " ")
 
     payload = {
         "username": SEND2_USERNAME,
         "password": SEND2_PASSWORD,
         "number": to,
-        "headertext": header_text or " ",
-        "bodytext": body_text or " ",
-        "footertext": footer_text or " ",
-        "buttontext": button_text or "Menu",
+        "headertext": str(header_text or " ")[:60],
+        "bodytext": norm_body or " ",
+        "footertext": str(footer_text or " ")[:60],
+        "buttontext": str(button_text or "Menu")[:20],
         "total_number_section": len(api_sections),
         "total_rows": sum(len(section.get("rows", [])) for section in api_sections),
         "sections": api_sections,
@@ -137,7 +168,13 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
         with httpx.Client(timeout=30) as client:
             resp = client.post(SEND2_LIST_MENU_URL, json=payload)
         logger.info(f"LIST_MENU_RESPONSE | to={to} | status={resp.status_code} | body={resp.text[:300]}")
-        return resp.status_code == 200 and ("Message Sent Successfully" in resp.text or "success" in resp.text.lower())
+        body = (resp.text or "").lower()
+        return resp.status_code == 200 and (
+            "message sent successfully" in body
+            or '"success":true' in body
+            or '"success": 1' in body
+            or '"success":1' in body
+        )
     except Exception as e:
         logger.error(f"send2.digital list menu send failed: {e}")
         return False
@@ -167,6 +204,19 @@ def send_whatsapp_interactive(to, text, buttons, footer=None):
         logger.warning(f"Too many buttons ({len(buttons)}), limiting to 3")
         buttons = buttons[:3]
 
+    # Enforce button title limit (WhatsApp max 20 chars)
+    formatted_buttons = []
+    for btn in buttons:
+        if isinstance(btn, dict):
+            b_copy = dict(btn)
+            if "reply" in b_copy and isinstance(b_copy["reply"], dict):
+                r_copy = dict(b_copy["reply"])
+                r_copy["title"] = str(r_copy.get("title", ""))[:20]
+                b_copy["reply"] = r_copy
+            formatted_buttons.append(b_copy)
+        else:
+            formatted_buttons.append(btn)
+
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
@@ -176,9 +226,9 @@ def send_whatsapp_interactive(to, text, buttons, footer=None):
         "headertype": "text",
         "headertext": " ",
         "bodytext": _truncate_body(normalize_whatsapp_formatting(text)),
-        "footertext": footer or " ",
-        "total_buttons": len(buttons),
-        "buttons": buttons,
+        "footertext": str(footer or " ")[:60],
+        "total_buttons": len(formatted_buttons),
+        "buttons": formatted_buttons,
     }
     try:
         resp = requests.post(
@@ -187,7 +237,14 @@ def send_whatsapp_interactive(to, text, buttons, footer=None):
             timeout=30,
         )
         logger.info(f"Interactive reply sent to {to}, status={resp.status_code}, body={resp.text[:300]}")
-        return resp.status_code == 200 and '"success":true' in resp.text
+        body = (resp.text or "").lower()
+        return resp.status_code == 200 and (
+            '"success":true' in body
+            or '"success": true' in body
+            or '"success": 1' in body
+            or '"success":1' in body
+            or "message sent successfully" in body
+        )
     except Exception as e:
         logger.error(f"send2.digital interactive send failed: {e}")
         return False

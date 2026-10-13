@@ -47,6 +47,10 @@ async def _send_reply(wa_id: str, messages: list) -> None:
         {"type": "list", "header": "...", "body": "...", "button_text": "...", "sections": [...]}
     """
     for msg in messages:
+        if msg.get("sent_live"):
+            # Already delivered to WhatsApp by whatsapp_sender during orchestrator run
+            logger.info(f"Skipping reply to {wa_id} — already sent live by sender")
+            continue
         msg_type = msg.get("type", "text")
         try:
             if msg_type == "text":
@@ -157,6 +161,14 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
 
                     # Skip if no message ID (test/dummy entries) or empty text.
                     if not message_id or not wa_id or not text:
+                        continue
+
+                    # Only inbound rows spawn a bot reply + customer record;
+                    # outbound statuses (sent/delivered/failed/read) are handled
+                    # by the reporters and must not echo back.
+                    if status and str(status).strip().lower() in (
+                        "sent", "delivered", "failed", "read",
+                    ):
                         continue
 
                     from services.dedup import is_duplicate

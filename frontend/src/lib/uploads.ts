@@ -31,6 +31,16 @@ export const FILE_MODULES = [
   { value: 'new_arrival', label: 'New releases', permission: 'upload_faq' },
 ] as const
 
+/**
+ * Knowledge-upload limits. Keep in step with `SUPPORTED` / `MAX_UPLOAD_BYTES`
+ * in `backend/routes/admin.py`; the picker, the hint text and the server must
+ * agree on what is accepted.
+ */
+export const UPLOAD_ACCEPT = '.pdf,.docx,.doc,.txt,.xlsx,.xls'
+export const UPLOAD_TYPES_LABEL = 'PDF, DOC, DOCX, TXT, XLS, XLSX'
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+export const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)} MB`
+
 export function readAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -110,6 +120,19 @@ export async function uploadRecordImage(tenantId: string, file: File): Promise<s
   }
   const body = (await res.json()) as { url?: string }
   if (!body.url) throw new ApiError(502, 'The upload returned no URL.')
+  return body.url
+}
+
+/**
+ * Upload a company logo and get its URL. Multipart, so it bypasses the JSON
+ * `api` wrapper. The backend stores it locally (served at `/api/logos/...`),
+ * so no third-party host or API key is involved.
+ */
+export async function uploadImage(file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  const body = await api.postForm<{ url?: string }>('/api/admin/upload/logo', form)
+  if (!body?.url) throw new ApiError(502, 'The upload returned no URL.')
   return body.url
 }
 

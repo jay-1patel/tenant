@@ -67,6 +67,7 @@ from routes.audit_logs import router as audit_logs_router
 from routes.tenant_approvals import router as tenant_approvals_router
 from routes.integrations import router as integrations_router
 from routes.callbacks import router as callbacks_router
+from routes.test_simulator import router as test_simulator_router
 from services.handoff_timeout import handoff_timeout_monitor
 
 logging.basicConfig(level=logging.INFO)
@@ -119,6 +120,20 @@ async def lifespan(app: FastAPI):
     cart_cleanup_task = asyncio.create_task(cart_cleanup_monitor(cart_cleanup_stop_event))
     logger.info("[STARTUP] Cart/checkout TTL cleanup monitor started")
 
+    # Start the send2.digital inbound polling listener. This is what delivers
+    # WhatsApp messages that arrive outside the push webhook; every conversation,
+    # including a bare "Hi", is recorded in the customer directory via the
+    # orchestrator's touch_customer (first contact creates, later contacts update).
+    try:
+        from services.incoming_listener import poll_incoming_messages
+        incoming_stop_event = asyncio.Event()
+        incoming_task = asyncio.create_task(poll_incoming_messages(incoming_stop_event))
+        logger.info("[STARTUP] send2 inbound message poller started")
+    except Exception as exc:
+        logger.warning(f"[STARTUP] send2 inbound poller NOT started: {exc}", exc_info=True)
+        incoming_task = None
+        incoming_stop_event = None
+
     try:
         yield
     finally:
@@ -134,6 +149,13 @@ async def lifespan(app: FastAPI):
             await cart_cleanup_task
         except asyncio.CancelledError:
             pass
+        if incoming_task is not None:
+            incoming_stop_event.set()
+            incoming_task.cancel()
+            try:
+                await incoming_task
+            except asyncio.CancelledError:
+                pass
         logger.info("[SHUTDOWN] Server stopped")
 
 
@@ -298,6 +320,7 @@ app.include_router(audit_logs_router, tags=["audit-logs"])
 app.include_router(tenant_approvals_router, tags=["tenant-approvals"])
 app.include_router(integrations_router, tags=["integrations"])
 app.include_router(callbacks_router, tags=["callbacks"])
+app.include_router(test_simulator_router, tags=["test-simulator"])
 
 IMAGES_DIR = os.path.join(os.path.dirname(__file__), "images")
 if os.path.isdir(IMAGES_DIR):
@@ -306,6 +329,12 @@ if os.path.isdir(IMAGES_DIR):
 UPLOADED_DIR = os.path.join(os.path.dirname(__file__), "uploaded_files")
 if os.path.isdir(UPLOADED_DIR):
     app.mount("/uploaded_files", StaticFiles(directory=UPLOADED_DIR), name="uploaded-files")
+
+# Company logos live on disk and are served under /api so the Vite dev proxy
+# (which only forwards /api) reaches them; no third-party host or key needed.
+LOGOS_DIR = os.path.join(UPLOADED_DIR, "logos")
+os.makedirs(LOGOS_DIR, exist_ok=True)
+app.mount("/api/logos", StaticFiles(directory=LOGOS_DIR), name="logos")
 
 ADMIN_BUILD_DIR = os.path.join(os.path.dirname(__file__), "admin_build")
 

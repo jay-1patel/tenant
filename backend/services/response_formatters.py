@@ -293,26 +293,34 @@ class WhatsAppFormatter:
             return text
             
         # Apply markdown replacements
+        # Note: headers, links, and bold+italic must precede simple bold.
         replacements = [
+            # Headers (# Header, ## Subheading) -> *Header*
+            (r'(?m)^#{1,6}\s*(.+?)\s*$', r'*\1*'),
+
+            # Markdown links: [Title](https://...) -> Title: https://...
+            (r'\[([^\]]+)\]\((https?://[^\)]+)\)', lambda m: m.group(2) if m.group(1).strip().lower() == m.group(2).strip().lower() else f"{m.group(1).strip()}: {m.group(2).strip()}"),
+
+            # Bold + Italic (MUST be before bold)
+            (r'\*\*\*(.+?)\*\*\*', r'*_\1_*'),
+            (r'___([^_]+)___', r'*_\1_*'),
+
             # Bold
             (r'\*\*(.+?)\*\*', r'*\1*'),
             (r'__([^_]+)__', r'*\1*'),
-            
-            # NOTE: no *x* / _x_ transforms. WhatsApp already renders *x* as
-            # bold and _x_ as italic, and the bold rule above emits *x* —
-            # re-matching it here used to rewrite it to \_x\_, a literal
-            # backslash-underscore pair that clients display verbatim.
-            
+
             # Strikethrough
             (r'~~(.+?)~~', r'~\1~'),
-            
-            # Bold + Italic
-            (r'\*\*\*(.+?)\*\*\*', r'*_\1_*'),
         ]
-        
-        for pattern, replacement in replacements:
-            text = re.sub(pattern, replacement, text)
-            
+
+        for item in replacements:
+            pattern = item[0]
+            replacement = item[1]
+            if callable(replacement):
+                text = re.sub(pattern, replacement, text)
+            else:
+                text = re.sub(pattern, replacement, text)
+
         return text
     
     def _add_context_emojis(self, text: str, message_type: MessageType, 
@@ -396,27 +404,25 @@ class WhatsAppFormatter:
         return text.rstrip() + signature_text
     
     def _format_bullets(self, text: str) -> str:
-        """Format bullet points properly."""
+        """Format bullet points properly without breaking *bold* lines."""
         lines = text.split('\n')
         formatted_lines = []
-        
+
         for line in lines:
             stripped = line.strip()
             if stripped:
-                # Check if line starts with bullet markers
-                bullet_markers = ['•', '-', '*', '◦', '▪', '·', '']
-                starts_with_bullet = any(stripped.startswith(marker) for marker in bullet_markers)
-                
-                if starts_with_bullet:
-                    # Standardize bullet style
+                # Check if line starts with bullet marker followed by whitespace
+                # Notice: marker MUST be followed by whitespace, otherwise *bold* lines get mangled
+                match = re.match(r'^[•\-\*◦▪·]\s+', stripped)
+                if match:
                     bullet = self.options.bullet_style
-                    content = stripped[1:].strip()  # Remove existing bullet
+                    content = stripped[match.end():].strip()
                     formatted_lines.append(f"{bullet} {content}")
                 else:
                     formatted_lines.append(stripped)
             else:
                 formatted_lines.append('')
-                
+
         return '\n'.join(formatted_lines)
     
     def _number_steps(self, text: str) -> str:
@@ -471,61 +477,33 @@ class HyperlinkFormatter:
     
     def format_urls(self, text: str) -> str:
         """
-        Format URLs in text to be more readable and clickable.
-        
-        WhatsApp automatically makes URLs clickable, but we can:
-        - Shorten very long URLs
-        - Add context around links
-        - Ensure proper spacing
+        Format URLs in text for WhatsApp.
+        WhatsApp automatically turns raw http(s) URLs into clickable links.
+        Do NOT wrap them into markdown [short_url](url), as WhatsApp does not
+        support markdown link syntax and prints raw brackets.
         """
-        def replace_url(match):
-            url = match.group(0)
-            
-            # Shorten very long URLs
-            if len(url) > 50:
-                try:
-                    # Try to extract domain
-                    parsed = urllib.parse.urlparse(url)
-                    domain = parsed.netloc.replace('www.', '')
-                    
-                    # Create shortened version with context
-                    if parsed.path and len(parsed.path) > 1:
-                        path_parts = parsed.path.split('/')[1:3]  # Take first 2 path parts
-                        path_hint = '/'.join(path_parts) if path_parts else ''
-                        short_url = f"{domain}{path_hint}" if path_hint else domain
-                    else:
-                        short_url = domain
-                    
-                    # Add hyperlink formatting
-                    return f"[{short_url}]({url})"
-                except:
-                    return url
-            else:
-                # Ensure proper spacing around URLs
-                return url
-                
-        return self.url_pattern.sub(replace_url, text)
-    
+        return text
+
     def create_link(self, text: str, url: str) -> str:
-        """Create a clickable link with descriptive text."""
-        return f"[{text}]({url})"
-    
+        """Create a WhatsApp-compatible link (URL or Text: URL)."""
+        if not text or text.strip().lower() == url.strip().lower():
+            return url
+        return f"{text}: {url}"
+
     def format_contact_links(self, text: str, phone: str, name: str = "Us") -> str:
         """Format phone number as clickable WhatsApp link."""
-        # Create WhatsApp direct chat link
         whatsapp_url = f"https://wa.me/{phone.replace('+', '').replace(' ', '')}"
-        link_text = f"[{name} on WhatsApp]({whatsapp_url})"
-        
-        # Replace phone numbers in text with clickable links
+        link_text = f"{name} on WhatsApp: {whatsapp_url}"
+
         phone_pattern = re.compile(r'(\+?[0-9\-\s]{10,15})')
         def replace_phone(match):
             phone_number = match.group(1).replace(' ', '').replace('-', '')
             wa_url = f"https://wa.me/{phone_number.replace('+', '')}"
-            return f"[Chat]({wa_url})"
-        
+            return f"Chat: {wa_url}"
+
         text = phone_pattern.sub(replace_phone, text)
         text = text.replace(phone, link_text)
-        
+
         return text
 
 

@@ -108,15 +108,18 @@ def _live_sender(kind: str):
 
 async def send_text_message(wa_id: str, text: str) -> bool:
     """Send (or capture) a plain text message."""
-    _record({"type": "text", "text": text or ""})
     logger.info(f"SEND_TEXT | to={wa_id} | chars={len(text or '')}")
     sender = _live_sender("text")
     if sender is None:
+        _record({"type": "text", "text": text or "", "sent_live": False})
         return True  # capture-only fallback (e.g. simulator)
     try:
-        return bool(sender(wa_id, text or ""))
+        sent = bool(sender(wa_id, text or ""))
+        _record({"type": "text", "text": text or "", "sent_live": sent})
+        return sent
     except Exception as e:
         logger.error(f"SEND_TEXT_FAILED | to={wa_id} | error={e}")
+        _record({"type": "text", "text": text or "", "sent_live": False})
         return False
 
 
@@ -228,18 +231,27 @@ async def send_button_message(wa_id: str, body: str, buttons: list, header_media
     to attach media as the message header in the SAME API call (no separate
     media message needed).
     """
-    _record({
-        "type": "buttons", "text": body or "", "buttons": buttons or [],
-        "header_media": header_media or None,
-    })
     logger.info(f"SEND_BUTTONS | to={wa_id} | buttons={len(buttons or [])} | header={'yes' if header_media else 'no'}")
     sender = _live_sender("buttons")
     if sender is None:
+        _record({
+            "type": "buttons", "text": body or "", "buttons": buttons or [],
+            "header_media": header_media or None, "sent_live": False,
+        })
         return True
     try:
-        return bool(sender(wa_id, body or "", buttons or [], header_media))
+        sent = bool(sender(wa_id, body or "", buttons or [], header_media))
+        _record({
+            "type": "buttons", "text": body or "", "buttons": buttons or [],
+            "header_media": header_media or None, "sent_live": sent,
+        })
+        return sent
     except Exception as e:
         logger.error(f"SEND_BUTTONS_FAILED | to={wa_id} | error={e}")
+        _record({
+            "type": "buttons", "text": body or "", "buttons": buttons or [],
+            "header_media": header_media or None, "sent_live": False,
+        })
         return False
 
 
@@ -251,21 +263,43 @@ async def send_list_menu(
     sections: list,
 ) -> bool:
     """Send (or capture) a list menu message."""
-    _record(
-        {
-            "type": "list",
-            "header": header or "",
-            "body": body or "",
-            "button_text": button_text or "",
-            "sections": sections or [],
-        }
-    )
     logger.info(f"SEND_LIST | to={wa_id} | sections={len(sections or [])}")
     sender = _live_sender("list")
     if sender is None:
+        _record(
+            {
+                "type": "list",
+                "header": header or "",
+                "body": body or "",
+                "button_text": button_text or "",
+                "sections": sections or [],
+                "sent_live": False,
+            }
+        )
         return True
     try:
-        return bool(sender(wa_id, header or "", body or "", button_text or "", sections or []))
+        sent = bool(sender(wa_id, header or "", body or "", button_text or "", sections or []))
+        _record(
+            {
+                "type": "list",
+                "header": header or "",
+                "body": body or "",
+                "button_text": button_text or "",
+                "sections": sections or [],
+                "sent_live": sent,
+            }
+        )
+        return sent
     except Exception as e:
         logger.error(f"SEND_LIST_FAILED | to={wa_id} | error={e}")
+        _record(
+            {
+                "type": "list",
+                "header": header or "",
+                "body": body or "",
+                "button_text": button_text or "",
+                "sections": sections or [],
+                "sent_live": False,
+            }
+        )
         return False
