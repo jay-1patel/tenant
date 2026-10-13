@@ -5,6 +5,12 @@ import re
 
 logger = logging.getLogger("b2c_workflows")
 
+# Relevance floors below which a document hit is treated as noise instead of an
+# answer. FAQ scores are cross-encoder logits (~0.0 = neutral); KB scores are
+# cosine similarity on normalized embeddings. Tune if real matches regress.
+MIN_FAQ_CE_SCORE = 0.30
+MIN_KB_SIMILARITY = 0.40
+
 
 def _clean(text: str) -> str:
     """Lowercase and strip emoji so menu titles / list replies match keywords."""
@@ -209,14 +215,56 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
 async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     """Answer a general question from the uploaded documents.
 
-    Queries two document sources in order:
-      1. The FAQ hybrid index (FAQ text docs + catalogue / new-arrivals PDFs).
-      2. The KB FAISS index (company details / nutrition facts / full-site PDFs).
-
-    Falls back to a generic response only when neither source has a match, so
-    the bot always returns a message.
+    Resolution order:
+      1. Tenant profile menu rows (list-row taps arrive as plain title text on
+         the send2 poll: "💼  Career", "🚀  Services", "💻  Technologies"). These
+         are answered from the tenant's own content — the title must never be
+         thrown at the RAG index, which returns an unrelated chunk.
+      2. Rules-based intent match for typed panel words (careers, services, ...).
+      3. The FAQ hybrid index and the KB FAISS index, gated by a relevance
+         floor so an off-topic tap does not get a confident-looking answer.
+      4. A generic "not certain" reply as the final fallback.
     """
     from services.whatsapp_sender import send_text_message
+
+    # 0. Tenant menu row (tapped title) / rules intent: authoritative, no RAG.
+    try:
+        from services.intent_answers import answer_for_menu_title, answer_for_text
+        tenant_answer = answer_for_menu_title(wa_id, message)
+        if not tenant_answer:
+            tenant_answer = answer_for_text(wa_id, message)
+        if tenant_answer:
+            await send_text_message(wa_id, tenant_answer)
+            return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+    except Exception as e:
+        logger.debug(f"Tenant intent resolution failed: {e}")
+
+    # 0b. Services row ("Our Services") / typed service enquiry: return the
+    # tenant's configured offerings. send2 delivers a list-row tap as plain
+    # title text, so the interactive-id shortcut in routing/message.py
+    # (menu_services) never fires on the poller path — resolve it by title here.
+    try:
+        if _is_services_title(wa_id, message):
+            try:
+                from services import service_answers
+            except ImportError:
+                from backend.services import service_answers
+            svc = service_answers.answer_for_text(wa_id, message)
+            if svc:
+                await send_text_message(wa_id, svc)
+                return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+    except Exception as e:
+        logger.debug(f"Service listing resolution failed: {e}")
+
+    # A tapped menu row that a tenant has no answer for must not fall through
+    # to a random document chunk — say so instead of guessing.
+    if _is_menu_title(wa_id, message):
+        await send_text_message(
+            wa_id,
+            "I'm not certain about that. Would you like to browse our products, "
+            "check nutrition info, or talk to a human agent?",
+        )
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
 
     answer = None
 
@@ -247,6 +295,12 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 if ". . . ." not in candidate and "...." not in candidate:
                     answer = candidate
                     break
+            hits = faq_index.search(message, k=1)
+            if hits:
+                # faq_index.search returns (text, metadata, score) tuples.
+                score = hits[0][2]
+                if score >= MIN_FAQ_CE_SCORE:
+                    answer = hits[0][0]
     except Exception as e:
         logger.warning(f"FAQ index lookup failed: {e}")
 
@@ -258,20 +312,17 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             from database import get_db_context
             hits = search_kb_faiss(message, limit=5)
             if hits:
-                for top in hits:
-                    with get_db_context() as conn:
-                        row = conn.execute(
-                            "SELECT chunks_json FROM knowledge_base WHERE id=?",
-                            (top["doc_id"],),
-                        ).fetchone()
-                    if row and row[0]:
-                        chunks = _json.loads(row[0])
-                        ci = top.get("chunk_index")
-                        if isinstance(ci, int) and 0 <= ci < len(chunks):
-                            candidate = chunks[ci]
-                            if ". . . ." not in candidate and "...." not in candidate:
-                                answer = candidate
-                                break
+                top = hits[0]
+                with get_db_context() as conn:
+                    row = conn.execute(
+                        "SELECT chunks_json FROM knowledge_base WHERE id=?",
+                        (top["doc_id"],),
+                    ).fetchone()
+                if row and row[0]:
+                    chunks = _json.loads(row[0])
+                    ci = top.get("chunk_index")
+                    if isinstance(ci, int) and 0 <= ci < len(chunks):
+                        answer = chunks[ci]
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
 
@@ -283,6 +334,68 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
 
     await send_text_message(wa_id, answer)
     return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+
+
+def _is_menu_title(wa_id: str, message: str) -> bool:
+    """True if the message refers to one of the current menu row titles.
+
+    Used as a guard so an unmatched menu tap gets a polite fallback instead of
+    an unrelated RAG chunk. Matches exact dealings AND single tokens contained
+    in a title (send2 may deliver "Services" for the "Our Services" row).
+    """
+    if not (message or "").strip():
+        return False
+    try:
+        from services.menu_catalog import get_kb_main_menu
+        from services.intent_answers import _clean_title as _tc
+        target = _clean(message)
+        if not target:
+            return False
+        titles = [_tc(item.title) for item in get_kb_main_menu(wa_id)]
+        # Accept the row name only when the tap is short (a menu row, not a
+        # free-form question): a multi-word sentence is treated as RAG-worthy.
+        if len(target.split()) > 4:
+            return False
+        for title in titles:
+            if not title:
+                continue
+            if target == title:
+                return True
+            title_tokens = title.split()
+            for token in target.split():
+                if len(token) < 4:
+                    continue
+                if token in title_tokens or any(
+                    len(t) >= 4 and t.startswith(token) for t in title_tokens
+                ):
+                    return True
+    except Exception as e:
+        logger.debug(f"Menu title check failed: {e}")
+    return False
+
+
+def _is_services_title(wa_id: str, message: str) -> bool:
+    """True if the message is the tenant's services/offerings menu row.
+
+    Matches the tapped (or typed) row title against the visible profile menu
+    and returns True only for the rows that list offerings (menu_services /
+    menu_offerings), so the caller knows to render the offerings list.
+    """
+    if not (message or "").strip():
+        return False
+    try:
+        from services.menu_catalog import get_kb_main_menu
+        from services.intent_answers import _clean_title as _tc
+        target = _clean(message)
+        if not target:
+            return False
+        for item in get_kb_main_menu(wa_id):
+            if getattr(item, "id", "") in ("menu_services", "menu_offerings") \
+                    and _tc(item.title) == target:
+                return True
+    except Exception as e:
+        logger.debug(f"Services title check failed: {e}")
+    return False
 
 
 async def _kb_answer(wa_id: str, query: str) -> str:

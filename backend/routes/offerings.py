@@ -37,6 +37,7 @@ from database import (
     get_db_context,
     get_product,
     list_products,
+    record_admin_audit_event,
     save_product,
     update_product,
 )

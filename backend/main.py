@@ -336,6 +336,12 @@ LOGOS_DIR = os.path.join(UPLOADED_DIR, "logos")
 os.makedirs(LOGOS_DIR, exist_ok=True)
 app.mount("/api/logos", StaticFiles(directory=LOGOS_DIR), name="logos")
 
+# Chat attachments (admin chat + live inbox) are stored on disk and served the
+# same way: local hosting, no third-party host or API key.
+CHAT_ATTACHMENTS_DIR = os.path.join(UPLOADED_DIR, "chat_attachments")
+os.makedirs(CHAT_ATTACHMENTS_DIR, exist_ok=True)
+app.mount("/api/uploads/chat", StaticFiles(directory=CHAT_ATTACHMENTS_DIR), name="chat-attachments")
+
 ADMIN_BUILD_DIR = os.path.join(os.path.dirname(__file__), "admin_build")
 
 

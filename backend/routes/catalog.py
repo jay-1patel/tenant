@@ -40,10 +40,13 @@ def _upload_image_to_imghippo(contents: bytes, filename: str = "image") -> str:
 
     async def _do():
         payload = aiohttp.FormData()
-        payload.add_field("api_key", imghippo_key)
         payload.add_field("file", contents, filename=filename)
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.imghippo.com/v1/upload", data=payload) as resp:
+            async with session.post(
+                "https://api.imghippo.com/v1/upload",
+                data=payload,
+                headers={"X-API-Key": imghippo_key},
+            ) as resp:
                 img_data = await resp.json()
                 if not resp.ok or not img_data.get("success"):
                     raise HTTPException(

@@ -724,10 +724,13 @@ async def run_upload(
             raise HTTPException(status_code=400, detail="Imghippo API key not configured")
         import aiohttp
         img_payload = aiohttp.FormData()
-        img_payload.add_field("api_key", IMGHIPPO_API_KEY)
         img_payload.add_field("file", content, filename=filename or "image")
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.imghippo.com/v1/upload", data=img_payload) as resp:
+            async with session.post(
+                "https://api.imghippo.com/v1/upload",
+                data=img_payload,
+                headers={"X-API-Key": IMGHIPPO_API_KEY},
+            ) as resp:
                 img_data = await resp.json()
                 if not resp.ok or not img_data.get("success"):
                     raise HTTPException(status_code=400, detail=img_data.get("message", "Imghippo upload failed"))
@@ -943,11 +946,14 @@ async def upload_image_to_imghippo(file: UploadFile = File(...)):
 
     contents = await file.read()
     payload = aiohttp.FormData()
-    payload.add_field("api_key", IMGHIPPO_API_KEY)
     payload.add_field("file", contents, filename=file.filename or "image", content_type=file.content_type or "application/octet-stream")
 
     async with aiohttp.ClientSession() as session:
-        async with session.post("https://api.imghippo.com/v1/upload", data=payload) as resp:
+        async with session.post(
+            "https://api.imghippo.com/v1/upload",
+            data=payload,
+            headers={"X-API-Key": IMGHIPPO_API_KEY},
+        ) as resp:
             data = await resp.json()
             if not resp.ok or not data.get("success"):
                 raise HTTPException(status_code=400, detail=data.get("message", "Imghippo upload failed"))
@@ -993,11 +999,14 @@ async def upload_to_catbox(file: UploadFile = File(...)):
     return {"url": url, "media_type": file.content_type or "application/octet-stream"}
 
 
-#: Chat attachments are hosted public (imghippo for images, catbox otherwise) so
-#: the console can render them inline and the live inbox can hand the URL to
-#: WhatsApp. Kept small enough not to hold a request open for minutes.
+#: Chat attachments (admin chat + live inbox) are stored on our own disk under
+#: ``uploaded_files/chat_attachments`` and served at ``/api/uploads/chat/...``
+#: (mounted in main.py) so no third-party host or API key is involved. Kept
+#: small enough not to hold a request open for minutes.
 MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
 _IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+CHAT_ATTACHMENTS_DIR = os.path.join(UPLOAD_DIR, "chat_attachments")
+os.makedirs(CHAT_ATTACHMENTS_DIR, exist_ok=True)
 
 
 def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
@@ -1021,28 +1030,21 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
 
 
 async def store_chat_attachment(filename: str, content: bytes, media_type: str | None = None) -> dict:
-    """Host one chat attachment and return a descriptor the UI can use."""
+    """Save one chat attachment on our own disk and return a descriptor.
+
+    Hosted locally (no ImgHippo/Catbox), so admin chat and the live inbox never
+    depend on a third-party host or an API key.
+    """
     ext = Path(filename).suffix.lower()
     is_image = (media_type or "").startswith("image/") or ext in _IMAGE_EXTS
-    if is_image:
-        payload = aiohttp.FormData()
-        payload.add_field("api_key", IMGHIPPO_API_KEY)
-        payload.add_field("file", content, filename=filename or "image",
-                          content_type=media_type or "application/octet-stream")
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.imghippo.com/v1/upload", data=payload) as resp:
-                data = await resp.json()
-                if not resp.ok or not data.get("success"):
-                    raise HTTPException(status_code=400, detail=data.get("message", "Image upload failed"))
-                url = data["data"]["url"]
-        kind = "image"
-    else:
-        url = await _upload_to_catbox(filename or "file", content, media_type or "application/octet-stream")
-        kind = "document"
+    safe_ext = ext if 0 < len(ext) <= 10 else (".png" if is_image else ".bin")
+    stored = f"{uuid.uuid4().hex}{safe_ext}"
+    with open(os.path.join(CHAT_ATTACHMENTS_DIR, stored), "wb") as handle:
+        handle.write(content)
     return {
-        "url": url,
+        "url": f"/api/uploads/chat/{stored}",
         "name": filename,
-        "type": kind,
+        "type": "image" if is_image else "document",
         "size": len(content),
         "media_type": media_type or ("image/*" if is_image else "application/octet-stream"),
     }

@@ -837,7 +837,7 @@ def _upload_image_file(file_path: str) -> Optional[str]:
                 file_bytes = f.read()
             resp = httpx.post(
                 "https://api.imghippo.com/v1/upload",
-                data={"api_key": IMGHIPPO_API_KEY},
+                headers={"X-API-Key": IMGHIPPO_API_KEY},
                 files={
                     "file": (
                         os.path.basename(file_path),

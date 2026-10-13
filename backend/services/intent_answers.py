@@ -54,6 +54,16 @@ def _answered_intents(profile) -> list:
     ]
 
 
+_EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
+
+
+def _clean_title(text: str) -> str:
+    """Lowercase, strip emoji and collapse whitespace (mirrors b2c _clean)."""
+    if not text:
+        return ""
+    return " ".join(_EMOJI_RE.sub("", str(text)).strip().lower().split())
+
+
 def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
     """Answer text for a tapped profile menu row, or None.
 
@@ -71,6 +81,70 @@ def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
     return None
 
 
+def answer_for_menu_title(wa_id: str, text: str, tenant_id=None) -> str | None:
+    """Answer text for a tapped profile menu row, matched by its TITLE.
+
+    send2.digital delivers a list-row tap to the poller as plain title text
+    (e.g. ``"💼  Career"``), with no button id. The poller therefore cannot use
+    ``answer_for_button``, so the title is resolved back to the profile row and
+    dispatched on the row's intent — the title never enters an LLM/RAG lookup.
+
+    Exact, emoji/case/space-insensitive match only (no fuzzy matching), so a
+    normal typed question is never hijacked by a menu title.
+    """
+    if not (text or "").strip():
+        return None
+    profile = _profile(tenant_id, wa_id)
+    if profile is None:
+        return None
+    target = _clean_title(text)
+    for b in profile.menu.visible_buttons(profile.features):
+        if _clean_title(b.title) != target:
+            continue
+        intent = getattr(b, "intent", None)
+        if intent:
+            ans = answer_for_intent(wa_id, intent, tenant_id=tenant_id or profile.tenant_id)
+            if ans:
+                return ans
+        return answer_for_button(wa_id, b.id, tenant_id=tenant_id or profile.tenant_id)
+    return None
+
+
+# Intents whose reply is the tenant's contact block, composed from the profile
+# (brand.support_phone / brand.support_email / notifications.sales_email) rather
+# than authored as static text. Lets the "Customer Support" row show the real
+# numbers and addresses and follow profile edits with no code change.
+_CONTACT_INTENTS = {"support_request", "contact", "contact_us", "customer_support", "reach_us"}
+
+
+def _contact_answer(profile) -> str | None:
+    """Build a contact reply from the tenant profile's own contact fields."""
+    brand = getattr(profile, "brand", None)
+    if brand is None:
+        return None
+    name = (getattr(brand, "name", "") or "").strip()
+    phone = (getattr(brand, "support_phone", "") or "").strip()
+    email = (getattr(brand, "support_email", "") or "").strip()
+    website = (getattr(brand, "website", "") or "").strip()
+    sales_email = ""
+    notifications = getattr(profile, "notifications", None)
+    if notifications is not None:
+        sales_email = (getattr(notifications, "sales_email", "") or "").strip()
+
+    lines = [f"📞 *Contact {name}*" if name else "📞 *Contact us*", ""]
+    if phone:
+        lines.append(f"• *Customer care:* {phone}")
+    if email:
+        lines.append(f"• *Customer care email:* {email}")
+    if sales_email:
+        lines.append(f"• *Sales:* {sales_email}")
+    if website:
+        lines.append(f"• *Website:* {website}")
+    if len(lines) <= 2:
+        return None
+    return "\n".join(lines)
+
+
 def answer_for_intent(wa_id: str, intent_name: str, tenant_id=None) -> str | None:
     """Answer text for a named intent (also serves registry buttons, whose ids
     match intent names by convention: projects, technologies, careers,
@@ -80,6 +154,12 @@ def answer_for_intent(wa_id: str, intent_name: str, tenant_id=None) -> str | Non
     profile = _profile(tenant_id, wa_id)
     if profile is None:
         return None
+    if intent_name in _CONTACT_INTENTS:
+        active = {i.name for i in profile.active_intents()}
+        if intent_name in active:
+            contact = _contact_answer(profile)
+            if contact:
+                return contact
     for intent in _answered_intents(profile):
         if intent.name == intent_name:
             raw_answer = intent.answer.strip()

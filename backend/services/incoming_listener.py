@@ -35,8 +35,87 @@ logger = logging.getLogger("IncomingListener")
 # Poll cadence in seconds.
 POLL_INTERVAL_SECONDS = 5
 
+# How far back each poll window reaches. Processed message IDs are persisted
+# in `processed_inbound_messages` (backend/database.py), so a restart cannot
+# re-answer rows already handled — the window only needs to cover the time the
+# listener is briefly offline between polls.
+POLL_WINDOW_MINUTES = 15
+
 # Request timeout for each poll attempt.
 HTTP_TIMEOUT_SECONDS = 10.0
+
+# In-memory dedup fast path (the durable record lives in SQLite). Keep bounded.
+_processed_message_ids: set = set()
+_MAX_PROCESSED_IDS = 5000
+
+
+def _cleanup_processed_ids() -> None:
+    """Keep the processed-IDs set bounded."""
+    if len(_processed_message_ids) > _MAX_PROCESSED_IDS:
+        _processed_message_ids.clear()
+
+
+def _record_processed(message_id: str, wa_id: str) -> None:
+    """Mark a message as handled in both the in-memory set and SQLite.
+
+    The SQLite record is authoritative: the poll window overlaps by design and
+    the app restarts, so an in-memory-only set would let old rows get answered
+    again after every restart ("sending without messaging anything").
+    """
+    _processed_message_ids.add(message_id)
+    try:
+        from database import mark_inbound_processed
+        mark_inbound_processed(message_id, wa_id)
+    except Exception as e:
+        logger.warning(f"Could not persist processed id {message_id}: {e}")
+
+
+def _was_processed(message_id: str) -> bool:
+    if message_id in _processed_message_ids:
+        return True
+    try:
+        from database import was_inbound_processed
+        return was_inbound_processed(message_id)
+    except Exception as e:
+        logger.warning(f"Could not check processed id {message_id}: {e}")
+        return False
+
+
+def _reply_text(outgoing: list) -> str:
+    """Concatenate the reply text for chat_history logging."""
+    parts = []
+    for msg in outgoing or []:
+        # Include live-sent messages too: in live mode every captured message
+        # carries sent_live=True, so skipping them left chat_history empty.
+        if msg.get("type") == "text" and msg.get("text"):
+            parts.append(msg["text"])
+        elif msg.get("type") == "list" and msg.get("body"):
+            parts.append(msg["body"])
+        elif msg.get("type") == "buttons" and msg.get("text"):
+            parts.append(msg["text"])
+    return "\n".join(p for p in parts if p.strip())[:2000]
+
+
+def _record_chat(wa_id: str, sender_name: str, text: str, outgoing: list) -> None:
+    """Persist the exchange so the admin console shows it in chat history."""
+    reply = _reply_text(outgoing)
+    if not text or not reply:
+        return
+    try:
+        from database import save_chat
+        save_chat(wa_id, sender_name or "", text, reply, route="send2")
+    except Exception as e:
+        logger.warning(f"Could not save chat for {wa_id}: {e}")
+
+
+def _record_poll(wa_id: str, text: str) -> None:
+    """Write a webhook_logs row so the admin webhook stats are non-empty."""
+    try:
+        from database import log_webhook
+        log_webhook("incoming", "send2/poll", {"wa_id": wa_id, "message": (text or "")[:500]})
+    except Exception as e:
+        logger.warning(f"Could not log poll webhook for {wa_id}: {e}")
+
 
 async def _send_reply(wa_id: str, messages: list) -> None:
     """Send the orchestrator's captured messages via send2.digital.
@@ -113,9 +192,10 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
             break
 
         try:
-            # Fetch messages from the last hour to avoid missing any.
+            # Fetch messages from the recent window (processed-ID ledger in
+            # SQLite makes overlap + restarts safe, so no 1-hour re-scan).
             now = datetime.now()
-            from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+            from_date = (now - timedelta(minutes=POLL_WINDOW_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
             to_date = now.strftime("%Y-%m-%d %H:%M:%S")
 
             payload = {
@@ -158,6 +238,7 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                     text = (msg.get("Message", "") or "").strip()
                     status = msg.get("status", "")
                     date_str = msg.get("Date", "")
+                    sender_name = str(msg.get("Name") or msg.get("SenderName") or "").strip()
 
                     # Skip if no message ID (test/dummy entries) or empty text.
                     if not message_id or not wa_id or not text:
@@ -171,9 +252,8 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                     ):
                         continue
 
-                    from services.dedup import is_duplicate
-                    if is_duplicate(message_id, wa_id):
-                        logger.info("Skipping duplicate message %s from %s", message_id, wa_id)
+                    # Skip if already processed (memory + persisted ledger).
+                    if _was_processed(message_id):
                         continue
 
                     logger.info(f"New message from {wa_id}: {text[:80]}... (id={message_id[:20]}...)")
@@ -195,8 +275,17 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                         else:
                             logger.info(f"Processed {wa_id} but no outgoing messages")
 
+                        # Mark as processed only after the reply was sent so a
+                        # crash mid-send retries instead of dropping the answer.
+                        _record_processed(message_id, wa_id)
+                        _record_chat(wa_id, sender_name, text, outgoing)
+                        _record_poll(wa_id, text)
+
                     except Exception as e:
                         logger.error(f"Failed to process message from {wa_id}: {e}", exc_info=True)
+
+                # Periodic cleanup of the processed-IDs set.
+                _cleanup_processed_ids()
 
         except Exception as e:
             logger.error("Incoming listener poll failed: %s", e, exc_info=True)

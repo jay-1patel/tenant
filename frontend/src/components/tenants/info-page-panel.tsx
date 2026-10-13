@@ -260,6 +260,11 @@ export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: Info
                 value={form.answer}
                 onChange={(answer) => setForm((f) => (f ? { ...f, answer } : f))}
               />
+            ) : page === 'technologies' || page === 'benefits' ? (
+              <BulletsEditor
+                value={form.answer}
+                onChange={(answer) => setForm((f) => (f ? { ...f, answer } : f))}
+              />
             ) : (
             <Textarea
               label="Answer text"
@@ -597,5 +602,156 @@ function serializeOpenings(shape: CareersShape): string {
     parts.push('')
     parts.push(shape.closing.trim())
   }
+  return parts.join('\n')
+}
+
+// ── Technologies / Benefits: labelled bullet editor ──────────────────────────
+
+/** One bold-labelled bullet: a label that is bolded and its detail text. */
+interface BulletRow {
+  label: string
+  details: string
+}
+
+interface BulletsShape {
+  intro: string
+  rows: BulletRow[]
+  closing: string
+}
+
+/**
+ * Technologies and benefits answers are a list of labelled bullets — a bold
+ * label and its detail, e.g. "• *Frontend:* modern JavaScript frameworks". The
+ * editor gives each bullet its own label and details inputs and writes the
+ * "• " and *stars* for you, so a non-technical editor never types them. An
+ * answer that is not in this format (hand-written or legacy text) falls back to
+ * the plain textarea so nothing is lost.
+ */
+function BulletsEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [shape, setShape] = useState<BulletsShape | null>(() => parseBullets(value))
+
+  if (shape === null) {
+    return (
+      <Textarea
+        label="Answer text"
+        rows={8}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        hint='This answer is not a labelled-bullet list, so it is edited as plain text. One bullet per line starting with "• "; *stars* make a word bold.'
+      />
+    )
+  }
+
+  const emit = (next: BulletsShape) => {
+    setShape(next)
+    onChange(serializeBullets(next))
+  }
+  const update = (i: number, patch: Partial<BulletRow>) =>
+    emit({ ...shape, rows: shape.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const remove = (i: number) => emit({ ...shape, rows: shape.rows.filter((_, j) => j !== i) })
+  const add = () => emit({ ...shape, rows: [...shape.rows, { label: '', details: '' }] })
+
+  return (
+    <div className="space-y-4">
+      <Input
+        label="Heading line"
+        value={shape.intro}
+        onChange={(e) => emit({ ...shape, intro: e.target.value })}
+        placeholder="Here's the stack we build with:"
+        hint="The line before the bullets, sent as its own bullet. Leave empty to start straight with the list."
+      />
+
+      <div className="space-y-2">
+        {shape.rows.map((r, i) => (
+          <div
+            key={i}
+            className="grid items-end gap-2 rounded-xl bg-surface-panel p-3 ring-1 ring-inset ring-surface-line sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]"
+          >
+            <Input
+              label="Bold label"
+              value={r.label}
+              onChange={(e) => update(i, { label: e.target.value })}
+              placeholder="Frontend"
+            />
+            <Input
+              label="Details"
+              value={r.details}
+              onChange={(e) => update(i, { details: e.target.value })}
+              placeholder="modern JavaScript frameworks and UI systems"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<X className="h-4 w-4" />}
+              onClick={() => remove(i)}
+              aria-label="Remove bullet"
+            />
+          </div>
+        ))}
+        <Button variant="secondary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={add}>
+          Add bullet
+        </Button>
+      </div>
+
+      <Input
+        label="Closing line"
+        value={shape.closing}
+        onChange={(e) => emit({ ...shape, closing: e.target.value })}
+        placeholder="Tell us what you're building and we'll match the right stack for it."
+        hint="Sent after the bullets. Leave empty to finish on the last bullet."
+      />
+
+      <div>
+        <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+          Preview — what the bot sends
+        </p>
+        <div className="rounded-xl bg-surface-panel p-3.5 ring-1 ring-inset ring-surface-line">
+          <AnswerPreview text={serializeBullets(shape)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Parse a labelled-bullet answer; null when it is not in that format. */
+function parseBullets(text: string): BulletsShape | null {
+  const lines = text.split('\n').map((s) => s.replace(/\r$/, '').trim()).filter(Boolean)
+  const intro: string[] = []
+  const closing: string[] = []
+  const rows: BulletRow[] = []
+  let seenRow = false
+  for (const line of lines) {
+    const bullet = line.startsWith('•')
+    const body = bullet ? line.slice(1).trim() : line
+    // A labelled bullet is "• *label* details" — the label is the bold run.
+    const m = body.match(/^\*([^*]+)\*\s*(.*)$/)
+    if (bullet && m) {
+      seenRow = true
+      rows.push({ label: m[1].trim(), details: m[2].trim() })
+      continue
+    }
+    // Anything before the first labelled bullet is the heading; anything
+    // after it is the closing — both sent as their own bullets.
+    if (!seenRow) intro.push(body)
+    else closing.push(body)
+  }
+  if (!rows.length) return null
+  return { intro: intro.join('\n'), rows, closing: closing.join('\n') }
+}
+
+/** Serialize the labelled rows back into the WhatsApp-format answer. */
+function serializeBullets(shape: BulletsShape): string {
+  const lines = (block: string) =>
+    block.split('\n').map((l) => l.trim()).filter(Boolean)
+  const parts: string[] = []
+  for (const line of lines(shape.intro)) parts.push(`• ${line}`)
+  for (const r of shape.rows) {
+    const label = r.label.trim()
+    const details = r.details.trim()
+    if (!label && !details) continue
+    if (label) parts.push(`• *${label}*${details ? ` ${details}` : ''}`)
+    else parts.push(`• ${details}`)
+  }
+  for (const line of lines(shape.closing)) parts.push(`• ${line}`)
   return parts.join('\n')
 }

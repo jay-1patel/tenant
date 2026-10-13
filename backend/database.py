@@ -11,17 +11,35 @@ from contextlib import contextmanager
 
 logger = logging.getLogger("chiki_webhook")
 
-# ── Fix 1: Hardcode DB_PATH using absolute paths ─────────────────────────
-# Get the directory that this database.py file is located in
+# ── Single database shared by the app, the FAQ bot and the KB bot ─────────
+# routing.config resolves DB_PATH from ROUTING_DB_PATH (routing/.env) and the
+# FAQ/KB indexes open that file. This module must open the SAME file, otherwise
+# the admin UI (chat_history / webhook_logs / customers) reads a different,
+# empty faq.db than the bot writes to.
+#
+# routing/.env is loaded here too because this module can be imported before
+# the app calls load_dotenv(). The resolution logic mirrors routing.config
+# exactly (relative paths resolve against the repo root).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# The repo-root faq.db is the single populated database shared by the app,
-# the FAQ bot, and the KB bot (routing.config reads the same file).
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
-DB_PATH = os.path.join(PROJECT_ROOT, "faq.db")
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(PROJECT_ROOT, "routing", ".env"))
+except Exception:  # pragma: no cover - dotenv missing is not fatal
+    pass
 
 
-# ── Fix 2: Remove the routing.config import (it crashes if .env is missing) ──
-# DELETE THIS LINE: from routing.config import DB_PATH
+def _resolve_db_path() -> str:
+    raw = (os.getenv("ROUTING_DB_PATH") or "").strip()
+    if raw:
+        if not os.path.isabs(raw):
+            raw = os.path.join(PROJECT_ROOT, raw)
+        return os.path.normpath(raw)
+    return os.path.join(PROJECT_ROOT, "faq.db")
+
+
+DB_PATH = _resolve_db_path()
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -364,6 +382,17 @@ def init_db():
             )"""
         )
         _ensure_columns(conn, "user_states", [("version", "INTEGER DEFAULT 0")])
+        # Dedup ledger for channel pollers (send2.digital incoming-report). The
+        # poller re-fetches the last hour every cycle and on every restart, so
+        # only an on-disk record can keep the bot from re-answering old rows.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS processed_inbound_messages (
+                message_id TEXT PRIMARY KEY,
+                wa_id TEXT NOT NULL,
+                channel TEXT DEFAULT 'send2',
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS complaints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1959,6 +1988,23 @@ def _init_record_columns_table(conn):
         """CREATE INDEX IF NOT EXISTS ix_tenant_record_columns
            ON tenant_record_columns(tenant_id, sort_order)"""
     )
+    # Repair the is_system flag on older rows. A previous seed marked the shared
+    # presentation columns (price, detail_url, media_url) as system, which locked
+    # them in the console (the UI hides delete for system columns) even though
+    # shared.tenancy.records treats them as tenant-removable. Re-derive the flag
+    # from the single source of truth so existing tenants heal on startup.
+    try:
+        from shared.tenancy.records import SYSTEM_COLUMNS as _rc_system
+
+        system_keys = [c["key"] for c in _rc_system]
+        placeholders = ",".join("?" * len(system_keys))
+        conn.execute(
+            f"UPDATE tenant_record_columns SET is_system = CASE WHEN key IN ({placeholders}) "
+            "THEN 1 ELSE 0 END",
+            system_keys,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(f"record-column is_system repair skipped: {exc}")
 
 
 # ── Phase 0.3: conversation state on user_states (decision D3) ───────────
@@ -2260,6 +2306,38 @@ def get_webhook_stats():
 
 
 # ── Chat history ─────────────────────────────────────────────────────────
+
+def was_inbound_processed(message_id: str, channel: str = "send2") -> bool:
+    """True if this channel already processed the message (survives restarts).
+
+    Used by the send2 poller so a restart does not re-answer the entire last
+    poll window that the incoming-report re-returns on the next request.
+    """
+    if not message_id:
+        return False
+    try:
+        with get_db_context() as conn:
+            return conn.execute(
+                "SELECT 1 FROM processed_inbound_messages WHERE message_id=? AND channel=?",
+                (message_id, channel),
+            ).fetchone() is not None
+    except Exception as e:
+        logger.error(f"was_inbound_processed check failed for {message_id}: {e}")
+        return False
+
+
+def mark_inbound_processed(message_id: str, wa_id: str, channel: str = "send2") -> None:
+    if not message_id:
+        return
+    try:
+        with get_db_context() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO processed_inbound_messages (message_id, wa_id, channel) VALUES (?, ?, ?)",
+                (message_id, wa_id, channel),
+            )
+    except Exception as e:
+        logger.error(f"mark_inbound_processed failed for {message_id}: {e}")
+
 
 def save_chat(wa_id, sender_name, message, response, route="faq", tenant_id=None):
     tid = tenant_id or _current_tenant.get() or _resolve_tenant()
