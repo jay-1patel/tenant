@@ -63,6 +63,7 @@ EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", _default_embedding)
 ROUTER_PORT = _int_env("ROUTER_PORT", 9000)
 
 # ── LLM ───────────────────────────────────────────────────────────────────
+API_PROVIDER = os.getenv("API_PROVIDER", "groq").lower()
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
@@ -79,7 +80,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL")
 
 MISTRAL_API_URL = os.getenv("MISTRAL_API_URL")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY","MISTRAL_API_BACKUP")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") or os.getenv("MISTRAL_API_BACKUP")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL")
 
 # ── Bot messaging defaults ────────────────────────────────────────────────

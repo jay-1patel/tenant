@@ -1514,7 +1514,7 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
                     (faq_id,),
                 ).fetchone()
                 if row:
-                    send_whatsapp_message(wa_id, f"*{row['source_file'] or 'FAQ'}*\n\n{row['content'][:500]}")
+                    send_whatsapp_message(wa_id, f"*{row['source_file'] or 'FAQ'}*\n\n{row['content'][:3500]}")
                     return True
         except ValueError:
             pass
@@ -1529,7 +1529,7 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
                     (kb_id,),
                 ).fetchone()
                 if row:
-                    send_whatsapp_message(wa_id, f"*{row['title']}*\n\n{row['content'][:500]}")
+                    send_whatsapp_message(wa_id, f"*{row['title']}*\n\n{row['content'][:3500]}")
                     return True
         except ValueError:
             pass

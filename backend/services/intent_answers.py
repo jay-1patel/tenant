@@ -58,10 +58,11 @@ _EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
 
 
 def _clean_title(text: str) -> str:
-    """Lowercase, strip emoji and collapse whitespace (mirrors b2c _clean)."""
+    """Lowercase, strip emoji, ellipsis, and collapse whitespace (mirrors b2c _clean)."""
     if not text:
         return ""
-    return " ".join(_EMOJI_RE.sub("", str(text)).strip().lower().split())
+    cleaned = _EMOJI_RE.sub("", str(text)).replace("…", "").replace("...", "")
+    return " ".join(cleaned.strip().lower().split())
 
 
 def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
@@ -89,8 +90,7 @@ def answer_for_menu_title(wa_id: str, text: str, tenant_id=None) -> str | None:
     ``answer_for_button``, so the title is resolved back to the profile row and
     dispatched on the row's intent — the title never enters an LLM/RAG lookup.
 
-    Exact, emoji/case/space-insensitive match only (no fuzzy matching), so a
-    normal typed question is never hijacked by a menu title.
+    Exact, emoji/case/space-insensitive match with singular/plural support.
     """
     if not (text or "").strip():
         return None
@@ -98,8 +98,19 @@ def answer_for_menu_title(wa_id: str, text: str, tenant_id=None) -> str | None:
     if profile is None:
         return None
     target = _clean_title(text)
+    if not target:
+        return None
     for b in profile.menu.visible_buttons(profile.features):
-        if _clean_title(b.title) != target:
+        b_clean = _clean_title(b.title)
+        if not b_clean:
+            continue
+        matched = (
+            b_clean == target
+            or b_clean.rstrip("s") == target.rstrip("s")
+            or (len(target) >= 4 and target in b_clean)
+            or (len(b_clean) >= 4 and b_clean in target)
+        )
+        if not matched:
             continue
         intent = getattr(b, "intent", None)
         if intent:

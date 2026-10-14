@@ -1642,6 +1642,20 @@ def _ensure_callback_tables(conn):
         )
     """)
 
+    # Ensure leads table columns match expected profile runner columns
+    try:
+        existing_cols = {c[1] for c in conn.execute("PRAGMA table_info(leads)").fetchall()}
+        for col_name, col_type in [
+            ("user_name", "TEXT DEFAULT ''"),
+            ("collected", "TEXT DEFAULT '{}'"),
+            ("source", "TEXT DEFAULT ''"),
+            ("flow", "TEXT DEFAULT ''"),
+        ]:
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE leads ADD COLUMN {col_name} {col_type}")
+    except Exception:
+        pass
+
 
 def record_admin_audit_event(
     conn,

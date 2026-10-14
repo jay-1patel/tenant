@@ -130,19 +130,38 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
                collected: dict, collect_keys: list, lead_source: str) -> int:
     data = _lead_payload(collected, collect_keys)
     with _db().get_db_context() as conn:
+        cols = {c[1] for c in conn.execute("PRAGMA table_info(leads)").fetchall()}
+        user_name_col = "user_name" if "user_name" in cols else "name"
+        name_val = str(data.get("name") or "")
+        phone_val = str(data.get("phone") or "")
+        email_val = str(data.get("email") or "")
+        collected_val = json.dumps(data, ensure_ascii=False)
+        source_val = lead_source or flow_name
+
+        fields = ["tenant_id", "wa_id", user_name_col, "phone", "email", "status"]
+        vals = [str(tenant_id), wa_id, name_val, phone_val, email_val, "new"]
+
+        if "name" in cols and user_name_col != "name":
+            fields.append("name")
+            vals.append(name_val)
+        if "collected" in cols:
+            fields.append("collected")
+            vals.append(collected_val)
+        if "source" in cols:
+            fields.append("source")
+            vals.append(source_val)
+        if "flow" in cols:
+            fields.append("flow")
+            vals.append(flow_name)
+        if "service_required" in cols:
+            fields.append("service_required")
+            vals.append(str(data.get("need") or ""))
+
+        placeholders = ", ".join(["?"] * len(vals))
+        col_names = ", ".join(fields)
         cur = conn.execute(
-            """INSERT INTO leads (tenant_id, wa_id, user_name, phone, email,
-               collected, status, source, flow)
-               VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?)""",
-            (
-                tenant_id, wa_id,
-                str(data.get("name") or ""),
-                str(data.get("phone") or ""),
-                str(data.get("email") or ""),
-                json.dumps(data, ensure_ascii=False),
-                lead_source or flow_name,
-                flow_name,
-            ),
+            f"INSERT INTO leads ({col_names}) VALUES ({placeholders})",
+            vals,
         )
         lead_id = cur.lastrowid
     logger.info("LEAD_SAVED | tenant=%s | flow=%s | lead_id=%s", tenant_id, flow_name, lead_id)

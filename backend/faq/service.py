@@ -20,6 +20,7 @@ from routing.config import (
     BRAND_TAGLINE, SIGNATURE,
     GROQ_API_URL, GROQ_API_KEY, GROQ_MODEL,
     MISTRAL_API_URL, MISTRAL_API_KEY, MISTRAL_MODEL,
+    API_PROVIDER,
 )
 from database import save_embeddings
 from services.response_formatters import WhatsAppFormatter, MessageType, smart_format
@@ -54,17 +55,53 @@ RRF_WEIGHTS          = {"dense": 0.6, "sparse": 0.4}
 
 
 def _resolve_tenant_id(tenant_id=None) -> str:
-    """The tenant a search is scoped to. Falls back to the registered default
-    tenant so legacy callers keep serving the pre-tenancy data instead of
-    leaking chunks across tenants."""
+    """The tenant a search is scoped to. Resolves slug or name to the database tenant ID,
+    falling back to default tenant ID so chunks match regardless of slug vs numeric id format."""
     tid = str(tenant_id or "").strip()
-    if tid:
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            tid = str(resolve_default_tenant())
+        except Exception:
+            tid = "1"
+    if tid.isdigit():
         return tid
     try:
-        from shared.tenancy.resolver import resolve_default_tenant
-        return resolve_default_tenant()
+        from database import get_db_context
+        with get_db_context() as conn:
+            clean_tid = tid.replace("-", "").replace("_", "")
+            row = conn.execute(
+                "SELECT id FROM tenants WHERE slug = ? OR lower(replace(slug, '-', '')) = lower(?) OR lower(replace(company_name, ' ', '')) = lower(?)",
+                (tid, clean_tid, clean_tid),
+            ).fetchone()
+            if row:
+                return str(row[0])
+            # If there's only 1 active tenant in DB, use its ID
+            single = conn.execute("SELECT id FROM tenants WHERE status = 'active' LIMIT 2").fetchall()
+            if len(single) == 1:
+                return str(single[0][0])
     except Exception:
-        return "default"
+        pass
+    return tid
+
+
+def _tenant_matches(meta_tid, target_tid) -> bool:
+    """Check if a chunk's tenant_id matches the search target_tid."""
+    if not target_tid:
+        return True
+    m_str = str(meta_tid or "").strip()
+    t_str = str(target_tid or "").strip()
+    if m_str == t_str:
+        return True
+    # Compare resolved IDs
+    m_res = _resolve_tenant_id(m_str)
+    t_res = _resolve_tenant_id(t_str)
+    if m_res and t_res and m_res == t_res:
+        return True
+    # Single tenant fallback: if DB has only tenant 1 / default
+    if m_str in ("1", "default", "") and t_str in ("1", "default", "leewaysoftech", "leeway-softech"):
+        return True
+    return False
 
 
 def _tenant_from_payload(payload: dict) -> str | None:
@@ -242,11 +279,7 @@ Context to use for your answer:
 
 Remember: You must output ONLY valid JSON. No markdown, no code blocks, no explanations outside the JSON structure."""
 
-    providers = [
-        ("ollama", OLLAMA_BASE_URL, OLLAMA_MODEL, "no-key-needed", "ollama"),
-        ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai"),
-        ("mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"),
-    ]
+    providers = _get_ordered_providers()
 
     for name, url, model, api_key, api_type in providers:
         if not api_key:
@@ -254,9 +287,27 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
         try:
             raw_response = await _call_llm_provider(name, url, model, api_key, api_type, json_prompt, user_query)
             parsed = _parse_faq_dynamic_json(raw_response, user_query)
-            if parsed:
+            if parsed and parsed.get("answer"):
                 logger.info(f"FAQ_DYNAMIC_SUCCESS | provider={name} | actions={len(parsed.get('next_actions', []))}")
                 return parsed
+
+            # If JSON parsing failed, but the LLM returned an answer, extract it!
+            if raw_response and len(raw_response.strip()) > 15:
+                clean_ans = re.sub(r"^```(?:json)?", "", raw_response.strip()).strip()
+                clean_ans = re.sub(r"```$", "", clean_ans).strip()
+                ans_match = re.search(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', clean_ans, re.DOTALL)
+                if ans_match:
+                    try:
+                        extracted = json.loads(f'"{ans_match.group(1)}"')
+                    except Exception:
+                        extracted = ans_match.group(1)
+                    if extracted and len(extracted.strip()) > 10:
+                        logger.info(f"FAQ_DYNAMIC_EXTRACTED_SUCCESS | provider={name}")
+                        return {"answer": extracted.strip(), "next_actions": suggested[:2]}
+                if not clean_ans.startswith("{") and len(clean_ans) > 15:
+                    logger.info(f"FAQ_DYNAMIC_RAW_TEXT_SUCCESS | provider={name}")
+                    return {"answer": clean_ans, "next_actions": suggested[:2]}
+
             logger.warning(
                 f"FAQ_DYNAMIC_PARSE_FAIL | provider={name} | raw[:300]={raw_response[:300]!r}"
             )
@@ -264,39 +315,62 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
             logger.warning(f"FAQ_DYNAMIC_FALLBACK | provider={name} failed: {e}")
             continue
 
-    logger.warning("FAQ_DYNAMIC_ALL_FAILED | using keyword fallback")
+    # If JSON generation failed across all providers, attempt direct plain text LLM answer!
+    logger.info("FAQ_DYNAMIC_ALL_FAILED | attempting direct plain text LLM generation")
+    direct_ans = await _generate_direct_llm_answer(system_prompt, user_query, context)
+    if direct_ans and direct_ans.strip():
+        return {"answer": direct_ans.strip(), "next_actions": suggested[:2]}
+
+    logger.warning("DIRECT_LLM_FAILED | using keyword fallback")
     return _fallback_dynamic_buttons("", user_query)
+
+
+def _get_ordered_providers() -> list:
+    all_providers = {
+        "groq": ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai"),
+        "mistral": ("mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"),
+        "ollama": ("ollama", OLLAMA_BASE_URL, OLLAMA_MODEL, "no-key-needed", "ollama"),
+    }
+    preferred = (os.getenv("API_PROVIDER") or API_PROVIDER or "groq").lower()
+    ordered = []
+    if preferred in all_providers:
+        ordered.append(all_providers[preferred])
+    for p_name, p_cfg in all_providers.items():
+        if p_name != preferred:
+            ordered.append(p_cfg)
+    return ordered
+
+
+async def _generate_direct_llm_answer(system_prompt: str, user_query: str, context: str) -> str:
+    """Direct plain-text LLM generation without JSON schema enforcement.
+    Ensures that an answer is always generated by the LLM rather than dumping raw document chunks."""
+    direct_prompt = f"""{system_prompt}
+
+Context to use for your answer:
+{context[:4000] if context else "No additional context provided."}
+
+Please answer the user's question directly, clearly, helpfully, and comprehensively using bullet points."""
+
+    providers = _get_ordered_providers()
+    for name, url, model, api_key, api_type in providers:
+        if not api_key:
+            continue
+        try:
+            ans = await _call_llm_provider(name, url, model, api_key, api_type, direct_prompt, user_query)
+            if ans and len(ans.strip()) > 10:
+                logger.info(f"DIRECT_LLM_SUCCESS | provider={name} | chars={len(ans)}")
+                return ans.strip()
+        except Exception as e:
+            logger.warning(f"DIRECT_LLM_FALLBACK | provider={name} failed: {e}")
+            continue
+    return ""
 
 
 async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt, user_query) -> str:
     logger.info(f"LLM_CALL | provider={name} | model={model} | url={url}")
-    if api_type == "ollama":
-        try:
-            if os.name == "nt":
-                si = subprocess.STARTUPINFO()
-                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                result = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,name", "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=5, startupinfo=si,
-                )
-            else:
-                result = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,name", "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=5,
-                )
-            if result.returncode == 0 and result.stdout.strip():
-                for line in result.stdout.strip().splitlines():
-                    parts = [p.strip() for p in line.split(",")]
-                    if len(parts) == 4:
-                        util, mem_used, mem_total, gpu_name = parts
-                        logger.info(f"GPU_STATS | name={gpu_name} | util={util}% | mem={mem_used}/{mem_total}MB")
-            else:
-                logger.warning("GPU_STATS | nvidia-smi returned no GPU data")
-        except FileNotFoundError:
-            logger.warning("GPU_STATS | nvidia-smi not found — GPU logging unavailable")
-        except Exception as e:
-            logger.warning(f"GPU_STATS | failed: {e}")
-    async with httpx.AsyncClient(timeout=30) as client:
+    # Fast connect timeout so unavailable local servers fail fast instead of hanging for 30s
+    client_timeout = httpx.Timeout(connect=3.0, read=30.0, write=10.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=client_timeout) as client:
         if api_type == "ollama":
             payload = {
                 "model": model,
@@ -305,26 +379,20 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query},
                 ],
-                "format": "json",
                 "keep_alive": "30m",
                 "think": False,
                 "options": {
                     "num_ctx": 8192,
                     "num_predict": 2048,
-                    "num_gpu": 99,
-                    "num_thread": 8,
-                    "num_batch": 1024,
-                    "flash_attention": True,
                     "temperature": 0.2,
                     "top_p": 0.9,
                     "repeat_penalty": 1.0,
                     "seed": 42,
                 },
             }
-            logger.info(
-                f"LLM_CALL | provider={name} | model={model} | gpu={payload['options']['num_gpu']} | ctx={payload['options']['num_ctx']}"
-            )
-            response = await client.post(f"{url}/api/chat", json=payload, timeout=30)
+            if "CRITICAL: You must respond ONLY in valid JSON" in system_prompt:
+                payload["format"] = "json"
+            response = await client.post(f"{url}/api/chat", json=payload)
             logger.info(f"LLM_RESPONSE | provider={name} | status={response.status_code}")
             response.raise_for_status()
             return response.json().get("message", {}).get("content", "").strip()
@@ -339,7 +407,7 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
                 "temperature": 0.2,
                 "max_tokens": 2048,
             }
-            response = await client.post(url, json=payload, headers=headers, timeout=30)
+            response = await client.post(url, json=payload, headers=headers)
             logger.info(f"LLM_RESPONSE | provider={name} | status={response.status_code}")
             response.raise_for_status()
             choice = response.json().get("choices", [{}])[0]
@@ -646,7 +714,7 @@ class FAQIndex:
             fused = [
                 (idx, rrf_score)
                 for idx, rrf_score in fused
-                if (self.metadata[idx].get("tenant_id") or "default") == tid
+                if _tenant_matches(self.metadata[idx].get("tenant_id"), tid)
             ]
 
         # Step 3 — hard threshold on dense score
@@ -832,10 +900,12 @@ def _fetch_module_full_content(modules: tuple[str, ...], tenant_id: str | None =
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
+        resolved_tid = _resolve_tenant_id(tenant_id)
+        raw_tid = str(tenant_id or resolved_tid)
         rows = conn.execute(
             f"SELECT content, content_type FROM faq_dataset "
-            f"WHERE module IN ({marks}) AND tenant_id = ? ORDER BY page_number, id",
-            tuple(modules) + (_resolve_tenant_id(tenant_id),),
+            f"WHERE module IN ({marks}) AND (tenant_id = ? OR tenant_id = ? OR strftime(tenant_id) = ?) ORDER BY page_number, id",
+            tuple(modules) + (resolved_tid, raw_tid, resolved_tid),
         ).fetchall()
         conn.close()
     except Exception as exc:
@@ -1029,6 +1099,13 @@ async def handle_faq_query(payload: dict) -> dict:
         answer = response.get("answer", "")
         next_actions = response.get("next_actions", [])
 
+        # If dynamic answer is empty, fall back to direct LLM text generation
+        if not answer or not answer.strip():
+            logger.warning("Dynamic response returned empty answer — trying direct LLM text generation")
+            direct_ans = await _generate_direct_llm_answer(system_prompt, message, context)
+            if direct_ans and direct_ans.strip():
+                answer = direct_ans
+
         result = {"answer": _append_signature(answer, tenant_id)}
         if media_url:
             result["media_url"]  = media_url
@@ -1041,6 +1118,14 @@ async def handle_faq_query(payload: dict) -> dict:
 
     except Exception as exc:
         logger.error(f"Dynamic button generation error: {exc}", exc_info=True)
+        # Attempt direct LLM text generation before falling back to static chunks
+        try:
+            direct_ans = await _generate_direct_llm_answer(system_prompt, message, context)
+            if direct_ans and direct_ans.strip():
+                return {"answer": _append_signature(direct_ans, tenant_id)}
+        except Exception as e2:
+            logger.error(f"Direct LLM fallback error: {e2}")
+
         best_chunk, best_meta_fb, _ = results[0]
         cleaned_fallback = _format_answer_lines(best_chunk)
         fallback = _fallback_dynamic_buttons(cleaned_fallback, message, source_file=best_meta_fb.get("source_file", "") or "")

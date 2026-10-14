@@ -39,7 +39,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
 
     # ── Main menu / start ─────────────────────────────────────────────────────
     if state == cfg.B2C_MAIN_MENU_STATE or not state:
-        if message == "Main Menu" or not state or message.lower() in ("menu", "start", "hi", "hello"):
+        if message == "Main Menu" or message.lower() in ("menu", "start", "hi", "hello", "hey"):
             await send_list_menu(wa_id, **menus.get_main_menu())
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
@@ -225,11 +225,14 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
          floor so an off-topic tap does not get a confident-looking answer.
       4. A generic "not certain" reply as the final fallback.
     """
-    from services.whatsapp_sender import send_text_message
+    from services.whatsapp_sender import send_text_message, send_button_message
 
     # 0. Tenant menu row (tapped title) / rules intent: authoritative, no RAG.
     try:
-        from services.intent_answers import answer_for_menu_title, answer_for_text
+        try:
+            from services.intent_answers import answer_for_menu_title, answer_for_text
+        except ImportError:
+            from backend.services.intent_answers import answer_for_menu_title, answer_for_text
         tenant_answer = answer_for_menu_title(wa_id, message)
         if not tenant_answer:
             tenant_answer = answer_for_text(wa_id, message)
@@ -261,8 +264,8 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     if _is_menu_title(wa_id, message):
         await send_text_message(
             wa_id,
-            "I'm not certain about that. Would you like to browse our products, "
-            "check nutrition info, or talk to a human agent?",
+            "I'm not certain about that. Would you like to check our services, "
+            "book a callback, or talk to an agent?",
         )
         return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
 
@@ -271,7 +274,10 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     # 0. Check Tenant Intent Answers first (safety net for tenant menu options/queries)
     try:
         from shared.tenancy.resolver import resolve_tenant_for_user
-        from backend.services import intent_answers
+        try:
+            from services import intent_answers
+        except ImportError:
+            from backend.services import intent_answers
         tid = resolve_tenant_for_user(wa_id)
         intent_rep = (
             intent_answers.answer_for_button(wa_id, message, tenant_id=tid)
@@ -285,11 +291,13 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
         logger.debug(f"B2C tenant intent fallback check: {exc}")
 
     # 1. Query FAQ service (which performs hybrid retrieval + LLM answer synthesis)
+    interactive = None
     try:
         from faq.service import handle_faq_query
         faq_res = await handle_faq_query({"message": message, "wa_id": wa_id})
         if faq_res and faq_res.get("answer") and faq_res.get("answer").strip():
             answer = faq_res["answer"]
+            interactive = faq_res.get("interactive")
     except Exception as e:
         logger.warning(f"FAQ index lookup failed: {e}")
 
@@ -324,16 +332,20 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context)
                 if llm_res and llm_res.get("answer"):
                     answer = _append_signature(llm_res["answer"])
+                    interactive = llm_res.get("interactive")
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
 
     if not answer:
         answer = (
-            "I'm not certain about that. Would you like to browse our products, "
-            "check nutrition info, or talk to a human agent?"
+            "I'm not certain about that. Would you like to check our services, "
+            "book a callback, or talk to an agent?"
         )
 
-    await send_text_message(wa_id, answer)
+    if interactive and interactive.get("buttons"):
+        await send_button_message(wa_id, answer, interactive["buttons"])
+    else:
+        await send_text_message(wa_id, answer)
     return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
 
 

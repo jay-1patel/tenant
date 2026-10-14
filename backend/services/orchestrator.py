@@ -79,7 +79,10 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         # 1b. Check Tenant Profile Intents, Flows, and Services
         try:
             from shared.tenancy.resolver import resolve_tenant_for_user
-            from backend.services import intent_answers, flow_runner, service_answers
+            try:
+                from services import intent_answers, flow_runner, service_answers
+            except ImportError:
+                from backend.services import intent_answers, flow_runner, service_answers
             from services.whatsapp_sender import send_text_message
 
             tenant_id = resolve_tenant_for_user(wa_id)
@@ -119,9 +122,10 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                         "error": None,
                     }
 
-            # 3. Check intent by button ID or typed text (Careers, Technologies, Projects, Benefits, etc.)
+            # 3. Check intent by button ID, menu row title, or typed text (Careers, Technologies, Projects, Benefits, etc.)
             intent_reply = (
                 intent_answers.answer_for_button(wa_id, message, tenant_id=tenant_id)
+                or intent_answers.answer_for_menu_title(wa_id, message, tenant_id=tenant_id)
                 or intent_answers.answer_for_intent(wa_id, message, tenant_id=tenant_id)
                 or intent_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
             )

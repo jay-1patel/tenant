@@ -462,7 +462,7 @@ def _format_kb_candidates(kb_results, faiss_results, query: str, k: int):
             if not content or not content.strip():
                 continue
 
-            content = content[:500] if len(content) > 500 else content
+            content = content[:2500] if len(content) > 2500 else content
             title = doc.get("title", "")
             score = faiss_hit.get("score", 0.0) * 10.0
             candidates.append({
@@ -484,7 +484,7 @@ def _format_product_context(prod: Dict) -> str:
     ]
     desc = prod.get("description") or prod.get("short_description") or ""
     if desc:
-        parts.append(f"Description: {desc[:500]}")
+        parts.append(f"Description: {desc[:2000]}")
     ingredients = prod.get("ingredients")
     if isinstance(ingredients, list) and ingredients:
         parts.append(f"Ingredients: {', '.join(ingredients)}")

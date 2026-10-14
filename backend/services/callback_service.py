@@ -26,7 +26,7 @@ import re
 import random
 import string
 import urllib.parse
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -94,8 +94,8 @@ class CallbackRequest:
     status: str = "pending"
     scheduled_start_time: Optional[str] = None
     scheduled_end_time: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(dt_timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(dt_timezone.utc).isoformat())
     reminder_sent: bool = False
     notification_sent: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -230,7 +230,7 @@ class CallbackService:
             timezone=self.timezone,
             status=status,
             metadata=metadata or {},
-            created_at=datetime.now(timezone.utc).isoformat()
+            created_at=datetime.now(dt_timezone.utc).isoformat()
         )
         
         logger.info(f"Callback request created: {callback_id} for tenant {tenant_id}")
@@ -238,7 +238,7 @@ class CallbackService:
     
     def _generate_callback_id(self) -> str:
         """Generate a unique callback ID."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(dt_timezone.utc).strftime("%Y%m%d%H%M%S")
         random_part = secrets.token_hex(4)
         return f"CB-{timestamp}-{random_part}"
     
@@ -260,7 +260,7 @@ class CallbackService:
         callback_request.scheduled_end_time = end_time
         callback_request.calendar_event_id = calendar_event_id
         callback_request.meet_link = meet_link
-        callback_request.updated_at = datetime.now(timezone.utc).isoformat()
+        callback_request.updated_at = datetime.now(dt_timezone.utc).isoformat()
         
         logger.info(f"Callback {callback_request.id} scheduled with Meet: {meet_link}")
         return callback_request
@@ -290,7 +290,7 @@ class CallbackService:
                             callback_request.scheduled_end_time,
                             callback_request.meet_link,
                             callback_request.calendar_event_id,
-                            datetime.now(timezone.utc).isoformat(),
+                            datetime.now(dt_timezone.utc).isoformat(),
                             callback_request.id,
                         ),
                     )
@@ -379,7 +379,7 @@ class CallbackService:
         if not cb:
             return None
         cb.status = new_status
-        cb.updated_at = datetime.now(timezone.utc).isoformat()
+        cb.updated_at = datetime.now(dt_timezone.utc).isoformat()
         if notes:
             cb.metadata["status_notes"] = notes
         self.save_callback_to_db(cb)
@@ -396,7 +396,7 @@ class CallbackService:
         if not cb:
             return None
         cb.status = CallbackStatus.CANCELLED.value
-        cb.updated_at = datetime.now(timezone.utc).isoformat()
+        cb.updated_at = datetime.now(dt_timezone.utc).isoformat()
         cb.metadata["cancellation_reason"] = reason
         cb.metadata["cancelled_by"] = cancelled_by
         self.save_callback_to_db(cb)
@@ -466,8 +466,8 @@ class CallbackService:
                 "display_time": display_str,
                 "created_via": "whatsapp_bot",
             },
-            created_at=datetime.now(timezone.utc).isoformat(),
-            updated_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(dt_timezone.utc).isoformat(),
+            updated_at=datetime.now(dt_timezone.utc).isoformat(),
         )
 
         self.save_callback_to_db(cb)
@@ -488,7 +488,7 @@ class CallbackService:
         try:
             from dateutil.parser import parse
             slot_time = parse(f"{date_str}T{time_slot}", fuzzy=True)
-            if slot_time < datetime.now(timezone=timezone.utc):
+            if slot_time < datetime.now(tz=dt_timezone.utc):
                 return False, "Time slot is in the past"
             return True, None
         except Exception as e:
@@ -510,7 +510,7 @@ class CallbackService:
             "end_time": callback_request.scheduled_end_time,
             "meet_link": callback_request.meet_link,
             "meeting_notes": meeting_notes,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(dt_timezone.utc).isoformat()
         }
         return summary
 
@@ -527,7 +527,7 @@ def parse_preferred_time_to_range(
     try:
         tz = ZoneInfo(timezone_str)
     except Exception:
-        tz = timezone(timedelta(hours=5, minutes=30))
+        tz = dt_timezone(timedelta(hours=5, minutes=30))
     now = datetime.now(tz)
 
     raw = (preferred_time or "").strip().lower()
@@ -600,8 +600,8 @@ def parse_preferred_time_to_range(
     start_iso = start_dt.isoformat()
     end_iso = end_dt.isoformat()
     display_str = start_dt.strftime("%A, %d %b %Y at %I:%M %p (IST)")
-    start_utc_compact = start_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    end_utc_compact = end_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    start_utc_compact = start_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    end_utc_compact = end_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     return start_iso, end_iso, display_str, start_utc_compact, end_utc_compact
 
@@ -667,17 +667,17 @@ class GoogleMeetService:
 
         try:
             from dateutil.parser import parse
-            s_dt = parse(start_time) if start_time else datetime.now(timezone.utc)
+            s_dt = parse(start_time) if start_time else datetime.now(dt_timezone.utc)
             e_dt = parse(end_time) if end_time else (s_dt + timedelta(minutes=30))
             if not s_dt.tzinfo:
-                s_dt = s_dt.replace(tzinfo=timezone.utc)
+                s_dt = s_dt.replace(tzinfo=dt_timezone.utc)
             if not e_dt.tzinfo:
-                e_dt = e_dt.replace(tzinfo=timezone.utc)
-            s_utc = s_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            e_utc = e_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                e_dt = e_dt.replace(tzinfo=dt_timezone.utc)
+            s_utc = s_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            e_utc = e_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         except Exception:
-            s_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            e_utc = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
+            s_utc = datetime.now(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            e_utc = (datetime.now(dt_timezone.utc) + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
 
         calendar_add_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
 

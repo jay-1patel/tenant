@@ -183,9 +183,9 @@ def tenant_id_for_user(wa_id: str) -> Optional[str]:
         row = conn.execute(
             "SELECT tenant_id FROM user_states WHERE wa_id = ?", (wa_id,)
         ).fetchone()
-    if not row:
+    if not row or row["tenant_id"] is None:
         return None
-    tid = (row["tenant_id"] or "").strip()
+    tid = str(row["tenant_id"]).strip()
     return tid or None
 
 

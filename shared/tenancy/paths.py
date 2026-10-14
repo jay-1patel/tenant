@@ -29,7 +29,29 @@ CLIENTS_DIR = _dir_from_env("CLIENTS_DIR", REPO_ROOT / "clients")
 
 
 def client_dir(tenant_id: str) -> Path:
-    return CLIENTS_DIR / str(tenant_id)
+    tid = str(tenant_id or "").strip()
+    primary = CLIENTS_DIR / tid
+    if primary.exists():
+        return primary
+
+    # Fallback: check if tenant_id is an integer ID or slug and resolve via database
+    try:
+        from . import store
+        rec = store.get_tenant(tid)
+        if rec:
+            slug = str(rec.get("slug") or "")
+            for candidate in (slug, slug.replace("-", ""), slug.replace("_", "")):
+                if candidate and (CLIENTS_DIR / candidate).exists():
+                    return CLIENTS_DIR / candidate
+    except Exception:
+        pass
+
+    # Direct fallback for leewaysoftech
+    if tid in ("1", "default", "leeway-softech", "leewaysoftech"):
+        if (CLIENTS_DIR / "leewaysoftech").exists():
+            return CLIENTS_DIR / "leewaysoftech"
+
+    return primary
 
 
 def client_config_path(tenant_id: str) -> Path:
