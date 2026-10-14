@@ -141,5 +141,14 @@ def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
 
     tid = store.tenant_id_for_user(wa_id)
     if tid:
-        return tid
+        # Guard against stale/legacy ids (e.g. a backfilled slug such as
+        # "leewaysoftech" when the registered tenant is "l"). An unregistered
+        # tenant id would scope every product/FAQ/KB lookup to an empty set, so
+        # fall through to the default tenant rather than trusting it blindly.
+        if store.get_tenant(tid):
+            return tid
+        logger.warning(
+            "user %s is stamped with unregistered tenant %r; falling back to default",
+            wa_id, tid,
+        )
     return default or resolve_default_tenant()
