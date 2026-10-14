@@ -83,8 +83,31 @@ MISTRAL_API_URL = os.getenv("MISTRAL_API_URL")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") or os.getenv("MISTRAL_API_BACKUP")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL")
 
+# ── Brand / support ───────────────────────────────────────────────────────
+# Company details are owned by the tenant profile (clients/<id>/config.json ->
+# published DB version), not the environment. BRAND_* env vars remain an
+# optional override for profile-less deployments; when unset we read the
+# default tenant's profile so the bot always speaks with its own brand.
+def _profile_brand(field: str):
+    try:
+        from shared.tenancy import loader
+        from shared.tenancy.resolver import resolve_default_tenant
+
+        brand = loader.get_tenant_profile(resolve_default_tenant()).brand
+        return getattr(brand, field, None) or None
+    except Exception:
+        return None
+
+
+BRAND_NAME = os.getenv("BRAND_NAME") or _profile_brand("name")
+BRAND_TAGLINE = os.getenv("BRAND_TAGLINE") or _profile_brand("tagline")
+SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL") or _profile_brand("support_email")
+SUPPORT_PHONE = os.getenv("SUPPORT_PHONE") or _profile_brand("support_phone")
+BRAND_WEBSITE = os.getenv("BRAND_WEBSITE") or _profile_brand("website")
+SIGNATURE = os.getenv("SIGNATURE") or _profile_brand("signature")
+
 # ── Bot messaging defaults ────────────────────────────────────────────────
-BUSINESS_NAME = os.getenv("BRAND_NAME") or "Chatbot"
+BUSINESS_NAME = BRAND_NAME or "Chatbot"
 BOT_NAME = os.getenv("BOT_NAME", BUSINESS_NAME)
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", f"Welcome to {BUSINESS_NAME}! How can I help you today?")
 MENU_HEADER = os.getenv("MENU_HEADER", BUSINESS_NAME)
@@ -112,14 +135,6 @@ SMTP_PORT = _int_env("SMTP_PORT", 587)
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")
-
-# ── Brand / support ───────────────────────────────────────────────────────
-BRAND_NAME = os.getenv("BRAND_NAME")
-BRAND_TAGLINE = os.getenv("BRAND_TAGLINE")
-SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL")
-SUPPORT_PHONE = os.getenv("SUPPORT_PHONE")
-BRAND_WEBSITE = os.getenv("BRAND_WEBSITE")
-SIGNATURE = os.getenv("SIGNATURE")
 
 # ── Routing-specific ──────────────────────────────────────────────────────
 SEND_MEDIA = os.getenv("SEND_MEDIA", "false").lower() == "true"

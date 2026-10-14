@@ -192,14 +192,42 @@ def _truncate_body(text: str, limit: int = 1020) -> str:
     return cut.rstrip() + "\n…"
 
 
+def normalize_reply_buttons(buttons):
+    """Coerce incoming buttons into send2.digital's interactive button shape.
+
+    Callers hand us buttons in two shapes: already-formatted
+    ``{"type": "reply", "reply": {"id", "title"}}`` (what the bot workflows
+    emit) or flat ``{"id", "title"}``. send2.digital / WhatsApp reject the
+    entire message when ``reply.id`` is empty, so any button missing an id or a
+    title is dropped rather than sent half-formed.
+    """
+    out = []
+    for btn in buttons or []:
+        if not isinstance(btn, dict):
+            continue
+        reply = btn.get("reply")
+        if isinstance(reply, dict):
+            bid = reply.get("id") or btn.get("id")
+            title = reply.get("title") or btn.get("title")
+        else:
+            bid = btn.get("id")
+            title = btn.get("title")
+        bid = str(bid).strip() if bid is not None else ""
+        title = str(title).strip() if title is not None else ""
+        if bid and title:
+            out.append({"type": "reply", "reply": {"id": bid, "title": title}})
+    return out
+
+
 def send_whatsapp_interactive(to, text, buttons, footer=None):
     """Send an interactive button message via send2.digital Quick Button API.
 
     `buttons` is a list of button objects in the send2.digital format, e.g.:
         [{"type": "reply", "reply": {"id": "check_moq", "title": "Check MOQ by product"}}]
     """
-    if not buttons or len(buttons) == 0:
-        logger.warning("No buttons provided for interactive message")
+    buttons = normalize_reply_buttons(buttons)
+    if not buttons:
+        logger.warning("No usable buttons for interactive message (missing id/title)")
         return False
 
     if len(buttons) > 3:

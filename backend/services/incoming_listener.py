@@ -28,6 +28,7 @@ from routing.whatsapp import (
     send_whatsapp_message,
     send_whatsapp_interactive,
     send_whatsapp_list_menu,
+    normalize_reply_buttons,
 )
 
 logger = logging.getLogger("IncomingListener")
@@ -140,21 +141,15 @@ async def _send_reply(wa_id: str, messages: list) -> None:
 
             elif msg_type == "buttons":
                 text = msg.get("text", "")
-                buttons = msg.get("buttons", [])
-                if text and buttons:
-                    # Convert button format: orchestrator returns {"id", "title"}
-                    # send2.digital expects {"type": "reply", "reply": {"id", "title"}}
-                    api_buttons = []
-                    for btn in buttons:
-                        api_buttons.append({
-                            "type": "reply",
-                            "reply": {
-                                "id": btn.get("id", ""),
-                                "title": btn.get("title", ""),
-                            }
-                        })
+                # Buttons arrive already nested ({"type":"reply","reply":{...}})
+                # from the workflows; normalize tolerates flat {"id","title"} too.
+                api_buttons = normalize_reply_buttons(msg.get("buttons", []))
+                if text and api_buttons:
                     send_whatsapp_interactive(wa_id, text, api_buttons)
-                    logger.info(f"Sent buttons reply to {wa_id}: {len(buttons)} buttons")
+                    logger.info(f"Sent buttons reply to {wa_id}: {len(api_buttons)} buttons")
+                elif text:
+                    send_whatsapp_message(wa_id, text)
+                    logger.info(f"Sent text reply (no valid buttons) to {wa_id}")
 
             elif msg_type == "list":
                 header = msg.get("header", "")

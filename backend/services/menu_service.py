@@ -202,9 +202,9 @@ def _get_brand_name(wa_id: str = "") -> str:
 
     try:
         from routing.config import BRAND_NAME
-        return BRAND_NAME or "TrooGood"
+        return BRAND_NAME or "our company"
     except Exception:
-        return "TrooGood"
+        return "our company"
 
 
 def personalize_header(wa_id: str, user_type: str = "b2c") -> str:

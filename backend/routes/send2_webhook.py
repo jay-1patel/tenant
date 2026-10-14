@@ -49,7 +49,12 @@ async def receive_send2_webhook(request: Send2WebhookRequest):
     are sent back via send2.digital's API.
     """
     from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-    from routing.whatsapp import send_whatsapp_message, send_whatsapp_interactive, send_whatsapp_list_menu
+    from routing.whatsapp import (
+        send_whatsapp_message,
+        send_whatsapp_interactive,
+        send_whatsapp_list_menu,
+        normalize_reply_buttons,
+    )
     from services.orchestrator import process_incoming_message
 
     # Validate credentials (optional but recommended).
@@ -90,19 +95,15 @@ async def receive_send2_webhook(request: Send2WebhookRequest):
 
                 elif msg_type == "buttons":
                     reply_text = msg.get("text", "")
-                    buttons = msg.get("buttons", [])
-                    if reply_text and buttons:
-                        api_buttons = [
-                            {
-                                "type": "reply",
-                                "reply": {
-                                    "id": btn.get("id", ""),
-                                    "title": btn.get("title", ""),
-                                }
-                            }
-                            for btn in buttons
-                        ]
+                    # Buttons arrive already nested; normalize tolerates flat
+                    # {"id","title"} and drops any missing reply.id (which would
+                    # otherwise make WhatsApp reject the whole message).
+                    api_buttons = normalize_reply_buttons(msg.get("buttons", []))
+                    if reply_text and api_buttons:
                         send_whatsapp_interactive(wa_id, reply_text, api_buttons)
+                        sent_count += 1
+                    elif reply_text:
+                        send_whatsapp_message(wa_id, reply_text)
                         sent_count += 1
 
                 elif msg_type == "list":

@@ -546,6 +546,14 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             return result
         from backend.services import service_answers
         answer = service_answers.answer_for_text(wa_id or "", "our services", tenant_id=tid)
+        if answer:
+            from faq.service import synthesize_intent_answer
+            answer = await synthesize_intent_answer(
+                raw_content=answer,
+                intent_name="Services",
+                user_query=user_text,
+                tenant_id=tid,
+            )
         result["answer"] = answer or "We don't have any services listed right now. Please contact our team for details."
         result["query_type"] = "service_enquiry"
         return result
@@ -675,7 +683,13 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             wa_id or "", user_text, tenant_id=tenant_id
         )
         if service_reply:
-            result["answer"] = service_reply
+            from faq.service import synthesize_intent_answer
+            result["answer"] = await synthesize_intent_answer(
+                raw_content=service_reply,
+                intent_name="Services",
+                user_query=user_text,
+                tenant_id=tenant_id,
+            )
             result["query_type"] = "service_enquiry"
             return result
     except Exception as e:
@@ -692,7 +706,13 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             wa_id, user_text, tenant_id=tenant_id
         )
         if intent_reply:
-            result["answer"] = intent_reply
+            from faq.service import synthesize_intent_answer
+            result["answer"] = await synthesize_intent_answer(
+                raw_content=intent_reply,
+                intent_name=user_text,
+                user_query=user_text,
+                tenant_id=tenant_id,
+            )
             result["query_type"] = "intent"
             logger.info(f"INTENT_REPLY | {wa_id} | matched informational intent")
             return result

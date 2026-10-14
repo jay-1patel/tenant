@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 import requests
 from routing.config import OLLAMA_API_URL, OLLAMA_MODEL, BRAND_NAME, BRAND_TAGLINE
@@ -411,9 +412,57 @@ def apply_route_gates(intent: str, profile) -> str:
     return "greeting"
 
 
+GREETING_TOKENS = {
+    "hi", "hey", "hello", "helo", "hlo", "hallo", "hullo", "hiya", "hie", "hy",
+    "hai", "yo", "howdy", "hola", "namaste", "gm", "morning", "evening",
+    "good morning", "good afternoon", "good evening", "good night",
+    "bye", "goodbye", "thanks", "thank you", "thankyou", "tysm", "thx", "ty",
+    "ok", "okay", "okey", "k", "sure", "yes", "no", "cool", "nice", "great",
+}
+
+
+def _collapse_repeats(text: str) -> str:
+    return re.sub(r"(.)\1{2,}", r"\1", text)
+
+
+def is_meaningless_or_greeting(text) -> bool:
+    """True when a message carries no answerable query and should show the menu.
+
+    Covers greetings — including typos and letter-spam like ``hie``/``hyyyy`` —
+    and keyboard-mash noise like ``jsdbkop``. Real queries are claimed by the
+    exact/keyword maps *before* this runs, so anything reaching here that reads
+    as social noise is best answered by presenting the menu.
+    """
+    if not text:
+        return True
+    lower = text.strip().lower()
+    if not lower:
+        return True
+
+    cleaned = _collapse_repeats(re.sub(r"[^a-z\s]", "", lower)).strip()
+    if not cleaned:
+        # Emoji / punctuation / digits only.
+        return True
+    if cleaned in GREETING_TOKENS:
+        return True
+
+    words = cleaned.split()
+    # Single greeting-ish spelling: hi, hie, hy, heyy->hey, helo, hii...
+    if len(words) == 1 and re.fullmatch(r"h[ieya]+(llo|lo|e|y)?", words[0]):
+        return True
+
+    for w in words:
+        # No vowel at all ('hmm', 'brb') or a long consonant run ('jsdbkop').
+        if len(w) >= 3 and not re.search(r"[aeiouy]", w):
+            return True
+        if re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", w):
+            return True
+    return False
+
+
 def classify_query(text, tenant_id=None, wa_id: str = ""):
     if not text or not text.strip():
-        return "faq"
+        return "greeting"
     text = text.strip().rstrip("?").strip()
     lower = text.lower().strip()
     exact = EXACT_MATCHES.get(lower)
@@ -422,4 +471,6 @@ def classify_query(text, tenant_id=None, wa_id: str = ""):
     kw = keyword_classify(text)
     if kw:
         return apply_route_gates(kw, profile_for(tenant_id, wa_id))
+    if is_meaningless_or_greeting(text):
+        return "greeting"
     return apply_route_gates(classify_and_route(text), profile_for(tenant_id, wa_id))
