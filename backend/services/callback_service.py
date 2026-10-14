@@ -458,13 +458,14 @@ class CallbackService:
             assigned_agent_name=agent_name,
             meet_link=meet_link,
             calendar_event_id=event_id,
-            status=CallbackStatus.SCHEDULED.value,
+            status=CallbackStatus.SCHEDULED.value if meet_link else CallbackStatus.CONFIRMED.value,
             scheduled_start_time=start_iso,
             scheduled_end_time=end_iso,
             metadata={
                 "calendar_add_url": calendar_add_url,
                 "display_time": display_str,
                 "created_via": "whatsapp_bot",
+                "oauth_connected": bool(meet_link),
             },
             created_at=datetime.now(dt_timezone.utc).isoformat(),
             updated_at=datetime.now(dt_timezone.utc).isoformat(),
@@ -660,70 +661,18 @@ class GoogleMeetService:
         timezone: str = "Asia/Kolkata",
         tenant_id: str = "leewaysoftech",
     ) -> Dict[str, Any]:
-        """Create a Google Calendar event with Meet link."""
-        meet_code = generate_meet_code()
-        meet_link = generate_meet_link(meet_code)
-        event_id = f"event_{secrets.token_hex(8)}"
-
-        try:
-            from dateutil.parser import parse
-            s_dt = parse(start_time) if start_time else datetime.now(dt_timezone.utc)
-            e_dt = parse(end_time) if end_time else (s_dt + timedelta(minutes=30))
-            if not s_dt.tzinfo:
-                s_dt = s_dt.replace(tzinfo=dt_timezone.utc)
-            if not e_dt.tzinfo:
-                e_dt = e_dt.replace(tzinfo=dt_timezone.utc)
-            s_utc = s_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            e_utc = e_dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        except Exception:
-            s_utc = datetime.now(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            e_utc = (datetime.now(dt_timezone.utc) + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
-
-        calendar_add_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
-
-        # Check for service account credentials if configured
-        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-        if sa_json:
-            try:
-                from google.oauth2 import service_account
-                from googleapiclient.discovery import build
-                
-                creds_info = json.loads(sa_json) if sa_json.strip().startswith("{") else json.load(open(sa_json))
-                credentials = service_account.Credentials.from_service_account_info(
-                    creds_info, scopes=["https://www.googleapis.com/auth/calendar"]
-                )
-                service = build("calendar", "v3", credentials=credentials)
-                body = {
-                    "summary": title,
-                    "description": f"{description}\n\nJoin Google Meet: {meet_link}",
-                    "start": {"dateTime": start_time, "timeZone": timezone},
-                    "end": {"dateTime": end_time, "timeZone": timezone},
-                    "attendees": attendees or [],
-                    "conferenceData": {
-                        "createRequest": {
-                            "requestId": secrets.token_hex(8),
-                            "conferenceSolutionKey": {"type": "hangoutsMeet"}
-                        }
-                    }
-                }
-                event = service.events().insert(
-                    calendarId=calendar_id, body=body, conferenceDataVersion=1
-                ).execute()
-                event_id = event.get("id", event_id)
-                meet_link = event.get("hangoutLink") or meet_link
-                logger.info("Google Calendar API event created with Meet link: %s", meet_link)
-            except Exception as exc:
-                logger.debug("Google API call failed, falling back to generated meet link: %s", exc)
-
-        return {
-            "ok": True,
-            "event_id": event_id,
-            "meet_link": meet_link,
-            "calendar_add_url": calendar_add_url,
-            "html_link": f"https://calendar.google.com/calendar/event?action=VIEW&eid={event_id}",
-            "start": start_time,
-            "end": end_time
-        }
+        """Create a Google Calendar event with Meet link using tenant OAuth tokens."""
+        from services.google_meet_service import create_meeting_sync as gmeet_create_sync
+        return gmeet_create_sync(
+            tenant_id=tenant_id,
+            calendar_id=calendar_id,
+            title=title,
+            description=description,
+            start_time=start_time,
+            end_time=end_time,
+            attendees=attendees,
+            timezone=timezone,
+        )
 
     async def create_meeting(
         self,
@@ -734,9 +683,12 @@ class GoogleMeetService:
         end_time: str = "",
         attendees: Optional[List[Dict[str, str]]] = None,
         timezone: str = "Asia/Kolkata",
+        tenant_id: str = "leewaysoftech",
     ) -> Dict[str, Any]:
-        """Async wrapper for create_meeting_sync."""
-        return self.create_meeting_sync(
+        """Async wrapper using tenant OAuth tokens."""
+        from services.google_meet_service import create_meeting as gmeet_create_async
+        return await gmeet_create_async(
+            tenant_id=tenant_id,
             calendar_id=calendar_id,
             title=title,
             description=description,
@@ -756,9 +708,10 @@ class GoogleMeetService:
         """Get calendar events to check for conflicts."""
         return {"ok": True, "events": []}
 
-    async def delete_event(self, calendar_id: str, event_id: str) -> bool:
-        """Delete a calendar event."""
-        return True
+    async def delete_event(self, calendar_id: str, event_id: str, tenant_id: str = "leewaysoftech") -> bool:
+        """Delete a calendar event using stored OAuth tokens."""
+        from services.google_meet_service import delete_event as gmeet_delete_async
+        return await gmeet_delete_async(event_id=event_id, tenant_id=tenant_id, calendar_id=calendar_id)
 
     async def update_event(
         self,

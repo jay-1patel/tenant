@@ -91,3 +91,14 @@ def get_token(tenant_id: str) -> Optional[dict]:
     except Exception as e:
         logger.error(f"Failed to load Google OAuth token for tenant {tenant_id}: {e}")
     return None
+
+def delete_token(tenant_id: str) -> bool:
+    """Delete stored OAuth token for a tenant."""
+    try:
+        with get_db_context() as conn:
+            conn.execute(f"DELETE FROM {TABLE_NAME} WHERE tenant_id = ?", (tenant_id,))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete Google OAuth token for tenant {tenant_id}: {e}")
+        return False
+

@@ -41,7 +41,7 @@ scratchpad/admin_build_backup_*/
 # ---- Local scratch / logs / backups ----
 scratchpad/
 *.log
-*.bak
+*.bak*
 *.stdout
 *.stderr
 

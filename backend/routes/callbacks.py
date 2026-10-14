@@ -757,7 +757,8 @@ async def schedule_callback(
         attendees=[
             {"email": callback_request.customer_email, "displayName": callback_request.customer_name}
         ] if callback_request.customer_email else [],
-        timezone=callback_request.timezone
+        timezone=callback_request.timezone,
+        tenant_id=tenant_id,
     )
     
     if not meet_result.get("ok"):

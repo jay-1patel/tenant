@@ -172,7 +172,7 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
         _insert_complaint_row(tenant_id, wa_id, data)
 
     # Callback & Google Meeting auto-scheduling
-    if flow_name == "book_callback" or (lead_source or "").lower() in ("callback", "appointment"):
+    if flow_name in ("book_callback", "callback_request") or (lead_source or "").lower() in ("callback", "appointment"):
         try:
             from services.callback_service import callback_service
             cb = callback_service.create_and_schedule_callback(
@@ -589,7 +589,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
     if paused:
         sm.set_status(wa_id, _STATUS_PAUSED)
 
-    if (flow.name == "book_callback" or collected.get("meet_link")) and collected.get("meet_link"):
+    if (flow.name in ("book_callback", "callback_request") or collected.get("meet_link")) and collected.get("meet_link"):
         meet_link = collected.get("meet_link")
         sched_time = collected.get("scheduled_time") or collected.get("preferred_time") or "Shortly"
         cust_name = collected.get("name") or "there"
@@ -613,6 +613,26 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             messages[-1] = meet_confirmation
         else:
             messages.append(meet_confirmation)
+    elif flow.name in ("book_callback", "callback_request"):
+        sched_time = collected.get("scheduled_time") or collected.get("preferred_time") or "Shortly"
+        cust_name = collected.get("name") or "there"
+        topic = collected.get("need") or "Callback Discussion"
+        cal_url = collected.get("calendar_add_url")
+
+        cb_lines = [
+            "📅 *Callback Request Confirmed!*",
+            f"👤 *Name:* {cust_name}",
+            f"⏰ *Preferred Time:* {sched_time}",
+            f"🎯 *Topic:* {topic}",
+            "\nOur team has received your request and will contact you at your preferred time to share the Google Meeting details.",
+        ]
+        if cal_url:
+            cb_lines.append(f"\n📅 *Add to Calendar:*\n{cal_url}")
+        cb_confirmation = "\n".join(cb_lines)
+        if messages and any(kw in messages[-1].lower() for kw in ("done", "callback", "office", "soon", "team")):
+            messages[-1] = cb_confirmation
+        else:
+            messages.append(cb_confirmation)
     elif flow.success_message and not emitted_done and flow.success_message not in messages:
         messages.append(flow.success_message)
     return _outcome(flow.name, messages, finished=True, lead_id=lead_id,

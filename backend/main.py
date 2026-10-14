@@ -67,6 +67,7 @@ from routes.audit_logs import router as audit_logs_router
 from routes.tenant_approvals import router as tenant_approvals_router
 from routes.integrations import router as integrations_router
 from routes.callbacks import router as callbacks_router
+from routes.google_connect import router as google_connect_router
 from routes.test_simulator import router as test_simulator_router
 from services.handoff_timeout import handoff_timeout_monitor
 
@@ -320,6 +321,7 @@ app.include_router(audit_logs_router, tags=["audit-logs"])
 app.include_router(tenant_approvals_router, tags=["tenant-approvals"])
 app.include_router(integrations_router, tags=["integrations"])
 app.include_router(callbacks_router, tags=["callbacks"])
+app.include_router(google_connect_router, tags=["google-connect"])
 app.include_router(test_simulator_router, tags=["test-simulator"])
 
 IMAGES_DIR = os.path.join(os.path.dirname(__file__), "images")
