@@ -71,8 +71,17 @@ from routes.google_connect import router as google_connect_router
 from routes.test_simulator import router as test_simulator_router
 from services.handoff_timeout import handoff_timeout_monitor
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger("router")
+
+# httpx logs one INFO line per outgoing request (e.g. the send2.digital inbound
+# poll that runs every few seconds), which floods the console. Keep our own logs
+# but silence the HTTP transport chatter.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @asynccontextmanager

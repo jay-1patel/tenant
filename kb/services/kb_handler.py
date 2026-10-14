@@ -821,6 +821,18 @@ async def handle_kb_query(
             logger.error(f"Failed to list tenant services for {wa_id}: {e}")
             response_text = None
         response_text = response_text or "We don't have any services listed right now. Please contact our team for details."
+        # Route the stored offerings through the LLM (Ollama) so the reply is
+        # model-generated like every other answer; fall back to raw on failure.
+        if response_text:
+            try:
+                from faq.service import synthesize_intent_answer
+                response_text = await synthesize_intent_answer(
+                    raw_content=response_text,
+                    intent_name="Services",
+                    user_query="our services",
+                )
+            except Exception as e:
+                logger.warning(f"LLM synthesis failed for services in kb_handler: {e}")
         if can_send_whatsapp:
             send_whatsapp_message(wa_id, response_text)
         return _result(response_text, route="service_enquiry", interactive=None, whatsapp_sent=bool(can_send_whatsapp))

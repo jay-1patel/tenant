@@ -459,16 +459,6 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 panel_answer = (intent_answers.answer_for_button(wa_id, pressed_id, tenant_id)
                                 or intent_answers.answer_for_intent(wa_id, pressed_id, tenant_id))
                 if panel_answer:
-                    try:
-                        from backend.faq.service import synthesize_intent_answer
-                        panel_answer = await synthesize_intent_answer(
-                            raw_content=panel_answer,
-                            intent_name=pressed_id,
-                            user_query=user_text or pressed_id,
-                            tenant_id=tenant_id,
-                        )
-                    except Exception as se:
-                        logger.debug(f"Panel answer LLM synthesis fallback: {se}")
                     if config.SEND2_USERNAME and config.SEND2_PASSWORD:
                         send_whatsapp_message(wa_id, panel_answer)
                     save_chat(wa_id, sender_name, user_text, panel_answer, "intent")

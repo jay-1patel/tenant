@@ -25,6 +25,28 @@ def _cfg():
     return config
 
 
+async def _llm_synthesize(raw: str, label: str, query: str, tenant_id: str | None = None) -> str:
+    """Run a raw stored answer through the LLM (Ollama) before sending.
+
+    Every informational reply must be model-generated, not echoed verbatim from
+    the tenant profile / offerings rows. Falls back to the raw text if the LLM
+    call fails so a provider outage never drops the reply.
+    """
+    if not raw:
+        return raw
+    try:
+        from faq.service import synthesize_intent_answer
+        return await synthesize_intent_answer(
+            raw_content=raw,
+            intent_name=label or query,
+            user_query=query,
+            tenant_id=tenant_id,
+        )
+    except Exception as e:
+        logger.warning(f"LLM synthesis failed for '{label}': {e}")
+        return raw
+
+
 async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict) -> dict:
     from services.whatsapp_sender import send_text_message, send_button_message, send_list_menu
     from . import tools, menus
@@ -237,6 +259,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
         if not tenant_answer:
             tenant_answer = answer_for_text(wa_id, message)
         if tenant_answer:
+<<<<<<< HEAD
             try:
                 from faq.service import synthesize_intent_answer
             except ImportError:
@@ -247,6 +270,9 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 user_query=message,
             )
             await send_text_message(wa_id, synthesized)
+=======
+            await send_text_message(wa_id, await _llm_synthesize(tenant_answer, message, message))
+>>>>>>> 66edd66 (Update chatbot workflows and message handling)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Tenant intent resolution failed: {e}")
@@ -263,6 +289,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 from backend.services import service_answers
             svc = service_answers.answer_for_text(wa_id, message)
             if svc:
+<<<<<<< HEAD
                 try:
                     from faq.service import synthesize_intent_answer
                 except ImportError:
@@ -273,6 +300,9 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                     user_query=message,
                 )
                 await send_text_message(wa_id, synthesized)
+=======
+                await send_text_message(wa_id, await _llm_synthesize(svc, "Services", message))
+>>>>>>> 66edd66 (Update chatbot workflows and message handling)
                 return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")
@@ -303,6 +333,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             or intent_answers.answer_for_text(wa_id, message, tenant_id=tid)
         )
         if intent_rep:
+<<<<<<< HEAD
             try:
                 from faq.service import synthesize_intent_answer
             except ImportError:
@@ -314,6 +345,9 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 tenant_id=tid,
             )
             await send_text_message(wa_id, synthesized)
+=======
+            await send_text_message(wa_id, await _llm_synthesize(intent_rep, message, message, tenant_id=tid))
+>>>>>>> 66edd66 (Update chatbot workflows and message handling)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as exc:
         logger.debug(f"B2C tenant intent fallback check: {exc}")

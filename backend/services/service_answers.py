@@ -24,6 +24,25 @@ def is_service_query(text: str) -> bool:
     return any(phrase in query for phrase in SERVICE_QUERY_PHRASES)
 
 
+def _fit_description(text: str, limit: int = 400) -> str:
+    """Trim a description without slicing a word or sentence in half.
+
+    A plain ``text[:limit]`` cut mid-word (e.g. "...message trac"), so trim at
+    the end of a sentence when possible, then at the last whole word.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    sentence_end = max(window.rfind("."), window.rfind("!"), window.rfind("?"))
+    if sentence_end >= limit // 2:
+        return window[: sentence_end + 1].rstrip()
+    space = window.rfind(" ")
+    if space >= limit // 2:
+        window = window[:space]
+    return window.rstrip() + "…"
+
+
 def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str | None:
     """Return only configured service records for a recognized service query."""
     query = (text or "").strip()
@@ -67,7 +86,11 @@ def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str 
         lines.append(f"• *{name}*")
         description = (item.get("short_description") or item.get("description") or "").strip()
         if description:
+<<<<<<< HEAD
             lines.append(f"  {description}")
+=======
+            lines.append(f"  {_fit_description(description)}")
+>>>>>>> 66edd66 (Update chatbot workflows and message handling)
     return "\n".join(lines) if len(lines) > 1 else "We don't have any services listed right now. Please contact our team for details."
 
 

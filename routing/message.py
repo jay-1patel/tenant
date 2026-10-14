@@ -545,21 +545,8 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             result["query_type"] = "menu_unavailable"
             return result
         from backend.services import service_answers
-        raw_ans = service_answers.answer_for_text(wa_id or "", "our services", tenant_id=tid)
-        if raw_ans:
-            try:
-                from backend.faq.service import synthesize_intent_answer
-                answer = await synthesize_intent_answer(
-                    raw_content=raw_ans,
-                    intent_name="Services",
-                    user_query="our services",
-                    tenant_id=tid,
-                )
-            except Exception:
-                answer = raw_ans
-        else:
-            answer = "We don't have any services listed right now. Please contact our team for details."
-        result["answer"] = answer
+        answer = service_answers.answer_for_text(wa_id or "", "our services", tenant_id=tid)
+        result["answer"] = answer or "We don't have any services listed right now. Please contact our team for details."
         result["query_type"] = "service_enquiry"
         return result
     if is_btn_reply and interactive_id in ("new_arrival", "menu_new_arrivals"):
@@ -688,16 +675,6 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             wa_id or "", user_text, tenant_id=tenant_id
         )
         if service_reply:
-            try:
-                from backend.faq.service import synthesize_intent_answer
-                service_reply = await synthesize_intent_answer(
-                    raw_content=service_reply,
-                    intent_name="Services",
-                    user_query=user_text,
-                    tenant_id=tenant_id,
-                )
-            except Exception as e:
-                logger.debug(f"Service reply synthesis fallback: {e}")
             result["answer"] = service_reply
             result["query_type"] = "service_enquiry"
             return result
@@ -715,16 +692,6 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             wa_id, user_text, tenant_id=tenant_id
         )
         if intent_reply:
-            try:
-                from backend.faq.service import synthesize_intent_answer
-                intent_reply = await synthesize_intent_answer(
-                    raw_content=intent_reply,
-                    intent_name=user_text,
-                    user_query=user_text,
-                    tenant_id=tenant_id,
-                )
-            except Exception as e:
-                logger.debug(f"Intent reply synthesis fallback: {e}")
             result["answer"] = intent_reply
             result["query_type"] = "intent"
             logger.info(f"INTENT_REPLY | {wa_id} | matched informational intent")
