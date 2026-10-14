@@ -1696,25 +1696,30 @@ def record_admin_audit_event(
             pass
     actor_kind = actor_kind or actor.get("type") or ("tenant_token" if actor.get("token_id") else "admin")
     actor_label = actor_label or actor.get("label") or actor.get("username")
-    conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
-    cursor = conn.execute(
-        """INSERT INTO admin_audit_events
-           (created_at, actor_id, actor_username, actor_role, action, outcome,
-            resource_type, resource_id, target_username, tenant_id, details_json,
-            ip_address, user_agent, tenant_name, tenant_slug, actor_kind, actor_label)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            datetime.now(timezone.utc).isoformat(), actor.get("id"), actor.get("username"),
-            actor.get("role"), action, outcome, resource_type,
-            "" if resource_id is None else str(resource_id), target_username,
-            tenant_id,
-            json.dumps(safe_audit_details(details or {}), ensure_ascii=False),
-            ip_address or context.get("ip_address"),
-            (user_agent or context.get("user_agent") or "")[:512] or None,
-            tenant_name, tenant_slug, actor_kind, actor_label,
-        ),
-    )
-    return int(cursor.lastrowid)
+    try:
+        _init_admin_audit_tables(conn)
+        conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
+        cursor = conn.execute(
+            """INSERT INTO admin_audit_events
+               (created_at, actor_id, actor_username, actor_role, action, outcome,
+                resource_type, resource_id, target_username, tenant_id, details_json,
+                ip_address, user_agent, tenant_name, tenant_slug, actor_kind, actor_label)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                datetime.now(timezone.utc).isoformat(), actor.get("id"), actor.get("username"),
+                actor.get("role"), action, outcome, resource_type,
+                "" if resource_id is None else str(resource_id), target_username,
+                tenant_id,
+                json.dumps(safe_audit_details(details or {}), ensure_ascii=False),
+                ip_address or context.get("ip_address"),
+                (user_agent or context.get("user_agent") or "")[:512] or None,
+                tenant_name, tenant_slug, actor_kind, actor_label,
+            ),
+        )
+        return int(cursor.lastrowid)
+    except Exception as exc:
+        logger.warning(f"Could not write admin audit event {action}: {exc}")
+        return 0
 
 
 def _init_integration_tables(conn):

@@ -739,8 +739,20 @@ class NotificationService:
     ) -> bool:
         """Send WhatsApp notification via Send2 / WhatsApp."""
         try:
+            import re
             from routing.whatsapp import send_whatsapp_message
-            return send_whatsapp_message(phone_number, message)
+            clean_phone = re.sub(r"[^\d]", "", str(phone_number or "")).strip()
+            if not clean_phone:
+                logger.warning("Cannot send WhatsApp notification: phone_number is empty")
+                return False
+            success = send_whatsapp_message(clean_phone, message)
+            if success:
+                try:
+                    from database import save_chat
+                    save_chat(clean_phone, "System", "[Meeting Scheduled]", message, "callback_meet")
+                except Exception as ce:
+                    logger.debug(f"Could not save scheduled callback to chat history: {ce}")
+            return success
         except Exception as e:
             logger.error(f"Failed to send callback WhatsApp notification to {phone_number}: {e}")
             return False
@@ -770,8 +782,19 @@ class NotificationService:
         callback_request: CallbackRequest
     ) -> str:
         """Format callback confirmation message for customer."""
-        time_display = callback_request.preferred_time or "as scheduled"
-        cal_url = callback_request.metadata.get("calendar_add_url") if callback_request.metadata else None
+        time_display = ""
+        if callback_request.scheduled_start_time:
+            try:
+                from dateutil.parser import parse
+                dt = parse(callback_request.scheduled_start_time)
+                time_display = dt.strftime("%A, %d %b %Y at %I:%M %p")
+            except Exception:
+                time_display = callback_request.scheduled_start_time
+        if not time_display:
+            parts = [p for p in [callback_request.preferred_date, callback_request.preferred_time] if p]
+            time_display = " ".join(parts) if parts else "as scheduled"
+
+        cal_url = callback_request.metadata.get("calendar_add_url") if isinstance(callback_request.metadata, dict) else None
 
         if callback_request.is_scheduled():
             lines = [

@@ -1,4 +1,5 @@
 import logging
+import re
 import requests
 import httpx
 from routing.config import (
@@ -96,10 +97,11 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
 
     text = normalize_whatsapp_formatting(text)
 
+    clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
     payload = {
         "user_name": SEND2_USERNAME,
         "password": SEND2_PASSWORD,
-        "contact_no": to,
+        "contact_no": clean_to,
         "message_type": "text",
         "message": text,
         "messaging_product": "whatsapp",

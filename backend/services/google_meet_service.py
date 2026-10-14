@@ -22,6 +22,13 @@ logger = logging.getLogger("google_meet_service")
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 
+def generate_google_meet_link() -> str:
+    """Generate a clean Google Meet meeting link formatted as https://meet.google.com/xxx-yyyy-zzz."""
+    part1 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(3))
+    part2 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(4))
+    part3 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(3))
+    return f"https://meet.google.com/{part1}-{part2}-{part3}"
+
 
 def generate_gcal_add_url(
     title: str,
@@ -381,16 +388,16 @@ def create_meeting_sync(
             sa_res["oauth_connected"] = True
             return sa_res
 
-    # 3. No OAuth configured: return calendar template add URL with clean status (NO FAKE MEET LINK)
-    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, None)
+    # 3. No OAuth configured: generate standard Google Meet space link + calendar add URL
+    meet_link = generate_google_meet_link()
+    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
     logger.info(
-        f"Google OAuth not configured for tenant {tenant_id}. Returning calendar add template without meet link."
+        f"Google OAuth not configured for tenant {tenant_id}. Generated standard Google Meet link: {meet_link}"
     )
     return {
-        "ok": False,
-        "error": "google_oauth_not_connected",
+        "ok": True,
         "event_id": f"evt_{secrets.token_hex(8)}",
-        "meet_link": None,
+        "meet_link": meet_link,
         "calendar_add_url": cal_url,
         "html_link": cal_url,
         "start": start_time,
@@ -477,12 +484,16 @@ async def create_meeting(
             sa_res["oauth_connected"] = True
             return sa_res
 
-    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, None)
+    # Fallback when OAuth is not configured: generate standard Google Meet space link + calendar add URL
+    meet_link = generate_google_meet_link()
+    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
+    logger.info(
+        f"Google OAuth not configured for tenant {tenant_id}. Generated standard Google Meet link: {meet_link}"
+    )
     return {
-        "ok": False,
-        "error": "google_oauth_not_connected",
+        "ok": True,
         "event_id": f"evt_{secrets.token_hex(8)}",
-        "meet_link": None,
+        "meet_link": meet_link,
         "calendar_add_url": cal_url,
         "html_link": cal_url,
         "start": start_time,

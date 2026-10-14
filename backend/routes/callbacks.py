@@ -329,10 +329,12 @@ async def _send_callback_confirmation_background(
         # Format and send customer confirmation
         customer_message = notification_service.format_callback_confirmation(callback_request)
         if callback_request.wa_id:
-            await notification_service.send_whatsapp_notification(
+            logger.info(f"Sending callback WhatsApp confirmation to {callback_request.wa_id} with Meet link: {callback_request.meet_link}")
+            sent = await notification_service.send_whatsapp_notification(
                 phone_number=callback_request.wa_id,
                 message=customer_message
             )
+            logger.info(f"Callback WhatsApp confirmation result for {callback_request.wa_id}: {sent}")
         
         # Send to customer email if available
         if callback_request.customer_email:
@@ -777,6 +779,10 @@ async def schedule_callback(
         calendar_event_id=meet_result.get("event_id", ""),
         meet_link=meet_result.get("meet_link", "")
     )
+    if not isinstance(callback_request.metadata, dict):
+        callback_request.metadata = {}
+    if meet_result.get("calendar_add_url"):
+        callback_request.metadata["calendar_add_url"] = meet_result["calendar_add_url"]
     
     # Save updated callback
     with get_db_context() as conn:

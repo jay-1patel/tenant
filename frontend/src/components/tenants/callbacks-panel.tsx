@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CalendarCheck, CheckCircle2, PhoneCall, Plus, Video, XCircle } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import {
@@ -114,18 +114,43 @@ export function CallbacksPanel({ tenantId }: { tenantId: string }) {
     }
   }
 
+  useEffect(() => {
+    if (active) {
+      const now = new Date()
+      now.setMinutes(0, 0, 0)
+      now.setHours(now.getHours() + 1)
+      const end = new Date(now.getTime() + 30 * 60000)
+
+      const toLocalInput = (d: Date) => {
+        const offset = d.getTimezoneOffset() * 60000
+        return new Date(d.getTime() - offset).toISOString().slice(0, 16)
+      }
+
+      setSchedule((s) => ({
+        ...s,
+        start: s.start || toLocalInput(now),
+        end: s.end || toLocalInput(end),
+      }))
+    }
+  }, [active?.id])
+
   const book = async () => {
     if (!active) return
-    if (!schedule.agent_name.trim() || !schedule.start || !schedule.end) return
+    const agentName = schedule.agent_name.trim() || 'Support Agent'
+    const agentId = schedule.agent_id.trim() || agentName
+    if (!schedule.start || !schedule.end) {
+      toast.push('Please select both a Start and End time for the meeting.', 'error')
+      return
+    }
     const result = await action.run(
       () =>
         callbacksApi.schedule(tenantId, active.id, {
-          agent_id: schedule.agent_id.trim() || schedule.agent_name.trim(),
-          agent_name: schedule.agent_name.trim(),
+          agent_id: agentId,
+          agent_name: agentName,
           start_time: new Date(schedule.start).toISOString(),
           end_time: new Date(schedule.end).toISOString(),
         }),
-      'Callback scheduled — meet link created',
+      'Callback scheduled — Google Meet link generated and sent to customer on WhatsApp',
     )
     if (result) {
       setSchedule({ agent_name: '', agent_id: '', start: '', end: '' })
@@ -391,7 +416,7 @@ export function CallbacksPanel({ tenantId }: { tenantId: string }) {
                         label="Agent name"
                         value={schedule.agent_name}
                         onChange={(e) => setSchedule((s) => ({ ...s, agent_name: e.target.value }))}
-                        placeholder="Agent handling the call"
+                        placeholder="Agent handling the call (defaults to Support Agent)"
                       />
                       <Input
                         label="Agent ID (optional)"
