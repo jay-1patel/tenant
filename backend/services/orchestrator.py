@@ -123,6 +123,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     }
 
             # 3. Check intent by button ID, menu row title, or typed text (Careers, Technologies, Projects, Benefits, etc.)
+            # Resolve the raw answer (intent or button) and synthesize it via the LLM
             intent_reply = (
                 intent_answers.answer_for_button(wa_id, message, tenant_id=tenant_id)
                 or intent_answers.answer_for_menu_title(wa_id, message, tenant_id=tenant_id)
@@ -130,7 +131,14 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                 or intent_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
             )
             if intent_reply:
-                await send_text_message(wa_id, intent_reply)
+                from faq.service import synthesize_intent_answer
+                synthesized = await synthesize_intent_answer(
+                    raw_content=intent_reply,
+                    intent_name=message,
+                    user_query=message,
+                    tenant_id=tenant_id,
+                )
+                await send_text_message(wa_id, synthesized)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),

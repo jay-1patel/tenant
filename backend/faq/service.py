@@ -1231,3 +1231,40 @@ def _append_signature(text: str, tenant_id: str | None = None) -> str:
     if signature in text:
         return text
     return text.rstrip() + f"\n\n--- {signature}"
+
+# ---------------------------------------------------------------------------
+# New helper: synthesize raw intent/service answers via the LLM
+# ---------------------------------------------------------------------------
+async def synthesize_intent_answer(
+    raw_content: str,
+    intent_name: str,
+    user_query: str,
+    tenant_id: str | None = None,
+) -> str:
+    """Pass raw intent or service text through the LLM to generate a clean reply.
+
+    * `raw_content` – the string originally stored in the admin panel or built from DB.
+    * `intent_name` – a short label for the intent (e.g., "Career", "Services").
+    * `user_query` – the exact message the user sent (used as the LLM user prompt).
+    * `tenant_id` – optional, used only to resolve branding info if needed.
+    """
+    if not raw_content or len(raw_content.strip()) < 30:
+        return raw_content
+
+    # Resolve branding for the system prompt
+    brand = BRAND_NAME or "our company"
+    system_prompt = (
+        f"You are a helpful WhatsApp assistant for {brand}. "
+        f"A user asked about '{intent_name}'. "
+        f"Using ONLY the factual data provided in the context below, "
+        f"write a concise, professional, WhatsApp‑friendly reply. "
+        f"Use bullet points (•), bold (*text*) for headings, and keep it under 400 words. "
+        f"Do NOT add information that is not present in the context."
+    )
+
+    # Re‑use the existing direct‑LLM generator – it already handles provider fallback.
+    answer = await _generate_direct_llm_answer(system_prompt, user_query, raw_content)
+    if answer and len(answer.strip()) > 10:
+        return answer.strip()
+    # If the LLM call failed or returned an empty string, fall back to the raw content.
+    return raw_content
