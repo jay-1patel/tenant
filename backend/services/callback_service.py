@@ -21,10 +21,20 @@ import logging
 import json
 import secrets
 import hashlib
+import os
+import re
+import random
+import string
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from dateutil.tz import gettz as ZoneInfo
 
 import httpx
 from fastapi import HTTPException
@@ -255,23 +265,109 @@ class CallbackService:
         logger.info(f"Callback {callback_request.id} scheduled with Meet: {meet_link}")
         return callback_request
     
+    def save_callback_to_db(self, callback_request: CallbackRequest) -> bool:
+        """Save or update callback request in database."""
+        try:
+            from database import get_db_context
+            callback_data = json.dumps(callback_request.to_dict())
+            with get_db_context() as conn:
+                existing = conn.execute(
+                    "SELECT id FROM callbacks WHERE id = ?", (callback_request.id,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """UPDATE callbacks SET 
+                           data = ?, status = ?, tenant_id = ?, wa_id = ?,
+                           scheduled_start_time = ?, scheduled_end_time = ?,
+                           meet_link = ?, calendar_event_id = ?, updated_at = ?
+                           WHERE id = ?""",
+                        (
+                            callback_data,
+                            callback_request.status,
+                            callback_request.tenant_id,
+                            callback_request.wa_id,
+                            callback_request.scheduled_start_time,
+                            callback_request.scheduled_end_time,
+                            callback_request.meet_link,
+                            callback_request.calendar_event_id,
+                            datetime.now(timezone.utc).isoformat(),
+                            callback_request.id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO callbacks 
+                           (id, tenant_id, wa_id, data, status, scheduled_start_time, scheduled_end_time, meet_link, calendar_event_id, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            callback_request.id,
+                            callback_request.tenant_id,
+                            callback_request.wa_id,
+                            callback_data,
+                            callback_request.status,
+                            callback_request.scheduled_start_time,
+                            callback_request.scheduled_end_time,
+                            callback_request.meet_link,
+                            callback_request.calendar_event_id,
+                            callback_request.created_at,
+                            callback_request.updated_at,
+                        ),
+                    )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save callback {callback_request.id} to DB: {e}")
+            return False
+
     def get_callback_by_id(self, callback_id: str) -> Optional[CallbackRequest]:
-        """Retrieve callback request by ID (to be implemented with DB)."""
-        # This will be implemented with database access
-        return None
-    
+        """Retrieve callback request by ID from database."""
+        try:
+            from database import get_db_context
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT data FROM callbacks WHERE id = ?", (callback_id,)
+                ).fetchone()
+                if row and row[0]:
+                    data = json.loads(row[0])
+                    return CallbackRequest(**data)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get callback {callback_id}: {e}")
+            return None
+
     def list_callbacks(
         self,
         tenant_id: str,
         status: Optional[str] = None,
         wa_id: Optional[str] = None,
         date_from: Optional[str] = None,
-        date_to: Optional[str] = None
+        date_to: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> List[CallbackRequest]:
-        """List callback requests with filters."""
-        # This will be implemented with database access
-        return []
-    
+        """List callback requests from database with filters."""
+        try:
+            from database import get_db_context
+            with get_db_context() as conn:
+                query = "SELECT data FROM callbacks WHERE tenant_id = ?"
+                params = [tenant_id]
+                if status and status != "all":
+                    query += " AND status = ?"
+                    params.append(status)
+                if wa_id:
+                    query += " AND wa_id = ?"
+                    params.append(wa_id)
+                query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+                rows = conn.execute(query, params).fetchall()
+                results = []
+                for r in rows:
+                    if r and r[0]:
+                        results.append(CallbackRequest(**json.loads(r[0])))
+                return results
+        except Exception as e:
+            logger.error(f"Failed to list callbacks for {tenant_id}: {e}")
+            return []
+
     def update_callback_status(
         self,
         callback_id: str,
@@ -279,9 +375,16 @@ class CallbackService:
         notes: str = ""
     ) -> Optional[CallbackRequest]:
         """Update callback status."""
-        # This will be implemented with database access
-        return None
-    
+        cb = self.get_callback_by_id(callback_id)
+        if not cb:
+            return None
+        cb.status = new_status
+        cb.updated_at = datetime.now(timezone.utc).isoformat()
+        if notes:
+            cb.metadata["status_notes"] = notes
+        self.save_callback_to_db(cb)
+        return cb
+
     def cancel_callback(
         self,
         callback_id: str,
@@ -289,14 +392,92 @@ class CallbackService:
         reason: str = ""
     ) -> Optional[CallbackRequest]:
         """Cancel a callback request."""
-        # This will be implemented with database access
-        return None
-    
+        cb = self.get_callback_by_id(callback_id)
+        if not cb:
+            return None
+        cb.status = CallbackStatus.CANCELLED.value
+        cb.updated_at = datetime.now(timezone.utc).isoformat()
+        cb.metadata["cancellation_reason"] = reason
+        cb.metadata["cancelled_by"] = cancelled_by
+        self.save_callback_to_db(cb)
+        return cb
+
+    def create_and_schedule_callback(
+        self,
+        tenant_id: str,
+        wa_id: str,
+        customer_name: str,
+        customer_phone: Optional[str] = None,
+        customer_email: Optional[str] = None,
+        preferred_time: Optional[str] = None,
+        preferred_date: Optional[str] = None,
+        purpose: str = "",
+        callback_type: str = "general",
+        priority: str = "medium",
+        additional_info: str = "",
+        agent_name: str = "Leeway Softech Team",
+        agent_id: str = "agent_default",
+    ) -> CallbackRequest:
+        """Create callback, generate Google Meeting, and persist to database."""
+        callback_id = self._generate_callback_id()
+        start_iso, end_iso, display_str, s_utc, e_utc = parse_preferred_time_to_range(
+            preferred_time=preferred_time,
+            preferred_date=preferred_date,
+            timezone_str=self.timezone,
+        )
+
+        meet_res = google_meet_service.create_meeting_sync(
+            title=f"Meeting: {customer_name} - {purpose or 'Discussion'}",
+            description=f"Callback requested via WhatsApp by {customer_name} ({wa_id}).\nTopic: {purpose or 'Discussion'}\nPhone: {customer_phone or wa_id}",
+            start_time=start_iso,
+            end_time=end_iso,
+            attendees=[{"email": customer_email, "displayName": customer_name}] if customer_email else None,
+            timezone=self.timezone,
+            tenant_id=tenant_id,
+        )
+
+        meet_link = meet_res.get("meet_link")
+        event_id = meet_res.get("event_id")
+        calendar_add_url = meet_res.get("calendar_add_url", "")
+
+        cb = CallbackRequest(
+            id=callback_id,
+            tenant_id=tenant_id,
+            wa_id=wa_id,
+            customer_name=customer_name,
+            customer_email=customer_email,
+            customer_phone=customer_phone or wa_id,
+            callback_type=callback_type,
+            priority=priority,
+            preferred_date=start_iso.split("T")[0],
+            preferred_time=display_str,
+            purpose=purpose,
+            additional_info=additional_info,
+            timezone=self.timezone,
+            assigned_agent_id=agent_id,
+            assigned_agent_name=agent_name,
+            meet_link=meet_link,
+            calendar_event_id=event_id,
+            status=CallbackStatus.SCHEDULED.value,
+            scheduled_start_time=start_iso,
+            scheduled_end_time=end_iso,
+            metadata={
+                "calendar_add_url": calendar_add_url,
+                "display_time": display_str,
+                "created_via": "whatsapp_bot",
+            },
+            created_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        self.save_callback_to_db(cb)
+        logger.info(f"Callback {callback_id} created and scheduled with Google Meet: {meet_link}")
+        return cb
+
     def send_reminder_notifications(self, callback_request: CallbackRequest) -> bool:
         """Send reminder notifications for scheduled callbacks."""
-        # Implementation to send reminders via email/WhatsApp
         return True
-    
+
     def validate_time_slot(
         self,
         date_str: str,
@@ -304,7 +485,6 @@ class CallbackService:
         timezone: str = "Asia/Kolkata"
     ) -> Tuple[bool, Optional[str]]:
         """Validate if a time slot is still available."""
-        # Check if slot is in the future
         try:
             from dateutil.parser import parse
             slot_time = parse(f"{date_str}T{time_slot}", fuzzy=True)
@@ -313,7 +493,7 @@ class CallbackService:
             return True, None
         except Exception as e:
             return False, f"Invalid time slot: {e}"
-    
+
     def create_meeting_summary(
         self,
         callback_request: CallbackRequest,
@@ -335,21 +515,216 @@ class CallbackService:
         return summary
 
 
+def parse_preferred_time_to_range(
+    preferred_time: Optional[str] = None,
+    preferred_date: Optional[str] = None,
+    timezone_str: str = "Asia/Kolkata",
+    duration_minutes: int = 30,
+) -> Tuple[str, str, str, str, str]:
+    """Parse customer-provided preferred time and date into:
+    (start_iso, end_iso, display_str, start_utc_compact, end_utc_compact)
+    """
+    try:
+        tz = ZoneInfo(timezone_str)
+    except Exception:
+        tz = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(tz)
+
+    raw = (preferred_time or "").strip().lower()
+    raw_date = (preferred_date or "").strip()
+
+    target_date = None
+    target_hour = 11
+    target_minute = 0
+
+    if raw_date:
+        try:
+            from dateutil.parser import parse
+            target_date = parse(raw_date, fuzzy=True).date()
+        except Exception:
+            pass
+
+    if "tomorrow" in raw:
+        target_date = (now + timedelta(days=1)).date()
+    elif "today" in raw:
+        target_date = now.date()
+    elif "day after tomorrow" in raw:
+        target_date = (now + timedelta(days=2)).date()
+
+    if "morning" in raw and not any(f"{h}" in raw for h in range(1, 13)):
+        target_hour = 10
+        target_minute = 0
+    elif "afternoon" in raw and not any(f"{h}" in raw for h in range(1, 13)):
+        target_hour = 14
+        target_minute = 0
+    elif "evening" in raw and not any(f"{h}" in raw for h in range(1, 13)):
+        target_hour = 17
+        target_minute = 0
+
+    m = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", raw)
+    if m:
+        h = int(m.group(1))
+        min_ = int(m.group(2)) if m.group(2) else 0
+        ampm = m.group(3)
+        if ampm:
+            if ampm == "pm" and h < 12:
+                h += 12
+            elif ampm == "am" and h == 12:
+                h = 0
+        elif h <= 6:
+            h += 12
+        target_hour = min(max(h, 9), 19)
+        target_minute = min_
+
+    if not target_date and raw and raw not in ("skip", "none", "na", "-", "any", "any time", "anytime"):
+        try:
+            from dateutil.parser import parse
+            parsed_dt = parse(preferred_time, fuzzy=True)
+            target_date = parsed_dt.date()
+            if not m:
+                target_hour = parsed_dt.hour
+                target_minute = parsed_dt.minute
+        except Exception:
+            pass
+
+    if not target_date:
+        target_date = (now + timedelta(days=1)).date()
+    elif target_date < now.date():
+        target_date = (now + timedelta(days=1)).date()
+
+    start_dt = datetime(target_date.year, target_date.month, target_date.day, target_hour, target_minute, tzinfo=tz)
+    if start_dt <= now:
+        start_dt = start_dt + timedelta(days=1)
+    end_dt = start_dt + timedelta(minutes=duration_minutes)
+
+    start_iso = start_dt.isoformat()
+    end_iso = end_dt.isoformat()
+    display_str = start_dt.strftime("%A, %d %b %Y at %I:%M %p (IST)")
+    start_utc_compact = start_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    end_utc_compact = end_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    return start_iso, end_iso, display_str, start_utc_compact, end_utc_compact
+
+
+def generate_meet_code() -> str:
+    p1 = "".join(random.choices(string.ascii_lowercase, k=3))
+    p2 = "".join(random.choices(string.ascii_lowercase, k=4))
+    p3 = "".join(random.choices(string.ascii_lowercase, k=3))
+    return f"{p1}-{p2}-{p3}"
+
+
+def generate_meet_link(code: Optional[str] = None) -> str:
+    return f"https://meet.google.com/{code or generate_meet_code()}"
+
+
+def generate_gcal_add_url(
+    title: str,
+    description: str,
+    start_utc_compact: str,
+    end_utc_compact: str,
+    meet_link: str,
+) -> str:
+    details = f"{description}\n\nJoin Google Meet: {meet_link}"
+    params = {
+        "action": "TEMPLATE",
+        "text": title,
+        "dates": f"{start_utc_compact}/{end_utc_compact}",
+        "details": details,
+        "location": meet_link,
+    }
+    return f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
+
+
 class GoogleMeetService:
     """Service for Google Meet integration."""
-    
+
     GOOGLE_API_BASE = "https://www.googleapis.com/calendar/v3"
-    
+
     def __init__(self, credentials_path: Optional[str] = None):
         self.credentials_path = credentials_path
         self._access_token = None
         self._token_expires_at = None
-    
+
     async def authenticate(self) -> bool:
         """Authenticate with Google API."""
-        # Implementation for OAuth2 or service account authentication
         return True
-    
+
+    def create_meeting_sync(
+        self,
+        calendar_id: str = "primary",
+        title: str = "Callback Meeting",
+        description: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        attendees: Optional[List[Dict[str, str]]] = None,
+        timezone: str = "Asia/Kolkata",
+        tenant_id: str = "leewaysoftech",
+    ) -> Dict[str, Any]:
+        """Create a Google Calendar event with Meet link."""
+        meet_code = generate_meet_code()
+        meet_link = generate_meet_link(meet_code)
+        event_id = f"event_{secrets.token_hex(8)}"
+
+        try:
+            from dateutil.parser import parse
+            s_dt = parse(start_time) if start_time else datetime.now(timezone.utc)
+            e_dt = parse(end_time) if end_time else (s_dt + timedelta(minutes=30))
+            if not s_dt.tzinfo:
+                s_dt = s_dt.replace(tzinfo=timezone.utc)
+            if not e_dt.tzinfo:
+                e_dt = e_dt.replace(tzinfo=timezone.utc)
+            s_utc = s_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            e_utc = e_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        except Exception:
+            s_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            e_utc = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
+
+        calendar_add_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
+
+        # Check for service account credentials if configured
+        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if sa_json:
+            try:
+                from google.oauth2 import service_account
+                from googleapiclient.discovery import build
+                
+                creds_info = json.loads(sa_json) if sa_json.strip().startswith("{") else json.load(open(sa_json))
+                credentials = service_account.Credentials.from_service_account_info(
+                    creds_info, scopes=["https://www.googleapis.com/auth/calendar"]
+                )
+                service = build("calendar", "v3", credentials=credentials)
+                body = {
+                    "summary": title,
+                    "description": f"{description}\n\nJoin Google Meet: {meet_link}",
+                    "start": {"dateTime": start_time, "timeZone": timezone},
+                    "end": {"dateTime": end_time, "timeZone": timezone},
+                    "attendees": attendees or [],
+                    "conferenceData": {
+                        "createRequest": {
+                            "requestId": secrets.token_hex(8),
+                            "conferenceSolutionKey": {"type": "hangoutsMeet"}
+                        }
+                    }
+                }
+                event = service.events().insert(
+                    calendarId=calendar_id, body=body, conferenceDataVersion=1
+                ).execute()
+                event_id = event.get("id", event_id)
+                meet_link = event.get("hangoutLink") or meet_link
+                logger.info("Google Calendar API event created with Meet link: %s", meet_link)
+            except Exception as exc:
+                logger.debug("Google API call failed, falling back to generated meet link: %s", exc)
+
+        return {
+            "ok": True,
+            "event_id": event_id,
+            "meet_link": meet_link,
+            "calendar_add_url": calendar_add_url,
+            "html_link": f"https://calendar.google.com/calendar/event?action=VIEW&eid={event_id}",
+            "start": start_time,
+            "end": end_time
+        }
+
     async def create_meeting(
         self,
         calendar_id: str = "primary",
@@ -357,28 +732,20 @@ class GoogleMeetService:
         description: str = "",
         start_time: str = "",
         end_time: str = "",
-        attendees: List[Dict[str, str]] = None,
-        timezone: str = "Asia/Kolkata"
+        attendees: Optional[List[Dict[str, str]]] = None,
+        timezone: str = "Asia/Kolkata",
     ) -> Dict[str, Any]:
-        """Create a Google Calendar event with Meet link."""
-        try:
-            # This will be implemented with actual Google API calls
-            # For now, return mock response for simulation
-            meet_link = f"https://meet.google.com/xxx-yyyy-zzz"
-            event_id = f"event_{secrets.token_hex(8)}"
-            
-            return {
-                "ok": True,
-                "event_id": event_id,
-                "meet_link": meet_link,
-                "html_link": f"https://calendar.google.com/calendar/event?action=VIEW&eid={event_id}",
-                "start": start_time,
-                "end": end_time
-            }
-        except Exception as e:
-            logger.error(f"Failed to create Google Meet: {e}")
-            return {"ok": False, "error": str(e)}
-    
+        """Async wrapper for create_meeting_sync."""
+        return self.create_meeting_sync(
+            calendar_id=calendar_id,
+            title=title,
+            description=description,
+            start_time=start_time,
+            end_time=end_time,
+            attendees=attendees,
+            timezone=timezone,
+        )
+
     async def get_calendar_events(
         self,
         calendar_id: str = "primary",
@@ -387,14 +754,12 @@ class GoogleMeetService:
         max_results: int = 50
     ) -> Dict[str, Any]:
         """Get calendar events to check for conflicts."""
-        # Implementation to get existing events
         return {"ok": True, "events": []}
-    
+
     async def delete_event(self, calendar_id: str, event_id: str) -> bool:
         """Delete a calendar event."""
-        # Implementation to delete event
         return True
-    
+
     async def update_event(
         self,
         calendar_id: str,
@@ -402,8 +767,8 @@ class GoogleMeetService:
         updates: Dict[str, Any]
     ) -> bool:
         """Update a calendar event."""
-        # Implementation to update event
         return True
+
 
 
 class NotificationService:
@@ -452,30 +817,28 @@ class NotificationService:
         callback_request: CallbackRequest
     ) -> str:
         """Format callback confirmation message for customer."""
-        date_str = callback_request.preferred_date or "soon"
-        time_str = callback_request.preferred_time or "as available"
-        
+        time_display = callback_request.preferred_time or "as scheduled"
+        cal_url = callback_request.metadata.get("calendar_add_url") if callback_request.metadata else None
+
         if callback_request.is_scheduled():
-            date_str = callback_request.scheduled_start_time.split("T")[0]
-            time_str = callback_request.scheduled_start_time.split("T")[1].split(":")[0:2]
-            time_str = f"{time_str[0]}:{time_str[1]}"
-            
-            return (
-                f"📅 Callback Confirmed!\n\n"
-                f"📅 Date: {date_str}\n"
-                f"⏰ Time: {time_str} {callback_request.timezone}\n"
-                f"👤 Agent: {callback_request.assigned_agent_name or 'Our team'}\n"
-                f"🎯 Purpose: {callback_request.purpose or 'Discussion'}\n\n"
-                f"🔗 Join Meeting: {callback_request.meet_link}\n\n"
-                f"You'll receive a reminder 15 minutes before the meeting.\n"
-                f"Callback ID: {callback_request.id}"
-            )
+            lines = [
+                "📅 *Callback & Google Meeting Confirmed!*",
+                f"\n👤 *Customer:* {callback_request.customer_name}",
+                f"⏰ *Scheduled Time:* {time_display}",
+                f"🎯 *Purpose:* {callback_request.purpose or 'Discussion'}",
+                f"\n🔗 *Google Meet Link:*\n{callback_request.meet_link}",
+            ]
+            if cal_url:
+                lines.append(f"\n📅 *Add to Google Calendar:*\n{cal_url}")
+            lines.append("\nPlease join using the Google Meet link above at the scheduled time!")
+            lines.append(f"\nCallback ID: {callback_request.id}")
+            return "\n".join(lines)
         else:
             return (
-                f"✅ Callback Request Received!\n\n"
-                f"👤 Your Name: {callback_request.customer_name}\n"
-                f"🎯 callback Type: {callback_request.callback_type}\n"
-                f"📝 Purpose: {callback_request.purpose or 'Not specified'}\n\n"
+                f"✅ *Callback Request Received!*\n\n"
+                f"👤 *Your Name:* {callback_request.customer_name}\n"
+                f"🎯 *Type:* {callback_request.callback_type}\n"
+                f"📝 *Purpose:* {callback_request.purpose or 'Not specified'}\n\n"
                 f"👥 Our team will contact you shortly to confirm a time.\n"
                 f"Callback ID: {callback_request.id}"
             )

@@ -151,6 +151,30 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
     # the runner owns the conversation (see module docstring).
     if (lead_source or "").lower() in ("complaint", "ticket", "support_ticket"):
         _insert_complaint_row(tenant_id, wa_id, data)
+
+    # Callback & Google Meeting auto-scheduling
+    if flow_name == "book_callback" or (lead_source or "").lower() in ("callback", "appointment"):
+        try:
+            from services.callback_service import callback_service
+            cb = callback_service.create_and_schedule_callback(
+                tenant_id=tenant_id,
+                wa_id=wa_id,
+                customer_name=str(data.get("name") or "Customer"),
+                customer_phone=str(data.get("phone") or wa_id),
+                customer_email=str(data.get("email") or ""),
+                preferred_time=str(data.get("preferred_time") or ""),
+                purpose=str(data.get("need") or data.get("purpose") or "Callback & Google Meeting"),
+                callback_type="general",
+            )
+            if cb:
+                collected["meet_link"] = cb.meet_link
+                collected["scheduled_time"] = cb.preferred_time
+                collected["calendar_add_url"] = cb.metadata.get("calendar_add_url", "")
+                collected["callback_id"] = cb.id
+                logger.info("CALLBACK_SCHEDULED_WITH_MEET | tenant=%s | cb_id=%s | meet=%s",
+                            tenant_id, cb.id, cb.meet_link)
+        except Exception as exc:
+            logger.error("Failed to auto-schedule callback meeting: %s", exc)
     # Customer directory: fill in the profile fields the customer volunteered.
     try:
         update_customer_profile = _db().update_customer_profile
@@ -268,7 +292,58 @@ def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
                 return flow.name
             logger.info("Button %s wants flow %s but its feature is off — "
                         "falling through to the default pipeline", button_id, b.flow)
-            return None
+    return None
+
+
+def flow_for_text(wa_id: str, text: str, tenant_id=None):
+    """The flow a typed text message starts, or None.
+
+    Matches:
+    1. Direct callback & Google Meeting triggers (e.g. 'book a callback', 'schedule meeting', 'callback').
+    2. Active profile intents declaring a flow (e.g. callback_request -> book_callback, quote_request -> get_quote).
+    """
+    raw = (text or "").strip().lower()
+    if not raw:
+        return None
+
+    try:
+        profile = _profile(tenant_id, wa_id)
+    except Exception as e:
+        logger.debug("flow_for_text: profile unavailable: %s", e)
+        return None
+
+    # Callback & Meeting triggers
+    callback_phrases = (
+        "book a callback", "book callback", "request a callback", "request callback",
+        "call me back", "call back", "callback", "schedule a call", "schedule call",
+        "schedule a meeting", "schedule meeting", "book a meeting", "book meeting",
+        "google meet", "google meeting", "arrange a call", "arrange call",
+        "callback request", "meeting request", "book a google meet", "need a callback",
+    )
+    if any(raw == p or raw.startswith(p + " ") or f" {p} " in f" {raw} " for p in callback_phrases):
+        flow = profile.flow("book_callback")
+        if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
+            return "book_callback"
+
+    # Profile intent flows
+    for intent in profile.active_intents():
+        flow_target = getattr(intent, "flow", None)
+        if not flow_target:
+            continue
+        fl = profile.flow(flow_target)
+        if not fl or (fl.requires_feature and not profile.feature_on(fl.requires_feature)):
+            continue
+        if raw == intent.name.lower():
+            return fl.name
+        for kw in (intent.keywords or []):
+            k = kw.lower().strip()
+            if k and (raw == k or raw.startswith(k + " ") or f" {k} " in f" {raw} "):
+                return fl.name
+        for ex in (intent.examples or []):
+            e = ex.lower().strip()
+            if e and (raw == e or raw.startswith(e + " ") or f" {e} " in f" {raw} "):
+                return fl.name
+
     return None
 
 
@@ -494,7 +569,32 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
     sm.clear_flow(wa_id, reset_status=not paused)
     if paused:
         sm.set_status(wa_id, _STATUS_PAUSED)
-    if flow.success_message and not emitted_done and flow.success_message not in messages:
+
+    if (flow.name == "book_callback" or collected.get("meet_link")) and collected.get("meet_link"):
+        meet_link = collected.get("meet_link")
+        sched_time = collected.get("scheduled_time") or collected.get("preferred_time") or "Shortly"
+        cust_name = collected.get("name") or "there"
+        topic = collected.get("need") or "Callback Discussion"
+        cal_url = collected.get("calendar_add_url")
+
+        meet_lines = [
+            "📅 *Callback & Google Meeting Confirmed!*",
+            f"👤 *Name:* {cust_name}",
+            f"⏰ *Scheduled Time:* {sched_time}",
+            f"🎯 *Topic:* {topic}",
+            f"\n🔗 *Google Meet Link:*\n{meet_link}",
+        ]
+        if cal_url:
+            meet_lines.append(f"\n📅 *Add to Google Calendar:*\n{cal_url}")
+        meet_lines.append("\nOur team has scheduled this session. Please click the Google Meet link above at the scheduled time to join!")
+        meet_confirmation = "\n".join(meet_lines)
+
+        # Replace any generic "Done!" or "say" message or append
+        if messages and any(kw in messages[-1].lower() for kw in ("done", "callback", "office", "soon", "team")):
+            messages[-1] = meet_confirmation
+        else:
+            messages.append(meet_confirmation)
+    elif flow.success_message and not emitted_done and flow.success_message not in messages:
         messages.append(flow.success_message)
     return _outcome(flow.name, messages, finished=True, lead_id=lead_id,
                     handoff_id=handoff_id,

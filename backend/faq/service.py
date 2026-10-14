@@ -238,7 +238,7 @@ Rules for next_actions:
 - Maximum 3 next_actions allowed. NEVER invent new ids or titles outside the registry.
 
 Context to use for your answer:
-{context[:10000] if context else "No additional context provided."}
+{context[:4000] if context else "No additional context provided."}
 
 Remember: You must output ONLY valid JSON. No markdown, no code blocks, no explanations outside the JSON structure."""
 
@@ -337,12 +337,15 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
                     {"role": "user", "content": user_query},
                 ],
                 "temperature": 0.2,
-                "max_tokens": 1024,
+                "max_tokens": 2048,
             }
             response = await client.post(url, json=payload, headers=headers, timeout=30)
             logger.info(f"LLM_RESPONSE | provider={name} | status={response.status_code}")
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
+            choice = response.json().get("choices", [{}])[0]
+            msg = choice.get("message", {})
+            content = msg.get("content") or ""
+            return content.strip()
 
 
 def _parse_faq_dynamic_json(raw_response: str, user_query: str) -> dict | None:
@@ -381,6 +384,11 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str) -> dict | None:
                     return _validate_faq_dynamic_result(parsed, user_query)
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
+
+    # Strategy 5: If LLM returned direct conversational text without JSON wrapper, preserve it
+    cleaned_text = raw_response.strip()
+    if cleaned_text and not cleaned_text.startswith("{") and len(cleaned_text) > 10:
+        return _validate_faq_dynamic_result({"answer": cleaned_text, "next_actions": []}, user_query)
 
     return None
 
@@ -975,7 +983,7 @@ async def handle_faq_query(payload: dict) -> dict:
     # ── Build context (filter by CE score) ────
     context_parts = []
 
-    for chunk_text, metadata, score in results:
+    for chunk_text, metadata, score in results[:5]:
         if score < CE_SCORE_THRESHOLD:
             continue
         context_parts.append(f"[relevance={score:.3f}]\n{chunk_text}")
@@ -1002,28 +1010,16 @@ async def handle_faq_query(payload: dict) -> dict:
             f"already shows them.]"
         )
 
-    # ── Two-tier: pick system prompt by confidence ──
+    # ── Pick system prompt by confidence, always synthesize via LLM ──
     brand = _brand_context(tenant_id)
     if best_ce_score >= HIGH_CONFIDENCE_THRESHOLD:
         system_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
         logger.info(f"High confidence ({best_ce_score:.3f}) for: '{message}'")
-    elif best_ce_score >= MEDIUM_CONFIDENCE_THRESHOLD:
-        system_prompt = _render_prompt(STRICT_SYSTEM_PROMPT_TEMPLATE, brand)
-        logger.info(f"Medium confidence ({best_ce_score:.3f}) for: '{message}' — strict prompt")
     else:
-        logger.info(f"Low confidence ({best_ce_score:.3f}) for: '{message}' — using raw chunk with keyword buttons")
-        best_chunk = results[0][0]
-        fallback = _fallback_dynamic_buttons(best_chunk, message, source_file=best_meta.get("source_file", "") or "")
-        result = {"answer": _append_signature(fallback.get("answer", best_chunk), tenant_id)}
-        if media_url:
-            result["media_url"]  = media_url
-            result["media_type"] = media_type
-        interactive = _build_interactive(fallback.get("next_actions", []))
-        if interactive:
-            result["interactive"] = interactive
-        return result
+        system_prompt = _render_prompt(STRICT_SYSTEM_PROMPT_TEMPLATE, brand)
+        logger.info(f"Moderate/Low confidence ({best_ce_score:.3f}) for: '{message}' — strict prompt")
 
-    # ── Call Ollama LLM (with dynamic buttons) ──
+    # ── Call LLM (with dynamic buttons) ──
     try:
         response = await _generate_ollama_dynamic_response(
             system_prompt, message, context,
@@ -1046,8 +1042,9 @@ async def handle_faq_query(payload: dict) -> dict:
     except Exception as exc:
         logger.error(f"Dynamic button generation error: {exc}", exc_info=True)
         best_chunk, best_meta_fb, _ = results[0]
-        fallback = _fallback_dynamic_buttons(best_chunk, message, source_file=best_meta_fb.get("source_file", "") or "")
-        result = {"answer": _append_signature(fallback.get("answer", best_chunk), tenant_id)}
+        cleaned_fallback = _format_answer_lines(best_chunk)
+        fallback = _fallback_dynamic_buttons(cleaned_fallback, message, source_file=best_meta_fb.get("source_file", "") or "")
+        result = {"answer": _append_signature(fallback.get("answer", cleaned_fallback), tenant_id)}
         if media_url:
             result["media_url"]  = media_url
             result["media_type"] = media_type

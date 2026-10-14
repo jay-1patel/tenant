@@ -284,45 +284,46 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     except Exception as exc:
         logger.debug(f"B2C tenant intent fallback check: {exc}")
 
-    # 1. FAQ index: covers the uploaded FAQ text docs and catalogue/new-arrival PDFs.
+    # 1. Query FAQ service (which performs hybrid retrieval + LLM answer synthesis)
     try:
-        from faq.service import faq_index
-        if faq_index.is_built:
-            hits = faq_index.search(message, k=5)
-            for h in hits:
-                candidate = h[0] if isinstance(h, (list, tuple)) else str(h)
-                # Skip Table of Contents dotted lines / artifacts
-                if ". . . ." not in candidate and "...." not in candidate:
-                    answer = candidate
-                    break
-            hits = faq_index.search(message, k=1)
-            if hits:
-                # faq_index.search returns (text, metadata, score) tuples.
-                score = hits[0][2]
-                if score >= MIN_FAQ_CE_SCORE:
-                    answer = hits[0][0]
+        from faq.service import handle_faq_query
+        faq_res = await handle_faq_query({"message": message, "wa_id": wa_id})
+        if faq_res and faq_res.get("answer") and faq_res.get("answer").strip():
+            answer = faq_res["answer"]
     except Exception as e:
         logger.warning(f"FAQ index lookup failed: {e}")
 
-    # 2. KB FAISS index: covers the remaining KB PDFs (company, nutrition, full site).
+    # 2. KB FAISS index: covers the remaining KB PDFs (company, nutrition, full site)
     if not answer:
         try:
             import json as _json
             from kb.services.rag import search_kb_faiss
             from database import get_db_context
             hits = search_kb_faiss(message, limit=5)
+            kb_chunks = []
             if hits:
-                top = hits[0]
                 with get_db_context() as conn:
-                    row = conn.execute(
-                        "SELECT chunks_json FROM knowledge_base WHERE id=?",
-                        (top["doc_id"],),
-                    ).fetchone()
-                if row and row[0]:
-                    chunks = _json.loads(row[0])
-                    ci = top.get("chunk_index")
-                    if isinstance(ci, int) and 0 <= ci < len(chunks):
-                        answer = chunks[ci]
+                    for top in hits:
+                        row = conn.execute(
+                            "SELECT chunks_json FROM knowledge_base WHERE id=?",
+                            (top["doc_id"],),
+                        ).fetchone()
+                        if row and row[0]:
+                            chunks = _json.loads(row[0])
+                            ci = top.get("chunk_index")
+                            if isinstance(ci, int) and 0 <= ci < len(chunks):
+                                ctext = chunks[ci]
+                                if ". . . ." not in ctext and "...." not in ctext:
+                                    kb_chunks.append(ctext)
+
+            if kb_chunks:
+                from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature
+                brand = _brand_context()
+                sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
+                combined_context = "\n\n---\n\n".join(kb_chunks)
+                llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context)
+                if llm_res and llm_res.get("answer"):
+                    answer = _append_signature(llm_res["answer"])
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
 
@@ -399,48 +400,46 @@ def _is_services_title(wa_id: str, message: str) -> bool:
 
 
 async def _kb_answer(wa_id: str, query: str) -> str:
-    """Answer an informational query via the document indexes.
-
-    Reuses _fallback_to_rag's lookup by temporarily capturing the answer
-    instead of sending it directly.
-    """
-    import services.whatsapp_sender as sender
-
-    answer = None
-
-    # 1. FAQ hybrid index
+    """Answer an informational query via document indexes with LLM synthesis."""
     try:
-        from faq.service import faq_index
-        if faq_index.is_built:
-            hits = faq_index.search(query, k=1)
-            if hits:
-                answer = hits[0][0]
+        from faq.service import handle_faq_query
+        res = await handle_faq_query({"message": query, "wa_id": wa_id})
+        if res and res.get("answer") and res.get("answer").strip():
+            return res["answer"]
     except Exception as e:
-        logger.warning(f"FAQ index lookup failed: {e}")
+        logger.warning(f"FAQ index lookup for '{query}' failed: {e}")
 
-    # 2. KB FAISS index
-    if not answer:
-        try:
-            import json as _json
-            from kb.services.rag import search_kb_faiss
-            from database import get_db_context
-            hits = search_kb_faiss(query, limit=3)
-            if hits:
-                top = hits[0]
-                with get_db_context() as conn:
+    try:
+        import json as _json
+        from kb.services.rag import search_kb_faiss
+        from database import get_db_context
+        hits = search_kb_faiss(query, limit=3)
+        kb_chunks = []
+        if hits:
+            with get_db_context() as conn:
+                for top in hits:
                     row = conn.execute(
                         "SELECT chunks_json FROM knowledge_base WHERE id=?",
                         (top["doc_id"],),
                     ).fetchone()
-                if row and row[0]:
-                    chunks = _json.loads(row[0])
-                    ci = top.get("chunk_index")
-                    if isinstance(ci, int) and 0 <= ci < len(chunks):
-                        answer = chunks[ci]
-        except Exception as e:
-            logger.warning(f"KB index lookup failed: {e}")
+                    if row and row[0]:
+                        chunks = _json.loads(row[0])
+                        ci = top.get("chunk_index")
+                        if isinstance(ci, int) and 0 <= ci < len(chunks):
+                            kb_chunks.append(chunks[ci])
 
-    return answer or (
+        if kb_chunks:
+            from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature
+            brand = _brand_context()
+            sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
+            combined_context = "\n\n---\n\n".join(kb_chunks)
+            llm_res = await _generate_ollama_dynamic_response(sys_prompt, query, combined_context)
+            if llm_res and llm_res.get("answer"):
+                return _append_signature(llm_res["answer"])
+    except Exception as e:
+        logger.warning(f"KB index lookup for '{query}' failed: {e}")
+
+    return (
         "I'm not certain about that. Would you like to browse our products, "
         "check nutrition info, or talk to a human agent?"
     )

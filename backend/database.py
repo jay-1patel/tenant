@@ -1080,6 +1080,7 @@ def init_db():
         _init_offerings_migration(conn)
         _init_record_columns_table(conn)
         _init_conversation_state_columns(conn)
+        _ensure_callback_tables(conn)
 
 
 # ── Tenancy: tenants + versioned tenant profiles ─────────────────────────
@@ -1640,9 +1641,6 @@ def _ensure_callback_tables(conn):
             FOREIGN KEY (tenant_id) REFERENCES tenants(id)
         )
     """)
-    
-    # Migrate: add callback tables to init_db
-    _ensure_callback_tables(conn)
 
 
 def record_admin_audit_event(

@@ -108,39 +108,39 @@ def _get_ollama_api_key() -> str:
     return key or "no-key-needed"
 
 
+def _get_candidate_providers() -> List[Tuple[str, str, str, str]]:
+    """Returns list of (api_url, model, api_key, provider_name) in order of preference."""
+    all_providers = {}
+
+    ollama_key = _get_ollama_api_key()
+    if OLLAMA_API_URL and ollama_key:
+        all_providers["ollama"] = (OLLAMA_API_URL, OLLAMA_MODEL, ollama_key, "ollama")
+
+    groq_key = _get_groq_api_key()
+    if GROQ_API_URL and groq_key:
+        all_providers["groq"] = (GROQ_API_URL, GROQ_MODEL, groq_key, "groq")
+
+    mistral_key = _get_mistral_api_key()
+    if MISTRAL_API_URL and mistral_key:
+        all_providers["mistral"] = (MISTRAL_API_URL, MISTRAL_MODEL, mistral_key, "mistral")
+
+    preferred = API_PROVIDER.lower()
+    ordered = []
+    if preferred in all_providers:
+        ordered.append(all_providers[preferred])
+    for name, config in all_providers.items():
+        if name != preferred:
+            ordered.append(config)
+    return ordered
+
+
 def _get_api_config() -> tuple:
-    """Get current API provider configuration - supports Ollama, Mistral, Cerebras, and Groq"""
-    provider = API_PROVIDER
+    """Get current primary API provider configuration"""
+    candidates = _get_candidate_providers()
+    if candidates:
+        return candidates[0]
+    raise ValueError("No API configuration available for any provider")
 
-    # Try Ollama first if set as provider (new default)
-    if provider == "ollama":
-        api_key = _get_ollama_api_key()
-        if api_key:
-            logger.info(f"Using Ollama provider: {OLLAMA_API_URL} with model {OLLAMA_MODEL}")
-            return OLLAMA_API_URL, OLLAMA_MODEL, api_key, "ollama"
-        else:
-            logger.warning("Ollama configuration incomplete, falling back to Mistral")
-            provider = "mistral"
-
-    # Try Mistral (secondary provider)
-    if provider == "mistral":
-        api_key = _get_mistral_api_key()
-        if api_key:
-            return MISTRAL_API_URL, MISTRAL_MODEL, api_key, "mistral"
-        else:
-            logger.warning("Mistral API key not found, falling back to Cerebras")
-            provider = "cerebras"
-
-
-    # Try Groq (backup provider)
-    if provider == "groq":
-        api_key = _get_groq_api_key()
-        if api_key:
-            return GROQ_API_URL, GROQ_MODEL, api_key, "groq"
-        else:
-            raise ValueError("No API key found for any provider")
-
-    raise ValueError(f"Unknown API provider: {provider}")
 
 
 def _format_contact_details(details: Dict) -> str:
@@ -627,177 +627,134 @@ def _normalize_llm_result(result: dict) -> dict:
 
 
 def _call_groq_with_tools(messages: List[Dict], tools_schemas: List[Dict], user_message: str = "") -> Dict:
-    """Call LLM API with tools (supports Ollama, Groq, Cerebras, and Mistral)"""
-    api_url, model, api_key, provider = _get_api_config()
+    """Call LLM API with tools (supports Ollama, Groq, and Mistral with fallback)."""
+    providers = _get_candidate_providers()
+    if not providers:
+        raise ValueError("No LLM provider available")
 
-    headers = {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-    }
-
-    # Only add Authorization header if we have a proper API key (not the placeholder)
-    if api_key and api_key != "no-key-needed":
-        headers["Authorization"] = f"Bearer {api_key}"
     settings = get_response_settings()
-    max_tokens = settings.get("max_tokens", 300)  # Reduced from 1024 to 300
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": settings.get("temperature", 0.7),
-    }
-    if provider == "ollama":
-        # Ollama defaults to streaming and (on thinking models like qwen3) to
-        # emitting "thinking" tokens — both break the single-JSON response
-        # parsing below and cause retry loops. Disable both explicitly.
-        payload["stream"] = False
-        payload["think"] = False
-    if tools_schemas:
-        payload["tools"] = tools_schemas
-        # Force tool usage only for critical questions to avoid rate limiting
-        if _requires_tool_call(user_message):
-            # Use "auto" with strong prompting instead of "required" to avoid compatibility issues
-            payload["tool_choice"] = "auto"
-            logger.info(f"🔍 Critical question detected, tool usage encouraged: {user_message[:100]}")
-        else:
-            payload["tool_choice"] = "auto"
-
-    logger.info(f"🚀 Sending to {provider.upper()}: model={model}, has_tools={bool(tools_schemas)}, tools_count={len(tools_schemas) if tools_schemas else 0}")
-    logger.info(f"📦 Payload (first 500 chars): {str(payload)[:500]}")
-
-    # Apply rate limiting with better token estimation (skip for Ollama, Cerebras and Mistral as they have better rate limits)
-    if provider == "groq":
-        estimated_tokens = _estimate_tokens(messages, max_tokens) + len(str(tools_schemas)) // 4  # Add tool schema tokens
-        wait_time = groq_rate_limiter.acquire(estimated_tokens)
-        if wait_time > 0:
-            logger.info(f"⏳ Rate limiting: waiting {wait_time:.2f}s before tool API call")
-            time.sleep(wait_time)
-    elif provider == "ollama":
-        logger.info(f"⚡ {provider.upper()} - No rate limiting for local Ollama instance")
-    else:
-        logger.info(f"⚡ {provider.upper()} - No rate limiting needed (ultra-fast inference)")
+    max_tokens = settings.get("max_tokens", 300)
+    temperature = settings.get("temperature", 0.7)
 
     last_err = None
-    for attempt in range(10):  # Increased retries to 10 for better reliability
-        try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-            logger.info(f"📊 {provider.upper()} response status: {response.status_code}, content preview: {response.text[:500]}")
-            if response.status_code == 429:
-                wait = 2 ** attempt + 6  # Optimized delay calculation
-                logger.warning(f"⚠️ {provider.upper()} rate limited (429), waiting {wait}s (attempt {attempt + 1}/10)")
-                last_err = requests.exceptions.RequestException(f"Rate limited (429) after {attempt + 1} attempts")
-                if attempt < 9:
-                    time.sleep(wait)
-                    continue
-                break
-            if response.status_code == 400:
-                # Handle tool choice errors
-                try:
-                    error_data = response.json()
-                    if "Tool choice is required" in str(error_data):
-                        logger.warning(f"🔧 Tool choice error, retrying with auto mode (attempt {attempt + 1}/10)")
-                        payload["tool_choice"] = "auto"
-                        if attempt < 9:
-                            time.sleep(2)
-                            continue
-                except:
-                    pass
-            response.raise_for_status()
-            if provider == "groq":
-                groq_rate_limiter.record_request(estimated_tokens)  # Record successful request with actual tokens
-                logger.info(f"✅ Tool API call successful, tokens estimated: {estimated_tokens}")
+    for api_url, model, api_key, provider in providers:
+        headers = {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+        }
+        if api_key and api_key != "no-key-needed":
+            headers["Authorization"] = f"Bearer {api_key}"
 
-            # Handle Ollama streaming response format (multiple JSON objects separated by newlines)
-            if provider == "ollama":
-                response_text = response.text.strip()
-                # Check if this is a streaming response (multiple JSON objects)
-                if '\n' in response_text and response_text.count('{') > 1:
-                    logger.info(f"🔄 Detected Ollama streaming response, parsing {response_text.count(chr(10)) + 1} chunks...")
-                    # Parse streaming response - combine all content chunks
-                    full_content = ""
-                    full_thinking = ""
-                    tool_calls = None
-                    final_message = None
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if provider == "ollama":
+            payload["stream"] = False
+            payload["think"] = False
 
-                    for line in response_text.split('\n'):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                            # Accumulate content from ALL chunks (including final one)
-                            msg = chunk.get("message", {})
-                            if msg.get("content"):
-                                full_content += msg["content"]
-                            if msg.get("thinking"):
-                                full_thinking += msg["thinking"]
-                            if msg.get("tool_calls"):
-                                tool_calls = msg["tool_calls"]
+        if tools_schemas:
+            payload["tools"] = tools_schemas
+            payload["tool_choice"] = "auto"
+            if _requires_tool_call(user_message):
+                logger.info(f"🔍 Critical question detected, tool usage encouraged: {user_message[:100]}")
 
-                            if chunk.get("done"):
-                                # Final chunk - we've accumulated all content
-                                break
-                        except json.JSONDecodeError:
-                            continue
+        logger.info(f"🚀 Sending to {provider.upper()}: model={model}, has_tools={bool(tools_schemas)}, tools_count={len(tools_schemas) if tools_schemas else 0}")
 
-                    # Construct the final message with accumulated content
-                    final_message = {
-                        "role": "assistant",
-                        "content": full_content,
-                    }
-                    if tool_calls:
-                        final_message["tool_calls"] = tool_calls
+        estimated_tokens = _estimate_tokens(messages, max_tokens) + (len(str(tools_schemas)) // 4 if tools_schemas else 0)
+        if provider == "groq":
+            wait_time = groq_rate_limiter.acquire(estimated_tokens)
+            if wait_time > 0:
+                logger.info(f"⏳ Rate limiting: waiting {wait_time:.2f}s before tool API call")
+                time.sleep(wait_time)
 
-                    result = {
-                        "choices": [{
-                            "message": final_message
-                        }]
-                    }
-                    logger.info(f"✅ Parsed Ollama streaming response: content_length={len(full_content)}, has_tool_calls={bool(tool_calls)}")
-                    return result
+        max_attempts = 3 if provider == "groq" else 2
+        for attempt in range(max_attempts):
+            try:
+                response = requests.post(api_url, json=payload, headers=headers, timeout=(3.0, 30.0))
+                logger.info(f"📊 {provider.upper()} tool response status: {response.status_code}")
+
+                if response.status_code == 429:
+                    wait = 2 ** attempt + 2
+                    logger.warning(f"⚠️ {provider.upper()} rate limited (429), waiting {wait}s (attempt {attempt + 1}/{max_attempts})")
+                    last_err = requests.exceptions.RequestException(f"Rate limited (429) on {provider}")
+                    if attempt < max_attempts - 1:
+                        time.sleep(wait)
+                        continue
+                    break
+
+                if response.status_code in (401, 403, 404):
+                    logger.warning(f"⚠️ {provider.upper()} failed with status {response.status_code}: {response.text[:200]}")
+                    last_err = requests.exceptions.RequestException(f"{provider} HTTP {response.status_code}")
+                    break
+
+                if response.status_code == 400:
+                    try:
+                        error_data = response.json()
+                        if "Tool choice is required" in str(error_data):
+                            payload["tool_choice"] = "auto"
+                            if attempt < max_attempts - 1:
+                                time.sleep(1)
+                                continue
+                    except Exception:
+                        pass
+
+                response.raise_for_status()
+
+                if provider == "groq":
+                    groq_rate_limiter.record_request(estimated_tokens)
+                    logger.info(f"✅ Tool API call successful via Groq, tokens estimated: {estimated_tokens}")
+
+                if provider == "ollama":
+                    response_text = response.text.strip()
+                    if '\n' in response_text and response_text.count('{') > 1:
+                        logger.info(f"🔄 Detected Ollama streaming response, parsing chunks...")
+                        full_content = ""
+                        tool_calls = None
+                        for line in response_text.split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                                msg = chunk.get("message", {})
+                                if msg.get("content"):
+                                    full_content += msg["content"]
+                                if msg.get("tool_calls"):
+                                    tool_calls = msg["tool_calls"]
+                                if chunk.get("done"):
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+
+                        final_message = {"role": "assistant", "content": full_content}
+                        if tool_calls:
+                            final_message["tool_calls"] = tool_calls
+                        return {"choices": [{"message": final_message}]}
+                    else:
+                        return _normalize_llm_result(response.json())
                 else:
-                    # Single JSON response (non-streaming)
                     return _normalize_llm_result(response.json())
-            else:
-                return response.json()
-        except requests.exceptions.RequestException as e:
-            last_err = e
-            if attempt < 9:
-                time.sleep(3 * (attempt + 1))  # Better backoff strategy
 
-    # Ensure we always have a proper exception to raise
+            except requests.exceptions.ConnectionError as ce:
+                logger.warning(f"🔌 Connection error for {provider.upper()} at {api_url}: {ce}. Skipping to next provider...")
+                last_err = ce
+                break
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"⚠️ {provider.upper()} error (attempt {attempt + 1}/{max_attempts}): {e}")
+                last_err = e
+                if attempt < max_attempts - 1:
+                    time.sleep(2 * (attempt + 1))
+
     if last_err is None:
-        last_err = requests.exceptions.RequestException("Groq API call failed with unknown error")
+        last_err = requests.exceptions.RequestException("All LLM providers failed")
     raise last_err
 
 
 def _call_groq_simple(messages: List[Dict]) -> str:
-    """Call LLM API without tools (supports Ollama, Groq, Cerebras, and Mistral)"""
-    api_url, model, api_key, provider = _get_api_config()
-
-    headers = {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-    }
-
-    # Only add Authorization header if we have a proper API key (not the placeholder)
-    if api_key and api_key != "no-key-needed":
-        headers["Authorization"] = f"Bearer {api_key}"
-    settings = get_response_settings()
-    max_tokens = settings.get("max_tokens", 300)  # Reduced from 1024 to 300
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": settings.get("temperature", 0.7),
-    }
-    if provider == "ollama":
-        # Same fix as the tools path: disable streaming/thinking so the
-        # response is one complete JSON object with real content.
-        payload["stream"] = False
-        payload["think"] = False
-
-    # Check cache for similar requests (helps with rate limiting)
+    """Call LLM API without tools (supports Ollama, Groq, and Mistral with fallback)."""
     user_content = messages[-1].get("content", "") if messages else ""
     system_content = messages[0].get("content", "") if messages else ""
     cache_key = _get_cache_key(user_content, system_content[:300])
@@ -805,81 +762,104 @@ def _call_groq_simple(messages: List[Dict]) -> str:
     if cached_response:
         return cached_response
 
-    # Apply rate limiting with better token estimation (skip for Ollama, Cerebras and Mistral as they have better rate limits)
-    if provider == "groq":
-        estimated_tokens = _estimate_tokens(messages, max_tokens)
-        wait_time = groq_rate_limiter.acquire(estimated_tokens)
-        if wait_time > 0:
-            logger.info(f"⏳ Rate limiting: waiting {wait_time:.2f}s before API call")
-            time.sleep(wait_time)
-    elif provider == "ollama":
-        logger.info(f"⚡ {provider.upper()} - No rate limiting for local Ollama instance")
-    else:
-        logger.info(f"⚡ {provider.upper()} - No rate limiting needed (ultra-fast inference)")
+    providers = _get_candidate_providers()
+    if not providers:
+        raise ValueError("No LLM provider available")
+
+    settings = get_response_settings()
+    max_tokens = settings.get("max_tokens", 300)
+    temperature = settings.get("temperature", 0.7)
 
     last_err = None
-    for attempt in range(6):  # Increased retries to 6
-        try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-            if response.status_code == 429:
-                wait = 2 ** attempt + 4  # Optimized wait time
-                logger.warning(f"⚠️ {provider.upper()} rate limited (429), waiting {wait}s (attempt {attempt + 1}/6)")
-                last_err = requests.exceptions.RequestException(f"Rate limited (429) after {attempt + 1} attempts")
-                if attempt < 5:
-                    time.sleep(wait)
-                    continue
-                break
-            response.raise_for_status()
+    for api_url, model, api_key, provider in providers:
+        headers = {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+        }
+        if api_key and api_key != "no-key-needed":
+            headers["Authorization"] = f"Bearer {api_key}"
 
-            # Handle Ollama streaming response format (multiple JSON objects separated by newlines)
-            if provider == "ollama":
-                response_text = response.text.strip()
-                # Check if this is a streaming response (multiple JSON objects)
-                if '\n' in response_text and response_text.count('{') > 1:
-                    logger.info(f"🔄 Detected Ollama streaming response in simple call, parsing chunks...")
-                    # Parse streaming response - combine all content chunks
-                    full_content = ""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if provider == "ollama":
+            payload["stream"] = False
+            payload["think"] = False
 
-                    for line in response_text.split('\n'):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                            # Accumulate content from ALL chunks (including final one)
-                            msg = chunk.get("message", {})
-                            if msg.get("content"):
-                                full_content += msg["content"]
+        estimated_tokens = _estimate_tokens(messages, max_tokens)
+        if provider == "groq":
+            wait_time = groq_rate_limiter.acquire(estimated_tokens)
+            if wait_time > 0:
+                logger.info(f"⏳ Rate limiting: waiting {wait_time:.2f}s before API call")
+                time.sleep(wait_time)
 
-                            if chunk.get("done"):
-                                # Final chunk - we've accumulated all content
-                                break
-                        except json.JSONDecodeError:
-                            continue
+        max_attempts = 3 if provider == "groq" else 2
+        for attempt in range(max_attempts):
+            try:
+                response = requests.post(api_url, json=payload, headers=headers, timeout=(3.0, 30.0))
+                if response.status_code == 429:
+                    wait = 2 ** attempt + 2
+                    logger.warning(f"⚠️ {provider.upper()} rate limited (429), waiting {wait}s (attempt {attempt + 1}/{max_attempts})")
+                    last_err = requests.exceptions.RequestException(f"Rate limited (429) on {provider}")
+                    if attempt < max_attempts - 1:
+                        time.sleep(wait)
+                        continue
+                    break
 
-                    content = full_content
+                if response.status_code in (401, 403, 404):
+                    logger.warning(f"⚠️ {provider.upper()} failed with status {response.status_code}: {response.text[:200]}")
+                    last_err = requests.exceptions.RequestException(f"{provider} HTTP {response.status_code}")
+                    break
+
+                response.raise_for_status()
+
+                if provider == "ollama":
+                    response_text = response.text.strip()
+                    if '\n' in response_text and response_text.count('{') > 1:
+                        logger.info(f"🔄 Detected Ollama streaming response in simple call, parsing chunks...")
+                        full_content = ""
+                        for line in response_text.split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                                msg = chunk.get("message", {})
+                                if msg.get("content"):
+                                    full_content += msg["content"]
+                                if chunk.get("done"):
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+                        content = full_content
+                    else:
+                        result = _normalize_llm_result(response.json())
+                        content = result["choices"][0]["message"]["content"]
                 else:
-                    # Single JSON response (non-streaming)
                     result = _normalize_llm_result(response.json())
                     content = result["choices"][0]["message"]["content"]
-            else:
-                result = _normalize_llm_result(response.json())
-                content = result["choices"][0]["message"]["content"]
 
-            # Cache successful responses and record request
-            _cache_response(cache_key, content)
-            if provider == "groq":
-                groq_rate_limiter.record_request(estimated_tokens)
-                logger.info(f"✅ API call successful, tokens estimated: {estimated_tokens}")
-            return content
-        except requests.exceptions.RequestException as e:
-            last_err = e
-            if attempt < 5:
-                time.sleep(2.5 * (attempt + 1))  # Better backoff strategy
+                _cache_response(cache_key, content)
+                if provider == "groq":
+                    groq_rate_limiter.record_request(estimated_tokens)
+                    logger.info(f"✅ API call successful via Groq, tokens estimated: {estimated_tokens}")
+                return content
 
-    # Ensure we always have a proper exception to raise
+            except requests.exceptions.ConnectionError as ce:
+                logger.warning(f"🔌 Connection error for {provider.upper()} at {api_url}: {ce}. Skipping to next provider...")
+                last_err = ce
+                break
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"⚠️ {provider.upper()} error (attempt {attempt + 1}/{max_attempts}): {e}")
+                last_err = e
+                if attempt < max_attempts - 1:
+                    time.sleep(2 * (attempt + 1))
+
     if last_err is None:
-        last_err = requests.exceptions.RequestException("Groq API call failed with unknown error")
+        last_err = requests.exceptions.RequestException("All LLM providers failed")
     raise last_err
 
 
@@ -1038,19 +1018,22 @@ def process_with_brain(
             break
     else:
         # Loop exhausted after tool rounds. If the last response only requested
-        # tools (no final text), make one more call so we return an actual answer.
+        # tools (no final text), request the final text answer directly without tools.
         if not answer:
             try:
                 logger.info("Tool rounds exhausted with no final text, requesting final answer...")
-                final = _call_groq_with_tools(messages, tool_schemas, user_message)
-                final_content = final["choices"][0]["message"].get("content")
-                if final_content:
-                    answer = final_content
+                messages.append({
+                    "role": "user",
+                    "content": "Please provide a clear, conversational answer to the user's question using the information gathered above. Do not call any more tools.",
+                })
+                final_content = _call_groq_simple(messages)
+                if final_content and final_content.strip():
+                    answer = final_content.strip()
                 else:
                     logger.warning("Final answer call returned no content")
                     answer = get_fallback_message()
             except Exception as e:
-                logger.error(f"Groq final answer call failed: {e}")
+                logger.error(f"Final answer call failed: {e}")
                 answer = get_fallback_message()
         else:
             answer = choice.get("content", get_fallback_message())
@@ -1093,9 +1076,6 @@ def extract_products_from_response(response_text: str, product_names: List[str])
     if not response_text or not product_names:
         return []
 
-    # Get API configuration
-    api_url, model, api_key, provider = _get_api_config()
-
     product_list = "\n".join(f"- {name}" for name in product_names)
     prompt = f"""You are a product matcher. Your job is to find EVERY product from the list that is mentioned, referenced, or discussed in the chatbot response.
 
@@ -1115,21 +1095,7 @@ CHATBOT RESPONSE:
 PRODUCT NAMES FROM THE LIST THAT APPEAR IN THE RESPONSE (one per line, or "NONE"):"""
 
     try:
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
-        }
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 200,
-            "temperature": 0.1,
-        }
-        response = requests.post(api_url, json=payload, headers=headers, timeout=15)
-        response.raise_for_status()
-        content = _normalize_llm_result(response.json())["choices"][0]["message"]["content"].strip()
-
+        content = _call_groq_simple([{"role": "user", "content": prompt}]).strip()
         if content.upper() == "NONE" or not content:
             return []
 
@@ -1323,6 +1289,11 @@ def _parse_dynamic_json(raw_response: str, user_query: str) -> Dict | None:
                     return _validate_dynamic_result(parsed, user_query)
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
+
+    # Fallback: If LLM returned text content directly without JSON wrapper, preserve it
+    cleaned = raw_response.strip()
+    if cleaned and not cleaned.startswith("{") and len(cleaned) > 10:
+        return _validate_dynamic_result({"answer": cleaned, "next_actions": []}, user_query)
 
     return None
 

@@ -813,21 +813,15 @@ async def handle_kb_query(
             send_whatsapp_message(wa_id, response_text)
         return _result(response_text, route="service_enquiry", interactive=None, whatsapp_sent=bool(can_send_whatsapp))
 
-    # ── CATALOG_FAQ: Show catalogue from FAQ ──────────────────────────────────
+    # ── CATALOG_FAQ: Show catalogue via Brain ──────────────────────────────────
     if action == "CATALOG_FAQ":
         set_state(wa_id, UserState.MAIN_MENU)
         try:
-            from ..database import get_db_context
-            with get_db_context() as conn:
-                rows = conn.execute(
-                    "SELECT content, source_file FROM faq_dataset WHERE content LIKE '%catalog%' OR content LIKE '%product%' OR source_file LIKE '%catalog%' LIMIT 5"
-                ).fetchall()
-            if rows:
-                parts = [f"*Product Brochure*"]
-                for r in rows:
-                    parts.append(f"\n{r['content'][:200]}")
-                response_text = "\n".join(parts)
-            else:
+            history = get_recent_history(wa_id, limit=5, ttl_minutes=get_response_settings().get("memory_ttl_minutes", 30))
+            cat_query = "Please share your product catalog, categories, and brochure details."
+            brain_result = await process_with_brain_async(cat_query, wa_id=wa_id, history=history)
+            response_text = _clean_response(brain_result.get("answer", ""))
+            if not response_text:
                 response_text = "Browse our products using 'View Products' from the menu!"
         except Exception as e:
             logger.error(f"Failed to fetch catalogue FAQ: {e}")
@@ -835,6 +829,7 @@ async def handle_kb_query(
         if can_send_whatsapp:
             send_whatsapp_message(wa_id, response_text)
         return _result(response_text, route="catalogue_faq", interactive=build_main_menu_buttons(), whatsapp_sent=True)
+
 
     # ── RETURN_POLICY: Use brain pipeline for natural answers ───────────────
     if action == "RETURN_POLICY":

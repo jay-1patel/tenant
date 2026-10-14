@@ -40,7 +40,8 @@ from services.callback_service import (
     Priority,
     callback_service,
     google_meet_service,
-    notification_service
+    notification_service,
+    parse_preferred_time_to_range,
 )
 
 logger = logging.getLogger(__name__)
@@ -459,9 +460,34 @@ async def create_callback(
         customer_phone=body.customer_phone,
         priority=body.priority,
         additional_info=body.additional_info,
-        metadata=body.metadata
+        metadata=body.metadata,
     )
-    
+    # Auto-schedule Google Meet if date/time provided
+    if body.preferred_date or body.preferred_time:
+        start_iso, end_iso, display_str, s_utc, e_utc = parse_preferred_time_to_range(
+            preferred_time=body.preferred_time,
+            preferred_date=body.preferred_date,
+            timezone_str=callback_request.timezone,
+        )
+        meet_result = google_meet_service.create_meeting_sync(
+            calendar_id="primary",
+            title=f"Callback: {callback_request.customer_name} - {callback_request.callback_type}",
+            description=f"Callback requested: {callback_request.purpose or 'Discussion'}",
+            start_time=start_iso,
+            end_time=end_iso,
+            attendees=[{"email": callback_request.customer_email}] if callback_request.customer_email else None,
+            timezone=callback_request.timezone,
+            tenant_id=tenant_id,
+        )
+        if meet_result.get("ok"):
+            callback_request.meet_link = meet_result.get("meet_link")
+            callback_request.calendar_event_id = meet_result.get("event_id")
+            callback_request.scheduled_start_time = start_iso
+            callback_request.scheduled_end_time = end_iso
+            callback_request.status = CallbackStatus.SCHEDULED.value
+            callback_request.metadata["calendar_add_url"] = meet_result.get("calendar_add_url", "")
+            callback_request.metadata["display_time"] = display_str
+
     # Save to database
     with get_db_context() as conn:
         _init_callback_tables(conn)

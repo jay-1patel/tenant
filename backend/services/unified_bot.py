@@ -338,12 +338,41 @@ class UnifiedBotService:
             return "I'm not sure how to help with that. Let me connect you with a human agent."
 
     def _process_faq_bot(self, message: str, wa_id: str, customer_context: Dict[str, Any]) -> str:
-        """Process through FAQ bot"""
+        """Process through FAQ bot with LLM synthesis"""
         try:
             from database import search_faq_db
             faq_matches = search_faq_db(message, limit=3)
 
             if faq_matches:
+                context = "\n\n---\n\n".join(m.get('content', '') for m in faq_matches if m.get('content'))
+                # Synthesize with LLM if available
+                from routing.config import GROQ_API_URL, GROQ_API_KEY, GROQ_MODEL, BRAND_NAME
+                if GROQ_API_KEY and context:
+                    try:
+                        import requests
+                        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+                        prompt = (
+                            f"You are a helpful assistant for {BRAND_NAME}. "
+                            f"Answer the user's question clearly, warmly, and concisely using ONLY the context below. "
+                            f"Use bullet points if listing multiple items.\n\nContext:\n{context[:3000]}"
+                        )
+                        payload = {
+                            "model": GROQ_MODEL,
+                            "messages": [
+                                {"role": "system", "content": prompt},
+                                {"role": "user", "content": message}
+                            ],
+                            "temperature": 0.2,
+                            "max_tokens": 500
+                        }
+                        resp = requests.post(GROQ_API_URL, json=payload, headers=headers, timeout=15)
+                        if resp.status_code == 200:
+                            content = resp.json()["choices"][0]["message"]["content"].strip()
+                            if content:
+                                return content
+                    except Exception as llm_err:
+                        logger.warning(f"Unified FAQ LLM synthesis error: {llm_err}")
+
                 best_match = faq_matches[0]
                 default_text = "Here's what I found:"
                 return f"💡 {best_match.get('content', default_text)}"

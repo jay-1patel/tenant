@@ -58,11 +58,11 @@ class RateLimiter:
             else:
                 # Need to wait for budget to free up - MUCH more aggressive calculation
                 deficit = estimated_tokens - remaining
-                wait_time = (deficit / self.tokens_per_minute) * 30 + 0.5  # Reduced from 60s to 30s, margin from 1.5s to 0.5s
+                wait_time = min(2.0, (deficit / self.tokens_per_minute) * 5 + 0.2)
                 self.rate_limited_count += 1
                 logger.warning(f"⚠️ Rate limit: waiting {wait_time:.2f}s (deficit: {deficit:.0f} tokens, remaining: {remaining:.0f})")
 
-            return max(0.1, wait_time)  # At least 100ms
+            return max(0.05, wait_time)
 
     def record_request(self, estimated_tokens: int = 150):
         """Record that a request was made."""
@@ -123,4 +123,4 @@ def rate_limit_limiter(rate_limiter: RateLimiter, estimated_tokens: int = 100):
     return decorator
 
 # Global rate limiter instance for Groq API - optimized for high throughput business bot
-groq_rate_limiter = RateLimiter(tokens_per_minute=6000, safety_margin=0.92)  # Use 92% of 6000 TPM = 5520 TPM
+groq_rate_limiter = RateLimiter(tokens_per_minute=30000, safety_margin=0.95)

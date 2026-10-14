@@ -84,7 +84,42 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
 
             tenant_id = resolve_tenant_for_user(wa_id)
 
-            # Check intent by button ID or typed text (Careers, Technologies, Projects, Benefits, etc.)
+            # 1. If user is currently running a flow, advance the flow with their reply
+            if flow_runner.is_running(wa_id):
+                outcome = flow_runner.handle_reply(wa_id, message, tenant_id=tenant_id)
+                if outcome and outcome.get("handled"):
+                    if outcome.get("messages"):
+                        for msg in outcome["messages"]:
+                            await send_text_message(wa_id, msg)
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": user_state[0] if user_state else None,
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+
+            # 2. Check flow trigger for button ID or typed text (e.g. 'book a callback', 'schedule meeting')
+            flow_name = (
+                flow_runner.flow_for_button(wa_id, message, tenant_id=tenant_id)
+                or flow_runner.flow_for_text(wa_id, message, tenant_id=tenant_id)
+            )
+            if flow_name:
+                outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                if outcome.get("handled") and outcome.get("messages"):
+                    for msg in outcome["messages"]:
+                        await send_text_message(wa_id, msg)
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": outcome.get("new_state", user_state[0] if user_state else None),
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+
+            # 3. Check intent by button ID or typed text (Careers, Technologies, Projects, Benefits, etc.)
             intent_reply = (
                 intent_answers.answer_for_button(wa_id, message, tenant_id=tenant_id)
                 or intent_answers.answer_for_intent(wa_id, message, tenant_id=tenant_id)
@@ -100,22 +135,6 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     "user_type": "b2c",
                     "error": None,
                 }
-
-            # Check flow trigger for button
-            flow_name = flow_runner.flow_for_button(wa_id, message)
-            if flow_name:
-                outcome = flow_runner.start_flow(wa_id, flow_name)
-                if outcome.get("handled") and outcome.get("messages"):
-                    for msg in outcome["messages"]:
-                        await send_text_message(wa_id, msg)
-                    return {
-                        "status": "processed",
-                        "messages": drain_captured(),
-                        "new_state": outcome.get("new_state", user_state[0] if user_state else None),
-                        "human_handover": False,
-                        "user_type": "b2c",
-                        "error": None,
-                    }
 
             # Check service query
             if service_answers.is_service_query(message):

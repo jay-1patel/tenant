@@ -111,6 +111,10 @@
     {
       "name": "raise_ticket",
       "success_message": "Ticket raised. Our support team will get back to you shortly."
+    },
+    {
+      "name": "book_callback",
+      "success_message": "Done! Your callback and Google Meeting have been scheduled."
     }
   ]
 }
