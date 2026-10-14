@@ -1252,7 +1252,8 @@ async def synthesize_intent_answer(
         return raw_content
 
     # Resolve branding for the system prompt
-    brand = BRAND_NAME or "our company"
+    bctx = _brand_context(tenant_id)
+    brand = (bctx.get("name") if bctx else None) or BRAND_NAME or "our company"
     system_prompt = (
         f"You are a helpful WhatsApp assistant for {brand}. "
         f"A user asked about '{intent_name}'. "
@@ -1265,6 +1266,7 @@ async def synthesize_intent_answer(
     # Re‑use the existing direct‑LLM generator – it already handles provider fallback.
     answer = await _generate_direct_llm_answer(system_prompt, user_query, raw_content)
     if answer and len(answer.strip()) > 10:
-        return answer.strip()
+        return _append_signature(answer.strip(), tenant_id)
     # If the LLM call failed or returned an empty string, fall back to the raw content.
     return raw_content
+

@@ -67,7 +67,7 @@ def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str 
         lines.append(f"• *{name}*")
         description = (item.get("short_description") or item.get("description") or "").strip()
         if description:
-            lines.append(f"  {description[:240]}")
+            lines.append(f"  {description}")
     return "\n".join(lines) if len(lines) > 1 else "We don't have any services listed right now. Please contact our team for details."
 
 

@@ -152,7 +152,14 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             if service_answers.is_service_query(message):
                 service_reply = service_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
                 if service_reply:
-                    await send_text_message(wa_id, service_reply)
+                    from faq.service import synthesize_intent_answer
+                    synthesized = await synthesize_intent_answer(
+                        raw_content=service_reply,
+                        intent_name="Services",
+                        user_query=message,
+                        tenant_id=tenant_id,
+                    )
+                    await send_text_message(wa_id, synthesized)
                     return {
                         "status": "processed",
                         "messages": drain_captured(),

@@ -169,7 +169,8 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(incoming_listener, "SEND2_PASSWORD", "password"),
             patch.object(incoming_listener.httpx, "AsyncClient", FakeAsyncClient),
             patch.object(incoming_listener, "POLL_INTERVAL_SECONDS", 0),
-            patch("services.dedup.is_duplicate", side_effect=[False, True]) as claim,
+            patch.object(incoming_listener, "_was_processed", side_effect=[False, True]) as claim,
+            patch.object(incoming_listener, "_record_processed") as record,
             patch("services.orchestrator.process_incoming_message", new_callable=AsyncMock, return_value=processed) as process,
             patch.object(incoming_listener, "_send_reply", new_callable=AsyncMock) as send_reply,
             patch.object(incoming_listener.asyncio, "sleep", side_effect=sleep),
@@ -209,7 +210,7 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
                 "919512777899", "hello", capture_only=True
             )
 
-        self.assertEqual(result["messages"], [{"type": "text", "text": "one reply"}])
+        self.assertEqual(result["messages"], [{"type": "text", "text": "one reply", "sent_live": False}])
         live_send.assert_not_called()
 
     async def test_capture_only_records_without_live_send(self):
@@ -222,7 +223,7 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
                 live_send.assert_not_called()
                 self.assertEqual(
                     whatsapp_sender.drain_captured(),
-                    [{"type": "text", "text": "one reply"}],
+                    [{"type": "text", "text": "one reply", "sent_live": False}],
                 )
         finally:
             whatsapp_sender.end_capture(tokens)

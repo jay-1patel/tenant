@@ -804,7 +804,19 @@ async def handle_kb_query(
         try:
             from backend.services.service_answers import answer_for_text
             from shared.tenancy.resolver import resolve_tenant_for_user
-            response_text = answer_for_text(wa_id, "our services", tenant_id=resolve_tenant_for_user(wa_id))
+            tid = resolve_tenant_for_user(wa_id)
+            response_text = answer_for_text(wa_id, "our services", tenant_id=tid)
+            if response_text:
+                try:
+                    from backend.faq.service import synthesize_intent_answer
+                    response_text = await synthesize_intent_answer(
+                        raw_content=response_text,
+                        intent_name="Services",
+                        user_query="our services",
+                        tenant_id=tid,
+                    )
+                except Exception as se:
+                    logger.debug(f"Service synthesis fallback: {se}")
         except Exception as e:
             logger.error(f"Failed to list tenant services for {wa_id}: {e}")
             response_text = None

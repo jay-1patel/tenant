@@ -237,7 +237,16 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
         if not tenant_answer:
             tenant_answer = answer_for_text(wa_id, message)
         if tenant_answer:
-            await send_text_message(wa_id, tenant_answer)
+            try:
+                from faq.service import synthesize_intent_answer
+            except ImportError:
+                from backend.faq.service import synthesize_intent_answer
+            synthesized = await synthesize_intent_answer(
+                raw_content=tenant_answer,
+                intent_name=message,
+                user_query=message,
+            )
+            await send_text_message(wa_id, synthesized)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Tenant intent resolution failed: {e}")
@@ -254,7 +263,16 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 from backend.services import service_answers
             svc = service_answers.answer_for_text(wa_id, message)
             if svc:
-                await send_text_message(wa_id, svc)
+                try:
+                    from faq.service import synthesize_intent_answer
+                except ImportError:
+                    from backend.faq.service import synthesize_intent_answer
+                synthesized = await synthesize_intent_answer(
+                    raw_content=svc,
+                    intent_name="Services",
+                    user_query=message,
+                )
+                await send_text_message(wa_id, synthesized)
                 return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")
@@ -285,7 +303,17 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             or intent_answers.answer_for_text(wa_id, message, tenant_id=tid)
         )
         if intent_rep:
-            await send_text_message(wa_id, intent_rep)
+            try:
+                from faq.service import synthesize_intent_answer
+            except ImportError:
+                from backend.faq.service import synthesize_intent_answer
+            synthesized = await synthesize_intent_answer(
+                raw_content=intent_rep,
+                intent_name=message,
+                user_query=message,
+                tenant_id=tid,
+            )
+            await send_text_message(wa_id, synthesized)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as exc:
         logger.debug(f"B2C tenant intent fallback check: {exc}")
