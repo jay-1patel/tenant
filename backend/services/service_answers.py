@@ -86,11 +86,7 @@ def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str 
         lines.append(f"• *{name}*")
         description = (item.get("short_description") or item.get("description") or "").strip()
         if description:
-<<<<<<< HEAD
-            lines.append(f"  {description}")
-=======
             lines.append(f"  {_fit_description(description)}")
->>>>>>> 66edd66 (Update chatbot workflows and message handling)
     return "\n".join(lines) if len(lines) > 1 else "We don't have any services listed right now. Please contact our team for details."
 
 

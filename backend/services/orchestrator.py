@@ -152,12 +152,9 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             if service_answers.is_service_query(message):
                 service_reply = service_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
                 if service_reply:
-<<<<<<< HEAD
-=======
                     # Services are stored as structured DB rows; pass them
                     # through the LLM (Ollama) like every other answer instead
                     # of replying with the raw stored text.
->>>>>>> 66edd66 (Update chatbot workflows and message handling)
                     from faq.service import synthesize_intent_answer
                     synthesized = await synthesize_intent_answer(
                         raw_content=service_reply,
