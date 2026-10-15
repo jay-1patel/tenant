@@ -8,6 +8,7 @@ import contextvars
 from ipaddress import ip_address as _parse_ip_address, ip_network
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
+from typing import Optional, Any, Dict, List
 
 logger = logging.getLogger("chiki_webhook")
 
@@ -868,6 +869,13 @@ def init_db():
                 body       TEXT DEFAULT '',
                 footer     TEXT DEFAULT '',
                 button_text TEXT DEFAULT '',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS app_settings (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )"""
         )
@@ -2535,9 +2543,75 @@ def get_session_info(wa_id: str) -> dict:
 # tenant; None means the registered default tenant (single-shop deployments),
 # never "all tenants".
 
+def get_app_setting(key: str, default: str = "") -> str:
+    try:
+        with get_db_context() as conn:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS app_settings (
+                    key        TEXT PRIMARY KEY,
+                    value      TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )"""
+            )
+            row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row and row["value"] is not None else default
+    except Exception as e:
+        logger.debug(f"get_app_setting error for key {key}: {e}")
+        return default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    with get_db_context() as conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS app_settings (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO app_settings (key, value, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP""",
+            (key, str(value or "")),
+        )
+
+
+def get_active_test_tenant() -> Optional[str]:
+    val = get_app_setting("active_test_tenant", "").strip()
+    return val or None
+
+
+def set_active_test_tenant(tenant_id: Optional[str]) -> None:
+    val = str(tenant_id or "").strip()
+    if val:
+        try:
+            from shared.tenancy import store
+            record = store.get_tenant(val)
+            if record:
+                val = record.get("slug") or str(record.get("id"))
+        except Exception:
+            pass
+    set_app_setting("active_test_tenant", val)
+    # Clear conversation user states so tester starts completely fresh with greeting/menu
+    try:
+        with get_db_context() as conn:
+            conn.execute("DELETE FROM user_states")
+    except Exception as e:
+        logger.debug(f"Could not clear user_states: {e}")
+    try:
+        from shared.tenancy import cache as tenancy_cache
+        tenancy_cache.clear()
+    except Exception:
+        pass
+
+
 def _resolve_tenant(tenant_id: str = None) -> str:
     if str(tenant_id or "").strip():
         return str(tenant_id).strip()
+    active = get_active_test_tenant()
+    if active:
+        return active
     try:
         from shared.tenancy.resolver import resolve_default_tenant
         return resolve_default_tenant()

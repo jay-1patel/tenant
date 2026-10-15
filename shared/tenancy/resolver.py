@@ -46,8 +46,20 @@ def _extract_phone_ids(payload: Dict[str, Any]) -> list[str]:
     return out
 
 
+def _active_test_override() -> Optional[str]:
+    try:
+        from database import get_active_test_tenant
+        return get_active_test_tenant()
+    except Exception:
+        return None
+
+
 def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
     """Tenant for an inbound webhook body. Falls back to the default tenant."""
+    override = _active_test_override()
+    if override:
+        return override
+
     from . import store  # local import: store needs the backend on sys.path
 
     fallback = os.getenv("DEFAULT_TENANT_ID", DEFAULT_TENANT_ID)
@@ -102,6 +114,10 @@ def resolve_default_tenant() -> str:
     ``generic`` profile, whose feature flags have commerce off, and silently
     lock every existing shopper out of their cart.
     """
+    override = _active_test_override()
+    if override:
+        return override
+
     from . import store
 
     configured = os.getenv("DEFAULT_TENANT_ID", "").strip() or DEFAULT_TENANT_ID
@@ -117,9 +133,9 @@ def resolve_default_tenant() -> str:
         logger.warning(
             "DEFAULT_TENANT_ID is not set and %d tenants are registered (%s); "
             "falling back to %r. Set DEFAULT_TENANT_ID to the owning tenant.",
-            len(active), ", ".join(sorted(t["id"] for t in active)), configured,
+            len(active), ", ".join(sorted(str(t["id"]) for t in active)), configured,
         )
-    return configured
+    return str(configured)
 
 
 def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
@@ -134,6 +150,10 @@ def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
     yet - the pre-tenant single-tenant stack, where every user belongs to one
     shop.
     """
+    override = _active_test_override()
+    if override:
+        return override
+
     if not wa_id:
         return default or resolve_default_tenant()
 

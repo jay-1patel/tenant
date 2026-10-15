@@ -99,6 +99,10 @@ class WebhookSecretSet(BaseModel):
     secret: str = Field(min_length=16, max_length=256)
 
 
+class ActiveTestTenantRequest(BaseModel):
+    tenant_id: Optional[str] = None
+
+
 def _admin_only(principal: dict) -> str:
     """Only admins may mint tokens, rebind phone ids, or set secrets."""
     if principal.get("type") != "admin":
@@ -120,10 +124,37 @@ def list_tenants(
     status: Optional[str] = None,
     current_admin: dict = Depends(require_permission("manage_operations")),
 ):
+    from database import get_active_test_tenant
     rows = [_public_tenant(r) for r in tenancy_store.list_tenants(status=status)]
     for row in rows:
         row["current_version"] = tenancy_store.current_version(row["id"])
-    return {"tenants": rows}
+    return {
+        "tenants": rows,
+        "active_test_tenant": get_active_test_tenant(),
+    }
+
+
+@router.get("/active-test-tenant")
+def get_current_active_test_tenant(
+    current_admin: dict = Depends(require_permission("manage_operations")),
+):
+    from database import get_active_test_tenant
+    return {"active_test_tenant": get_active_test_tenant()}
+
+
+@router.post("/active-test-tenant")
+def set_current_active_test_tenant(
+    body: ActiveTestTenantRequest,
+    current_admin: dict = Depends(require_permission("manage_operations")),
+):
+    from database import set_active_test_tenant
+    tid = (body.tenant_id or "").strip() or None
+    set_active_test_tenant(tid)
+    logger.info(
+        "ACTIVE_TEST_TENANT_CHANGED | tenant=%s | by=%s",
+        tid, current_admin.get("username"),
+    )
+    return {"ok": True, "active_test_tenant": tid}
 
 
 @router.post("")

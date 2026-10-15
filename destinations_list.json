@@ -1,0 +1,106 @@
+{
+  "international": [
+    {
+      "name": "International Tours",
+      "href": "international-tours"
+    },
+    {
+      "name": "International Tours",
+      "href": "international-tours"
+    },
+    {
+      "name": "Armenia",
+      "href": "international-holiday/armenia"
+    },
+    {
+      "name": "Australia",
+      "href": "international-holiday/australia"
+    },
+    {
+      "name": "Austria",
+      "href": "international-holiday/austria"
+    },
+    {
+      "name": "Azerbaijan",
+      "href": "international-holiday/azerbaijan"
+    },
+    {
+      "name": "Belarus",
+      "href": "international-holiday/belarus"
+    },
+    {
+      "name": "Belgium",
+      "href": "international-holiday/belgium"
+    },
+    {
+      "name": "Bhutan",
+      "href": "international-holiday/bhutan"
+    },
+    {
+      "name": "Bosnia and Herzegovina",
+      "href": "international-holiday/bosnia-herzegovina"
+    },
+    {
+      "name": "Bulgaria",
+      "href": "international-holiday/bulgaria"
+    },
+    {
+      "name": "Cambodia",
+      "href": "international-holiday/cambodia"
+    },
+    {
+      "name": "International Tours",
+      "href": "international-tours"
+    }
+  ],
+  "indian": [
+    {
+      "name": "Our Packages",
+      "href": "indian-tour/gujarat-tourism"
+    },
+    {
+      "name": "Our Packages",
+      "href": "indian-tour/gujarat-tourism"
+    },
+    {
+      "name": "Andaman & Nicobar Islands",
+      "href": "indian-tour/andaman-nicobar-islands"
+    },
+    {
+      "name": "Andhra Pradesh",
+      "href": "indian-tour/andhra-pradesh-telangana-tourism"
+    },
+    {
+      "name": "Arunachal Pradesh",
+      "href": "indian-tour/arunachal-pradesh"
+    },
+    {
+      "name": "Assam",
+      "href": "indian-tour/assam"
+    },
+    {
+      "name": "Bihar",
+      "href": "indian-tour/bihar-tourism"
+    },
+    {
+      "name": "Chhattisgarh",
+      "href": "indian-tour/chhattisgarh-tourism"
+    },
+    {
+      "name": "Delhi",
+      "href": "indian-tour/delhi-tourism"
+    },
+    {
+      "name": "Gujarat Tourism",
+      "href": "indian-tour/gujarat-tourism"
+    },
+    {
+      "name": "Himachal",
+      "href": "indian-tour/himachal-tourism"
+    },
+    {
+      "name": "Jammu & Kashmir",
+      "href": "indian-tour/jammu-kashmir-tourism"
+    }
+  ]
+}

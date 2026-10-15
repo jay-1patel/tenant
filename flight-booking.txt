@@ -1,0 +1,48 @@
+Flight Booking | 99 DESTINATIONS HOLIDAYS PVT. LTD.
+Flight Booking
+Book cheapest Domestic & International flight tickets
+Enquiry Form
+Your Name *
+Your Email
+Phone *
+Type *
+--- select ---
+Domestic
+International
+Trip *
+--- select ---
+One way
+Two way
+Fare Type
+--- select ---
+Economy
+Business
+Leaving From *
+Going To *
+Departure Date
+Return Date
+Adult (12+ year)
+--- select ---
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Child (2 to 12 year)
+--- select ---
+1
+2
+3
+4
+5
+6
+7
+8
+Infant (Below 2 years)
+--- select ---
+1
+Message *

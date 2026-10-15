@@ -88,6 +88,101 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
 
             tenant_id = resolve_tenant_for_user(wa_id)
 
+            # ── Single-Number Testing Mode: WhatsApp in-chat tenant switcher ──
+            msg_lower = (message or "").strip().lower()
+            if msg_lower in ("#tenants", "#switch", "#tenant", "#testbot"):
+                from shared.tenancy import store
+                from database import get_active_test_tenant
+                current_active = get_active_test_tenant() or tenant_id
+                all_tenants = store.list_tenants()
+                lines = [
+                    "🧪 *WhatsApp Tenant Switcher (Single-Number Testing)*",
+                    f"Current Active: *{current_active}*",
+                    "",
+                    "Available tenants to test:",
+                ]
+                for idx, t in enumerate(all_tenants, 1):
+                    t_name = t.get("display_name") or t.get("company_name") or t.get("slug")
+                    t_slug = t.get("slug") or str(t.get("id"))
+                    t_vert = t.get("vertical", "generic")
+                    active_marker = " 🟢 (ACTIVE)" if (t_slug == current_active or str(t.get("id")) == str(current_active)) else ""
+                    lines.append(f"{idx}️⃣ *{t_name}* (`{t_slug}`){active_marker}\n   Vertical: _{t_vert}_\n   Switch: `#tenant {t_slug}` or `#tenant {idx}`")
+                lines.append("\n👉 Reply with `#tenant <name/number>` to switch instantly!")
+                await send_text_message(wa_id, "\n".join(lines))
+                return {
+                    "status": "processed",
+                    "messages": drain_captured(),
+                    "new_state": None,
+                    "human_handover": False,
+                    "user_type": "b2c",
+                    "error": None,
+                }
+
+            if msg_lower.startswith(("#tenant ", "#switch ")):
+                from database import set_active_test_tenant
+                from shared.tenancy import store
+                parts = message.strip().split(None, 1)
+                target = parts[1].strip() if len(parts) > 1 else ""
+                all_tenants = store.list_tenants()
+                matched = None
+                if target.isdigit():
+                    num = int(target)
+                    if 1 <= num <= len(all_tenants):
+                        matched = all_tenants[num - 1]
+                if not matched:
+                    for t in all_tenants:
+                        s = str(t.get("slug") or "").lower()
+                        i = str(t.get("id") or "").lower()
+                        name = str(t.get("display_name") or t.get("company_name") or "").lower()
+                        vert = str(t.get("vertical") or "").lower()
+                        t_target = target.lower()
+                        if (
+                            t_target in (s, i)
+                            or t_target in name
+                            or t_target in vert
+                            or (t_target == "bank" and "bank" in s)
+                            or (t_target in ("travel", "tour") and "wanderly" in s)
+                            or (t_target in ("finance", "capital") and "northwind" in s)
+                            or (t_target in ("it", "tech", "software") and "leeway" in s)
+                            or (t_target in ("shop", "snack", "food") and "troo" in s)
+                        ):
+                            matched = t
+                            break
+
+                if matched:
+                    chosen_id = matched.get("slug") or str(matched.get("id"))
+                    set_active_test_tenant(chosen_id)
+                    disp = matched.get("display_name") or matched.get("company_name") or chosen_id
+                    vert = matched.get("vertical", "generic")
+                    await send_text_message(
+                        wa_id,
+                        f"✅ *Active Tenant Switched!*\nNow testing: *{disp}* ({vert})\nAll incoming messages are now routed to this tenant."
+                    )
+                    from bots.customer_b2c import menus
+                    from services.whatsapp_sender import send_list_menu
+                    await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": "B2C_MAIN_MENU",
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+                else:
+                    await send_text_message(
+                        wa_id,
+                        f"❌ Tenant '{target}' not found. Send `#tenants` to see the full list of available tenants."
+                    )
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": None,
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+
             # 0. Check Main Menu trigger (e.g. user clicked "🏠 Main Menu" interactive button)
             clean_btn = (message or "").strip().lower()
             clean_btn = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", clean_btn).strip()

@@ -16,6 +16,17 @@ import type {
 export const tenantsApi = {
   list: () => api.get<{ tenants: Tenant[] }>('/api/admin/tenants').then((r) => r.tenants),
 
+  getActiveTestTenant: () =>
+    api
+      .get<{ active_test_tenant: string | null }>('/api/admin/tenants/active-test-tenant')
+      .then((r) => r.active_test_tenant),
+
+  setActiveTestTenant: (tenantId: string | null) =>
+    api.post<{ ok: boolean; active_test_tenant: string | null }>(
+      '/api/admin/tenants/active-test-tenant',
+      { tenant_id: tenantId },
+    ),
+
   create: (body: {
     tenant_id: string
     slug?: string
