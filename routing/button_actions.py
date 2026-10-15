@@ -59,6 +59,7 @@ BUTTONS: dict[str, str] = {
     # general / navigation
     "main_menu": "🏠 Main Menu",
     "contact_support": "💬 Contact Support",
+    "menu_human": "🙋 Talk to Human",
     # flows
     "book_callback": "📞 Book a Callback",
     "get_quote": "📝 Get a Quote",
@@ -73,7 +74,11 @@ BUTTONS: dict[str, str] = {
     "menu_quote": "📝 Get a Quote",
     "menu_callback": "📞 Book a Callback",
     "menu_support": "🆘 Support",
-    "menu_human": "🙋 Talk to Human",
+    # Healthcare
+    "menu_treatments": "🩺 Treatments",
+    "menu_specialities": "🏥 Specialities",
+    "menu_appointment": "📅 Book Appointment",
+    "menu_offerings": "📋 Offerings",
     # Banking
     "menu_products": "🏦 Banking Products",
     "menu_cards": "💳 Cards",
@@ -561,76 +566,169 @@ def get_contextual_buttons(
 
     picked_ids: list[str] = []
 
-    # 1. Services / Tech Stack / Solutions / Projects
-    if any(k in q for k in ("service", "technolog", "tech", "stack", "project", "portfolio", "solution", "build", "develop", "software", "app", "web")):
-        if profile and profile.features.is_on("quote"):
-            picked_ids.append("menu_quote")
-        if profile and profile.features.is_on("callback"):
-            picked_ids.append("menu_callback")
-        if profile and "menu_services" in [b.id for b in profile.menu.buttons]:
-            if "technolog" in q or "project" in q:
-                picked_ids.insert(0, "menu_services")
-        if profile and "menu_technologies" in [b.id for b in profile.menu.buttons] and "technolog" not in q:
-            picked_ids.append("menu_technologies")
-        picked_ids.append("main_menu")
-
-    # 2. Careers / Hiring / Jobs
-    elif any(k in q for k in ("career", "job", "hiring", "vacancy", "internship", "work with us")):
-        picked_ids.append("menu_services")
-        if profile and profile.features.is_on("human_handover"):
-            picked_ids.append("menu_human")
-        picked_ids.append("main_menu")
-
-    # 3. Pricing / Cost / Quote / Rates / Fees
-    elif any(k in q for k in ("price", "pricing", "cost", "quote", "rate", "budget", "fee", "how much")):
-        if profile and profile.features.is_on("quote"):
-            picked_ids.append("menu_quote")
-        if profile and profile.features.is_on("callback"):
-            picked_ids.append("menu_callback")
-        if profile and profile.features.is_on("human_handover"):
-            picked_ids.append("menu_human")
-        picked_ids.append("main_menu")
-
-    # 4. Callback / Meeting / Schedule / Google Meet / Consultation
-    elif any(k in q for k in ("callback", "call", "meet", "meeting", "schedule", "consultation", "demo")):
-        if profile and profile.features.is_on("callback"):
-            picked_ids.append("menu_callback")
-        if profile and profile.features.is_on("quote"):
-            picked_ids.append("menu_quote")
-        picked_ids.append("main_menu")
-
-    # 5. Support / Complaint / Ticket / Issue / Help
-    elif any(k in q for k in ("support", "complaint", "issue", "ticket", "problem", "bug", "broken", "help")):
-        if profile and profile.features.is_on("complaints"):
-            support_btn = "menu_support" if "menu_support" in [b.id for b in profile.menu.buttons] else "menu_complaint"
-            picked_ids.append(support_btn)
-        if profile and profile.features.is_on("human_handover"):
-            picked_ids.append("menu_human")
-        picked_ids.append("main_menu")
-
-    # 6. E-Commerce specific (products, cart, orders)
-    elif vertical == "ecommerce" or any(k in q for k in ("product", "cart", "order", "delivery", "shipping", "chikki", "snack")):
-        picked_ids.append("menu_products")
-        if profile and profile.features.is_on("cart"):
-            picked_ids.append("menu_view_cart")
-        if profile and profile.features.is_on("track_order"):
-            picked_ids.append("track_order")
-        picked_ids.append("main_menu")
-
-    # 7. Fallback by vertical
-    else:
-        if vertical == "it_software":
-            picked_ids = ["menu_services", "menu_callback", "main_menu"]
-        elif vertical == "ecommerce":
-            picked_ids = ["menu_products", "menu_catalogue", "main_menu"]
-        elif vertical == "banking":
-            picked_ids = ["menu_products", "menu_eligibility", "main_menu"]
-        elif vertical == "tours_travel":
-            picked_ids = ["menu_packages", "menu_callback", "main_menu"]
+    # 1. Healthcare Vertical
+    if vertical == "healthcare":
+        if any(k in q for k in ("appointment", "book", "slot", "doctor", "consult", "visit", "timing", "schedule")):
+            if profile and profile.features.is_on("book_appointment"):
+                picked_ids.append("menu_appointment")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+            picked_ids.append("menu_treatments")
+        elif any(k in q for k in ("treatment", "surgery", "procedure", "care", "therapy", "physiotherapy", "cure", "health")):
+            picked_ids.append("menu_treatments")
+            if profile and profile.features.is_on("book_appointment"):
+                picked_ids.append("menu_appointment")
+            picked_ids.append("menu_specialities")
+        elif any(k in q for k in ("speciality", "department", "cardiology", "ortho", "paediatric", "neuro", "gynae", "doctor")):
+            picked_ids.append("menu_specialities")
+            if profile and profile.features.is_on("book_appointment"):
+                picked_ids.append("menu_appointment")
+        elif any(k in q for k in ("complaint", "feedback", "grievance", "issue", "support", "help", "emergency")):
+            if profile and profile.features.is_on("complaints"):
+                picked_ids.append("menu_grievance")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
         else:
-            picked_ids = ["menu_offerings", "menu_callback", "main_menu"]
+            picked_ids = ["menu_treatments", "menu_appointment", "menu_callback"]
+        picked_ids.append("main_menu")
 
-    # Filter to unique, valid buttons
+    # 2. Banking Vertical
+    elif vertical == "banking":
+        if any(k in q for k in ("card", "credit card", "debit card", "atm card", "pin")):
+            picked_ids.append("menu_cards")
+            picked_ids.append("menu_products")
+        elif any(k in q for k in ("loan", "emi", "interest", "home loan", "personal loan", "car loan", "borrow")):
+            picked_ids.append("menu_loans")
+            picked_ids.append("menu_eligibility")
+        elif any(k in q for k in ("branch", "atm", "locator", "timing", "address", "ifsc", "location")):
+            picked_ids.append("menu_branch")
+            picked_ids.append("menu_products")
+        elif any(k in q for k in ("fraud", "stolen", "unauthorized", "lost", "complaint", "grievance", "dispute")):
+            if profile and profile.features.is_on("complaints"):
+                picked_ids.append("menu_grievance")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        elif any(k in q for k in ("product", "account", "savings", "current", "fd", "deposit")):
+            picked_ids.append("menu_products")
+            picked_ids.append("menu_cards")
+        else:
+            picked_ids = ["menu_products", "menu_cards", "menu_branch"]
+        picked_ids.append("main_menu")
+
+    # 3. Finance & Advisory Vertical
+    elif vertical == "finance":
+        if any(k in q for k in ("proposal", "quote", "cost", "fee", "rate", "estimate", "pricing", "charges")):
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_proposal")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        elif any(k in q for k in ("faq", "deadline", "tax", "gst", "due date", "compliance", "filing")):
+            picked_ids.append("menu_faq")
+            picked_ids.append("menu_services")
+        elif any(k in q for k in ("service", "advisory", "audit", "consulting", "planning", "wealth")):
+            picked_ids.append("menu_services")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_proposal")
+        elif any(k in q for k in ("callback", "call", "meet", "meeting", "consultation")):
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        else:
+            picked_ids = ["menu_services", "menu_proposal", "menu_callback"]
+        picked_ids.append("main_menu")
+
+    # 4. Tours & Travel Vertical
+    elif vertical == "tours_travel":
+        if any(k in q for k in ("destination", "place", "kerala", "bali", "dubai", "europe", "rajasthan", "himachal", "goa", "andaman", "where")):
+            picked_ids.append("menu_destinations")
+            picked_ids.append("menu_packages")
+        elif any(k in q for k in ("package", "tour", "trip", "itinerary", "stay", "hotel", "sightseeing", "inclusions")):
+            picked_ids.append("menu_packages")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        elif any(k in q for k in ("policy", "cancel", "refund", "booking", "advance", "terms")):
+            picked_ids.append("menu_booking_policy")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        elif any(k in q for k in ("visa", "passport", "document", "entry")):
+            picked_ids.append("menu_visa")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        elif any(k in q for k in ("quote", "price", "cost", "rates", "deal", "discount")):
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        else:
+            picked_ids = ["menu_packages", "menu_destinations", "menu_callback"]
+        picked_ids.append("main_menu")
+
+    # 5. IT / Software & Services Vertical
+    elif vertical == "it_software":
+        if any(k in q for k in ("service", "solution", "build", "develop", "software", "app", "web")):
+            picked_ids.append("menu_services")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        elif any(k in q for k in ("technolog", "tech", "stack", "react", "python", "node", "ai", "cloud")):
+            picked_ids.append("menu_technologies")
+            picked_ids.append("menu_services")
+        elif any(k in q for k in ("project", "portfolio", "case study", "client", "work")):
+            picked_ids.append("menu_projects")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        elif any(k in q for k in ("career", "job", "hiring", "vacancy", "opening", "internship")):
+            picked_ids.append("menu_careers")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        elif any(k in q for k in ("price", "pricing", "cost", "quote", "rate", "budget", "fee")):
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        elif any(k in q for k in ("callback", "call", "meet", "meeting", "schedule", "demo")):
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        else:
+            picked_ids = ["menu_services", "menu_callback", "menu_technologies"]
+        picked_ids.append("main_menu")
+
+    # 6. E-Commerce Vertical
+    elif vertical == "ecommerce":
+        if any(k in q for k in ("cart", "checkout", "buy", "basket")):
+            if profile and profile.features.is_on("cart"):
+                picked_ids.append("menu_view_cart")
+            picked_ids.append("menu_products")
+        elif any(k in q for k in ("track", "order status", "delivery", "shipping", "dispatch", "courier")):
+            if profile and profile.features.is_on("track_order"):
+                picked_ids.append("track_order")
+            picked_ids.append("menu_products")
+        elif any(k in q for k in ("brochure", "catalogue", "catalog", "pdf")):
+            if profile and profile.features.is_on("brochure_pdf"):
+                picked_ids.append("menu_catalogue")
+            picked_ids.append("menu_products")
+        elif any(k in q for k in ("complaint", "issue", "damaged", "return", "refund")):
+            if profile and profile.features.is_on("complaints"):
+                picked_ids.append("menu_complaint")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        else:
+            picked_ids = ["menu_products", "menu_catalogue", "menu_discounts"]
+        picked_ids.append("main_menu")
+
+    # 7. Generic Fallback
+    else:
+        if any(k in q for k in ("quote", "cost", "price")):
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_quote")
+        if any(k in q for k in ("callback", "call", "meet")):
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        picked_ids.extend(["menu_offerings", "menu_callback", "main_menu"])
+
+    # Filter to unique, valid buttons matching enabled features
     result = []
     seen = set()
     for bid in picked_ids:

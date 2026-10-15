@@ -160,9 +160,18 @@ async def _send_reply(wa_id: str, messages: list) -> None:
                                 "description": "",
                             })
                     if rows:
+                        header_title = "Options"
+                        try:
+                            from shared.tenancy.resolver import resolve_tenant_for_user
+                            from shared.tenancy.loader import get_tenant_profile
+                            p = get_tenant_profile(resolve_tenant_for_user(wa_id))
+                            if p and p.brand and p.brand.name:
+                                header_title = p.brand.name
+                        except Exception:
+                            pass
                         send_whatsapp_list_menu(
                             to=wa_id,
-                            header_text="Leeway Softech",
+                            header_text=header_title,
                             body_text=text,
                             button_text="Select Option",
                             sections=[{"title": "Options", "rows": rows}],
@@ -277,20 +286,42 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
 
                     if not text:
                         # send2.digital's incoming-report API returns Message=null when a user taps
-                        # a WhatsApp quick-reply button. Handle it gracefully by sending the list options.
+                        # a WhatsApp quick-reply button. Re-send the tenant's main menu so the user
+                        # can pick an option whose title will come back as text on the next poll.
                         if str(status).strip().lower() == "received":
                             logger.info(f"Handling unmapped button click (null text) from {wa_id} id={message_id[:20]}")
                             try:
-                                from bots.customer_b2c import menus
                                 from routing.whatsapp import send_whatsapp_list_menu
-                                menu_data = menus.get_main_menu(wa_id)
+                                from services.menu_catalog import get_kb_main_menu
+                                from services.menu_service import build_list_menu
+
+                                # Resolve tenant profile to get brand name + menu items
+                                brand_name = "Menu"
+                                try:
+                                    from shared.tenancy.resolver import resolve_tenant_for_user
+                                    from shared.tenancy.loader import get_tenant_profile
+                                    tid = resolve_tenant_for_user(wa_id)
+                                    profile = get_tenant_profile(tid)
+                                    if profile and profile.brand and profile.brand.name:
+                                        brand_name = profile.brand.name
+                                except Exception:
+                                    pass
+
+                                items = get_kb_main_menu(wa_id)
+                                menu_data = build_list_menu(
+                                    header=brand_name,
+                                    body="Please choose an option from the menu below:",
+                                    button_text="Show Options",
+                                    items=items,
+                                )
                                 send_whatsapp_list_menu(
                                     to=wa_id,
-                                    header_text=menu_data.get("header", "Leeway Softech"),
-                                    body_text="I received your selection! Please choose an option from the menu below:",
+                                    header_text=menu_data.get("header", brand_name),
+                                    body_text=menu_data.get("body", "Please choose an option:"),
                                     button_text=menu_data.get("button_text", "Show Options"),
                                     sections=menu_data.get("sections", []),
                                 )
+                                logger.info(f"Re-sent tenant menu to {wa_id} after null-text button click")
                             except Exception as ex:
                                 logger.error(f"Failed to handle null message fallback: {ex}")
                             _record_processed(message_id, wa_id)

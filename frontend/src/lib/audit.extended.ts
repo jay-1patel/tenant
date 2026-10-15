@@ -1,5 +1,5 @@
 import { api } from './api'
-import { type AuditOutcome, type AuditEvent, type AuditFilters, type AuditPage } from './audit'
+import { type AuditEvent, type AuditFilters, type AuditPage } from './audit'
 
 // Extended audit types for new features
 export interface AuditEventExtended extends Omit<AuditEvent, 'details'> {
@@ -77,9 +77,7 @@ export const auditApiExtended = {
     query.set('format', request.format)
     query.set('columns', request.columns.join(','))
     
-    return api.get<Blob>(`/api/admin/audit-export?${query.toString()}`, signal, { 
-      responseType: 'blob' 
-    })
+    return api.get<Blob>(`/api/admin/audit-export?${query.toString()}`, signal)
   },
 
   // Get single event details
@@ -88,7 +86,7 @@ export const auditApiExtended = {
   },
 
   // Real-time updates (WebSocket simulation via polling for now)
-  subscribeUpdates: (callback: (update: RealtimeUpdate) => void, signal?: AbortSignal) => {
+  subscribeUpdates: (_callback: (update: RealtimeUpdate) => void, signal?: AbortSignal) => {
     // This would be implemented with WebSocket in a real scenario
     // For now, we'll simulate with polling
     let intervalId: ReturnType<typeof setInterval>

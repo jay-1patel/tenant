@@ -98,9 +98,18 @@ def _live_sender(kind: str):
                     if bid and btitle:
                         rows.append({"id": bid, "title": btitle, "description": ""})
                 if rows:
+                    header_title = "Options"
+                    try:
+                        from shared.tenancy.resolver import resolve_tenant_for_user
+                        from shared.tenancy.loader import get_tenant_profile
+                        p = get_tenant_profile(resolve_tenant_for_user(wa_id))
+                        if p and p.brand and p.brand.name:
+                            header_title = p.brand.name
+                    except Exception:
+                        pass
                     return send_whatsapp_list_menu(
                         to=wa_id,
-                        header_text="Leeway Softech",
+                        header_text=header_title,
                         body_text=body,
                         button_text="Select Option",
                         sections=[{"title": "Options", "rows": rows}],

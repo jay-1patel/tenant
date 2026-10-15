@@ -63,20 +63,52 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
     their numbers are bound.
     """
     def _write(connection):
-        connection.execute(
-            """INSERT INTO tenants (id, slug, waba_phone_id, vertical, status, display_name)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                   slug = CASE WHEN excluded.slug != '' THEN excluded.slug ELSE tenants.slug END,
-                   waba_phone_id = CASE WHEN excluded.waba_phone_id != ''
-                                        THEN excluded.waba_phone_id ELSE tenants.waba_phone_id END,
-                   vertical = excluded.vertical,
-                   status = excluded.status,
-                   display_name = CASE WHEN excluded.display_name != ''
-                                       THEN excluded.display_name ELSE tenants.display_name END,
-                   updated_at = CURRENT_TIMESTAMP""",
-            (tenant_id, slug or tenant_id, waba_phone_id or None, vertical, status, display_name),
-        )
+        # Look for existing tenant by ID, slug, or normalized slug
+        row = connection.execute(
+            "SELECT id FROM tenants WHERE id = ? OR slug = ? OR lower(slug) = lower(?)",
+            (tenant_id, slug or tenant_id, (slug or tenant_id).lower()),
+        ).fetchone()
+
+        if row:
+            connection.execute(
+                """UPDATE tenants SET
+                       slug = CASE WHEN ? != '' THEN ? ELSE slug END,
+                       waba_phone_id = CASE WHEN ? != '' THEN ? ELSE waba_phone_id END,
+                       vertical = ?,
+                       status = ?,
+                       display_name = CASE WHEN ? != '' THEN ? ELSE display_name END,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (
+                    slug or tenant_id, slug or tenant_id,
+                    waba_phone_id or '', waba_phone_id or None,
+                    vertical, status,
+                    display_name, display_name,
+                    row["id"] if isinstance(row, dict) or hasattr(row, "keys") else row[0],
+                ),
+            )
+        else:
+            # Check if id column is INTEGER autoincrement
+            col_type = "TEXT"
+            try:
+                for c in connection.execute("PRAGMA table_info(tenants)").fetchall():
+                    if (c["name"] if hasattr(c, "keys") else c[1]) == "id":
+                        col_type = (c["type"] if hasattr(c, "keys") else c[2] or "").upper()
+            except Exception:
+                pass
+
+            if "INT" in col_type and not str(tenant_id).isdigit():
+                connection.execute(
+                    """INSERT INTO tenants (company_name, slug, waba_phone_id, vertical, status, display_name)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (display_name or slug or tenant_id, slug or tenant_id, waba_phone_id or None, vertical, status, display_name),
+                )
+            else:
+                connection.execute(
+                    """INSERT INTO tenants (id, slug, waba_phone_id, vertical, status, display_name)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (tenant_id, slug or tenant_id, waba_phone_id or None, vertical, status, display_name),
+                )
 
     if conn is None:
         with _db().get_db_context() as own_conn:

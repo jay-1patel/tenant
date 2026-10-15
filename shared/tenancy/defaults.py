@@ -425,7 +425,7 @@ _TOURS_TRAVEL = {
         "faq": True,
         "kb": True,
         "complaints": True,
-        "campaigns": False,
+        "campaigns": True,
         "human_handover": True,
     },
     "vocabulary": {
@@ -664,7 +664,7 @@ _FINANCE = {
         "returns": False, "brochure_pdf": True, "distributors": False,
         "offerings": True, "offering_details": True,
         "lead_capture": True, "quote": True, "callback": True, "book_appointment": True,
-        "handoff": True, "faq": True, "kb": True, "complaints": True, "campaigns": False,
+        "handoff": True, "faq": True, "kb": True, "complaints": True, "campaigns": True,
         "human_handover": True,
     },
     "vocabulary": {
@@ -800,9 +800,9 @@ _HEALTHCARE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_treatments", "title": "Treatments", "description": "What we treat",
-             "section": "🩺 Care", "icon": "🩺", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "🩺 Care", "icon": "🩺", "sort_order": 0, "requires_feature": "offerings", "intent": "treatments"},
             {"id": "menu_specialities", "title": "Specialities", "description": "Our departments",
-             "section": "🩺 Care", "icon": "🏥", "sort_order": 1, "requires_feature": "offering_details"},
+             "section": "🩺 Care", "icon": "🏥", "sort_order": 1, "requires_feature": "offering_details", "intent": "specialities"},
             {"id": "menu_appointment", "title": "Book Appointment", "description": "See a doctor",
              "section": "📞 Talk To Us", "icon": "📅", "sort_order": 2, "requires_feature": "book_appointment",
              "flow": "book_appointment"},
@@ -818,6 +818,14 @@ _HEALTHCARE = {
     },
     "intents": _intents(
         _GREETING,
+        {"name": "treatments", "examples": ["what treatments do you offer", "treatments list", "view treatments"],
+         "keywords": ["treatments", "treatment", "procedures", "surgeries", "care"],
+         "requires_feature": "offerings",
+         "answer": "🩺 *Treatments & Medical Care*\n\nWe provide specialized medical care across disciplines:\n• *Outpatient Consultations & Diagnostics*\n• *Preventive Health Checkups & Screenings*\n• *Surgical & Minimally Invasive Procedures*\n• *Rehabilitation & Physiotherapy*\n\n_Tap 'Book Appointment' to schedule a consultation with our doctors._"},
+        {"name": "specialities", "examples": ["what specialities do you have", "departments", "departments list"],
+         "keywords": ["specialities", "speciality", "departments", "department", "doctors", "clinics"],
+         "requires_feature": "offering_details",
+         "answer": "🏥 *Medical Specialities & Departments*\n\n• *General Medicine & Family Health*\n• *Cardiology & Heart Care*\n• *Orthopaedics & Joint Care*\n• *Paediatrics & Child Health*\n• *Neurology & Spine Care*\n• *Gynaecology & Obstetrics*\n\n_Tap 'Book Appointment' or 'Request a Callback' to connect with our specialists._"},
         {"name": "service_enquiry", "examples": ["do you treat knee pain", "what is physiotherapy"],
          "keywords": ["treat", "treatment", "do you treat", "symptom", "condition", "speciality",
                       "physiotherapy", "consultation"], "requires_feature": "offerings"},
@@ -939,11 +947,10 @@ VERTICAL_DEFAULTS: Dict[str, Dict[str, Any]] = {
 def get_vertical_defaults(vertical: str) -> Dict[str, Any]:
     """Deep copy of the default layer for a vertical (safe to mutate)."""
     layer = deepcopy(VERTICAL_DEFAULTS.get(vertical, VERTICAL_DEFAULTS["generic"]))
-    # Commerce flows are grafted on here rather than declared in _ECOMMERCE so
-    # they are defined after DEFAULT_FLOWS at module load. Gating stays with
-    # requires_feature: a shop that turns buy_now off never surfaces the flow.
+    flows = deepcopy(DEFAULT_FLOWS)
     if layer.get("vertical") == "ecommerce":
-        layer["flows"] = deepcopy(COMMERCE_FLOWS)
+        flows.extend(deepcopy(COMMERCE_FLOWS))
+    layer["flows"] = flows
     return layer
 
 

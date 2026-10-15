@@ -292,12 +292,23 @@ def is_running(wa_id: str) -> bool:
     return bool(_state().active_flow(wa_id))
 
 
+_EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
+
+
+def _clean_title(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = _EMOJI_RE.sub("", str(text)).replace("…", "").replace("...", "")
+    words = [w for w in cleaned.strip().lower().split() if w not in ("a", "an", "the")]
+    return " ".join(words)
+
+
 def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
     """The flow a profile menu button starts, or None.
 
-    Only returns flows whose feature flag is on — the caller falls through to
-    the existing pipeline when we return None, so a refused flow can never
-    change today's behaviour.
+    Matches by button ID, clean ID, or button title (since WhatsApp delivers
+    tapped list menu options as the row title text). Only returns flows whose
+    feature flag is on.
     """
     try:
         profile = _profile(tenant_id, wa_id)
@@ -306,8 +317,19 @@ def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
         return None
     raw_id = (button_id or "").strip()
     clean_id = raw_id.replace("flow:", "").replace("flow_", "").strip()
+    clean_target = _clean_title(raw_id)
+
     for b in profile.menu.buttons:
-        if b.id == raw_id and getattr(b, "flow", None):
+        b_clean = _clean_title(b.title)
+        matched = (
+            b.id == raw_id
+            or b.id == clean_id
+            or (b_clean and b_clean == clean_target)
+            or (len(clean_target) >= 4 and clean_target in b_clean)
+            or (len(b_clean) >= 4 and b_clean in clean_target)
+            or (getattr(b, "flow", None) and _clean_title(b.flow) == clean_target)
+        )
+        if matched and getattr(b, "flow", None):
             flow = profile.flow(b.flow)
             if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
                 return flow.name
@@ -327,7 +349,10 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
 
     Matches:
     1. Direct callback & Google Meeting triggers (e.g. 'book a callback', 'schedule meeting', 'callback').
-    2. Active profile intents declaring a flow (e.g. callback_request -> book_callback, quote_request -> get_quote).
+    2. Appointment triggers (e.g. 'book appointment', 'doctor appointment').
+    3. Quote & Proposal triggers (e.g. 'get a quote', 'request proposal').
+    4. Complaint & Ticket triggers.
+    5. Active profile intents declaring a flow (e.g. callback_request -> book_callback, quote_request -> get_quote).
     """
     raw = (text or "").strip().lower()
     if not raw:
@@ -339,8 +364,20 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         logger.debug("flow_for_text: profile unavailable: %s", e)
         return None
 
-    # Callback & Meeting triggers
     clean = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", raw).strip()
+
+    # Appointment triggers (Healthcare & generic)
+    appointment_phrases = (
+        "book an appointment", "book appointment", "appointment", "schedule appointment",
+        "doctor appointment", "see a doctor", "consult doctor", "meet doctor",
+        "make an appointment", "make appointment",
+    )
+    if any(p in clean or clean == p for p in appointment_phrases):
+        flow = profile.flow("book_appointment")
+        if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
+            return "book_appointment"
+
+    # Callback & Meeting triggers
     callback_phrases = (
         "book a callback", "book callback", "request a callback", "request callback",
         "call me back", "call back", "callback", "schedule a call", "schedule call",
@@ -353,15 +390,26 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
             return "book_callback"
 
-    # Quote triggers
+    # Quote & Proposal triggers (IT, Finance, Travel, etc.)
     quote_phrases = (
         "get a quote", "get quote", "request a quote", "request quote",
         "need a quote", "project quote", "quote",
+        "request proposal", "request a proposal", "proposal", "get proposal",
     )
     if any(p in clean or clean == p for p in quote_phrases):
         flow = profile.flow("get_quote")
         if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
             return "get_quote"
+
+    # Human Handover triggers
+    human_phrases = (
+        "talk to human", "speak to human", "talk to agent", "connect to agent",
+        "human agent", "talk to a human", "speak to a person", "talk to person",
+    )
+    if any(p in clean or clean == p for p in human_phrases):
+        flow = profile.flow("book_callback") or profile.flow("human_handover")
+        if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
+            return flow.name
 
     # Ticket / Complaint triggers
     ticket_phrases = (

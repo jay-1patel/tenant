@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAsync } from '@/lib/hooks'
 import { formatDate, relativeTime } from '@/lib/format'
 import { auditApiExtended } from '@/lib/audit.extended'
@@ -11,7 +11,7 @@ import { Alert, EmptyState, LoadingBlock, Toast } from '@/components/ui/feedback
 import { PageHeader } from '@/components/layout/page-header'
 import { ChevronLeft, ChevronRight, RefreshCw, Table2, Grid3X3, LineChart, Filter, Download, X } from 'lucide-react'
 import type { AuditEventExtended, AuditFiltersExtended, AuditPageState, ViewMode, FilterPreset, AuditStatistics, AuditOutcome } from './audit-history.types'
-import { LABELS, ACTION_CATEGORIES, getPresetDates, formatEventForDisplay, debounce, saveFiltersToStorage, loadFiltersFromStorage, prepareExportData, generateCSV, generateJSON, getDefaultExportColumns } from './audit-history.utils'
+import { LABELS, ACTION_CATEGORIES, getPresetDates, formatEventForDisplay, debounce, saveFiltersToStorage, loadFiltersFromStorage, getDefaultExportColumns } from './audit-history.utils'
 
 const PAGE_SIZE = 50
 
@@ -399,12 +399,10 @@ export function AuditHistory() {
     preset: 'last_7_days' as FilterPreset,
   })
   const [viewMode, setViewMode] = useState<ViewMode>('table')
-  const [selectedEvents, setSelectedEvents] = useState<Set<number>>(new Set())
   const [showRefreshing, setShowRefreshing] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [showStats, setShowStats] = useState(false)
-  const [showCustomDateRange, setShowCustomDateRange] = useState(false)
 
   // Load saved filters from localStorage
   useEffect(() => {
@@ -413,8 +411,9 @@ export function AuditHistory() {
       setDraft(prev => ({ ...prev, ...savedFilters }))
       // Apply saved date preset
       if (savedFilters.preset) {
-        const dates = getPresetDates(savedFilters.preset as FilterPreset)
-        setDraft(prev => ({ ...prev, ...dates, preset: savedFilters.preset }))
+        const preset = savedFilters.preset as FilterPreset
+        const dates = getPresetDates(preset)
+        setDraft(prev => ({ ...prev, ...dates, preset }))
       }
     }
   }, [])
@@ -505,7 +504,8 @@ export function AuditHistory() {
 
   const refresh = () => {
     setShowRefreshing(true)
-    void state.reload().finally(() => setTimeout(() => setShowRefreshing(false), 600))
+    state.reload()
+    setTimeout(() => setShowRefreshing(false), 600)
   }
 
   const notifyExport = () => {

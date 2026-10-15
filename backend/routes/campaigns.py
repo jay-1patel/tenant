@@ -13,9 +13,27 @@ from pydantic import BaseModel, Field
 
 from database import get_db_context, record_admin_audit_event
 from routes.auth import require_permission, require_tenant_access
+from shared.tenancy.gating import is_enabled
 
 logger = logging.getLogger("campaigns")
-router = APIRouter(prefix="/api/admin/tenants/{tenant_id}/campaigns", tags=["campaigns"])
+
+
+def _require_campaigns(tenant_id: str):
+    from shared.tenancy import store, CLIENTS_DIR
+    client_dir_exists = (CLIENTS_DIR / tenant_id).is_dir() if hasattr(CLIENTS_DIR, "is_dir") else os.path.isdir(os.path.join(CLIENTS_DIR, tenant_id))
+    if client_dir_exists or store.get_tenant(tenant_id):
+        if not is_enabled(tenant_id, "campaigns"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Campaigns feature is not enabled for tenant '{tenant_id}'",
+            )
+
+
+router = APIRouter(
+    prefix="/api/admin/tenants/{tenant_id}/campaigns",
+    tags=["campaigns"],
+    dependencies=[Depends(_require_campaigns)],
+)
 
 
 # ── Vocabulary ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { type AuditEventExtended, type FilterPreset, type ExportFormat } from './audit-history.types'
+import { type AuditEventExtended, type FilterPreset } from './audit-history.types'
 import { ACTION_CATEGORIES, DEFAULT_COLUMNS } from './audit-history.types'
 export { ACTION_CATEGORIES } from './audit-history.types'
 import { formatDate, relativeTime } from '@/lib/format'
@@ -251,7 +251,7 @@ export function prepareExportData(events: AuditEventExtended[], columns: string[
           row[col] = formattedEvent.category ? ACTION_CATEGORIES[formattedEvent.category as keyof typeof ACTION_CATEGORIES]?.label : 'Unknown'
           break
         default:
-          row[col] = (formattedEvent as Record<string, unknown>)[col]
+          row[col] = (formattedEvent as unknown as Record<string, unknown>)[col]
       }
     })
 
@@ -284,7 +284,7 @@ export function generateCSV(data: Record<string, unknown>[], includeHeaders: boo
 }
 
 // Generate JSON content
-export function generateJSON(data: Record<string, unknown>[], includeHeaders: boolean = true): string {
+export function generateJSON(data: Record<string, unknown>[], _includeHeaders: boolean = true): string {
   return JSON.stringify(data, null, 2)
 }
 

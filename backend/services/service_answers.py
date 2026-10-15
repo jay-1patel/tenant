@@ -66,7 +66,8 @@ def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str 
 
         tid = tenant_id or resolve_tenant_for_user(wa_id or "")
         profile = get_tenant_profile(tid)
-        item_noun = getattr(profile.vocabulary, "item_noun", "services") or "services"
+        vocab = getattr(profile, "vocabulary", None)
+        item_noun = (getattr(vocab, "item_noun", "services") if vocab else "services") or "services"
         intent = profile.intent("service_enquiry") or profile.intent("product_details") or profile.intent("package_details")
         offerings = list_products(active_only=True, limit=100, tenant_id=tid)
         selected = _matching_offerings(query, offerings)

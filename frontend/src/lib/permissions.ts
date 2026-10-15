@@ -91,8 +91,6 @@ function contentGroupsFor(vertical: string | null | undefined): { label: string;
         'edit_product',
         'delete_product',
         'catalogue_new_arrival',
-        'view_complaints',
-        'manage_complaints',
       ],
     }
   }
@@ -121,26 +119,81 @@ function contentGroupsFor(vertical: string | null | undefined): { label: string;
       ],
     }
   }
+  if (vertical === 'healthcare') {
+    return {
+      label: 'Treatments & healthcare services',
+      permissions: [
+        'view_products',
+        'add_product',
+        'edit_product',
+        'delete_product',
+        'manage_services',
+      ],
+    }
+  }
   return {
-    label: 'Products & brochure',
+    label: 'Offerings & catalog',
     permissions: [
       'view_products',
-      'edit_delete_products',
-      'catalogue_new_arrival',
-      'view_distributors',
-      'manage_distributors',
+      'add_product',
+      'edit_product',
+      'delete_product',
     ],
   }
 }
 
 /**
- * The permission groups to render for a tenant of a given vertical — the
- * static list, with the catalogue group swapped for the vertical's own.
+ * The permission groups to render for a tenant of a given vertical.
+ * Non-commerce verticals (healthcare, banking, finance, tours_travel, it_software)
+ * do not see campaigns, distributors, or orders.
  */
 export function permissionGroups(vertical?: string | null): { label: string; permissions: string[] }[] {
-  return PERMISSION_GROUPS.map((group) =>
-    group.label === 'Products & brochure' ? contentGroupsFor(vertical) : group,
-  )
+  const isCommerce = vertical === 'ecommerce'
+
+  const operationsPerms = isCommerce
+    ? ['view_orders', 'manage_orders', 'view_complaints', 'manage_complaints', 'view_customers']
+    : ['view_complaints', 'manage_complaints', 'view_customers']
+
+  const hasCampaigns =
+    vertical === 'ecommerce' ||
+    vertical === 'banking' ||
+    vertical === 'finance' ||
+    vertical === 'tours_travel'
+
+  const growthGroup = hasCampaigns
+    ? {
+        label: 'Growth',
+        permissions: ['view_campaigns', 'manage_campaigns', 'view_analytics'],
+      }
+    : {
+        label: 'Analytics',
+        permissions: ['view_analytics'],
+      }
+
+  return [
+    {
+      label: 'Tenant configuration',
+      permissions: ['manage_operations'],
+    },
+    {
+      label: 'Team',
+      permissions: ['manage_admins'],
+    },
+    {
+      label: 'Content',
+      permissions: ['upload_faq', 'upload_kb', 'view_files', 'delete_files'],
+    },
+    contentGroupsFor(vertical),
+    {
+      label: 'Conversations',
+      permissions: ['chat', 'chat_history', 'view_inbox'],
+    },
+    {
+      label: 'Operations',
+      permissions: operationsPerms,
+    },
+    growthGroup,
+  ]
 }
 
 export const PERMISSION_LABELS: Record<string, string> = {
@@ -193,9 +246,9 @@ export function contentWritePerms(vertical?: string | null): {
   edit: string[]
   remove: string[]
 } {
-  if (vertical === 'it_software') {
-    const all = ['edit_delete_products', 'manage_services']
-    return { add: all, edit: all, remove: all }
+  if (vertical === 'it_software' || vertical === 'finance' || vertical === 'healthcare') {
+    const all = ['edit_delete_products', 'manage_services', 'add_product', 'edit_product']
+    return { add: all, edit: all, remove: ['edit_delete_products', 'delete_product'] }
   }
   return {
     add: ['edit_delete_products', 'add_product'],

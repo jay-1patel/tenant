@@ -16,9 +16,22 @@ from pydantic import BaseModel
 
 from database import get_db, get_db_context, record_admin_audit_event
 from routes.auth import require_permission
+from shared.tenancy.gating import is_enabled
 
 logger = logging.getLogger("orders")
 router = APIRouter(prefix="/api/orders")
+
+
+def _require_orders(current_admin: dict):
+    if current_admin.get("role") == "super_admin":
+        return current_admin
+    tenant_id = current_admin.get("tenant_id")
+    if tenant_id and not is_enabled(tenant_id, "orders"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Orders feature is not enabled for tenant '{tenant_id}'",
+        )
+    return current_admin
 
 ALLOWED_STATUSES = {
     "placed",
@@ -83,6 +96,7 @@ def list_orders(
     current_admin: dict = Depends(require_permission("view_orders")),
 ):
     """List orders with optional status / type / payment filters and search."""
+    _require_orders(current_admin)
     conn = get_db()
     try:
         clauses = ["1=1"]
@@ -128,6 +142,7 @@ def list_orders(
 @router.get("/stats")
 def order_stats(current_admin: dict = Depends(require_permission("view_orders"))):
     """Aggregate order statistics for the Orders page header and analytics."""
+    _require_orders(current_admin)
     conn = get_db()
     try:
         row = conn.execute(
@@ -165,6 +180,7 @@ def get_order(
     current_admin: dict = Depends(require_permission("view_orders")),
 ):
     """Fetch one order by its id or order_number."""
+    _require_orders(current_admin)
     conn = get_db()
     try:
         row = conn.execute(
@@ -187,6 +203,7 @@ def update_order(
     current_admin: dict = Depends(require_permission("manage_orders")),
 ):
     """Partially update an order (status, payment_status, delivery date, ...)."""
+    _require_orders(current_admin)
     payload = body.model_dump(exclude_unset=True)
     if not payload:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -243,6 +260,7 @@ def delete_order(
     current_admin: dict = Depends(require_permission("manage_orders")),
 ):
     """Permanently remove an order record."""
+    _require_orders(current_admin)
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT id, order_number FROM orders WHERE id = ? OR order_number = ?",

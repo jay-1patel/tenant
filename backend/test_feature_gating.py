@@ -123,6 +123,22 @@ class FeatureGatingTests(unittest.TestCase):
         self.assertIn("contact_human", live.active_intent_names())
         self.assertTrue(is_enabled("gate-test", "human_handover"))
 
+    def test_vertical_privilege_matrix(self):
+        """Banking, Finance, and Tours & Travels have campaigns enabled, but orders/distributors blocked."""
+        for tid in ("meridianbank", "northwindcapital", "wanderly"):
+            self.assertTrue(is_enabled(tid, "campaigns"), f"{tid} must have campaigns enabled")
+            self.assertFalse(is_enabled(tid, "orders"), f"{tid} must not have orders")
+            self.assertFalse(is_enabled(tid, "distributors"), f"{tid} must not have distributors")
+
+        # Commerce vertical (troogood) has all three enabled
+        self.assertTrue(is_enabled("troogood", "campaigns"))
+        self.assertTrue(is_enabled("troogood", "orders"))
+        self.assertTrue(is_enabled("troogood", "distributors"))
+
+        # Healthcare defaults still block campaigns, orders, and distributors
+        self.assertFalse(is_enabled(None, "campaigns"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

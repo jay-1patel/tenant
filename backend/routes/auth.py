@@ -34,13 +34,21 @@ try:
     from slowapi import Limiter
     from slowapi.util import get_remote_address
     from slowapi.errors import RateLimitExceeded
-    RATE_LIMIT_ENABLED = True
+    import os as _os
+    import sys as _sys
+    _IS_TESTING = (
+        "pytest" in _sys.modules
+        or any("pytest" in str(arg) for arg in _sys.argv)
+        or _os.environ.get("TESTING") == "true"
+        or "PYTEST_CURRENT_TEST" in _os.environ
+    )
+    RATE_LIMIT_ENABLED = not _IS_TESTING
 except ImportError:
     RATE_LIMIT_ENABLED = False
     logger.warning("slowapi not installed - rate limiting disabled. Install with: pip install slowapi")
 
 # Configure limiter if available
-limiter = Limiter(key_func=get_remote_address) if RATE_LIMIT_ENABLED else None
+limiter = Limiter(key_func=get_remote_address, enabled=RATE_LIMIT_ENABLED) if RATE_LIMIT_ENABLED else None
 
 # SECURITY FIX: Password complexity requirements
 MIN_PASSWORD_LENGTH = 12

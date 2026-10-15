@@ -8,10 +8,29 @@ from pydantic import BaseModel
 
 from database import get_db_context, record_admin_audit_event
 from routes.auth import require_permission, require_tenant_access
+from shared.tenancy.gating import is_enabled
 from shared.tenancy.schemas import is_valid_email, is_valid_phone
 
 logger = logging.getLogger("distributors")
-router = APIRouter(prefix="/api/admin/tenants/{tenant_id}/distributors", tags=["distributors"])
+
+
+def _require_distributors(tenant_id: str):
+    import os
+    from shared.tenancy import store, CLIENTS_DIR
+    client_dir_exists = (CLIENTS_DIR / tenant_id).is_dir() if hasattr(CLIENTS_DIR, "is_dir") else os.path.isdir(os.path.join(CLIENTS_DIR, tenant_id))
+    if client_dir_exists or store.get_tenant(tenant_id):
+        if not is_enabled(tenant_id, "distributors"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Distributors feature is not enabled for tenant '{tenant_id}'",
+            )
+
+
+router = APIRouter(
+    prefix="/api/admin/tenants/{tenant_id}/distributors",
+    tags=["distributors"],
+    dependencies=[Depends(_require_distributors)],
+)
 
 
 # ── Pydantic models ────────────────────────────────────────────────────

@@ -1175,6 +1175,13 @@ def _init_tenancy_tables(conn):
             updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    _ensure_columns(conn, "tenants", [
+        ("vertical", "TEXT DEFAULT 'generic'"),
+        ("display_name", "TEXT DEFAULT ''"),
+        ("webhook_secret", "TEXT DEFAULT ''"),
+        ("status", "TEXT DEFAULT 'active'"),
+        ("waba_phone_id", "TEXT"),
+    ])
     # Partial unique index, NOT an inline UNIQUE: a tenant is registered before
     # it is bound to a phone number, and an inline UNIQUE over the default ''
     # would let exactly one unbound tenant exist (registering a second client

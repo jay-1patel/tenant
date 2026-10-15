@@ -58,11 +58,12 @@ _EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
 
 
 def _clean_title(text: str) -> str:
-    """Lowercase, strip emoji, ellipsis, and collapse whitespace (mirrors b2c _clean)."""
+    """Lowercase, strip emoji, ellipsis, stop words ('a', 'an', 'the'), and collapse whitespace."""
     if not text:
         return ""
     cleaned = _EMOJI_RE.sub("", str(text)).replace("…", "").replace("...", "")
-    return " ".join(cleaned.strip().lower().split())
+    words = [w for w in cleaned.strip().lower().split() if w not in ("a", "an", "the")]
+    return " ".join(words)
 
 
 def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
@@ -106,17 +107,17 @@ def answer_for_menu_title(wa_id: str, text: str, tenant_id=None) -> str | None:
         return None
     for b in profile.menu.visible_buttons(profile.features):
         b_clean = _clean_title(b.title)
-        if not b_clean:
-            continue
+        intent = getattr(b, "intent", None)
         matched = (
-            b_clean == target
-            or b_clean.rstrip("s") == target.rstrip("s")
-            or (len(target) >= 4 and target in b_clean)
-            or (len(b_clean) >= 4 and b_clean in target)
+            (b_clean and b_clean == target)
+            or (b_clean and b_clean.rstrip("s") == target.rstrip("s"))
+            or (b_clean and len(target) >= 4 and target in b_clean)
+            or (b_clean and len(b_clean) >= 4 and b_clean in target)
+            or (intent and _clean_title(intent) == target)
+            or (b.id and _clean_title(b.id) == target)
         )
         if not matched:
             continue
-        intent = getattr(b, "intent", None)
         if intent:
             ans = answer_for_intent(wa_id, intent, tenant_id=tenant_id or profile.tenant_id)
             if ans:

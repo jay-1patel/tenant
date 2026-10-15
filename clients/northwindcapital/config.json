@@ -31,7 +31,7 @@
     "faq": true,
     "kb": true,
     "complaints": true,
-    "campaigns": false,
+    "campaigns": true,
     "human_handover": true
   },
 
@@ -93,9 +93,9 @@
 
   "menu": {
     "buttons": [
-      { "id": "menu_services", "intent": "advisory_services" },
-      { "id": "menu_brochure", "intent": "service_guide" },
-      { "id": "menu_faq", "intent": "compliance_faqs" }
+      { "id": "menu_services", "title": "Advisory Services", "intent": "advisory_services" },
+      { "id": "menu_brochure", "title": "Service Guide", "intent": "service_guide" },
+      { "id": "menu_faq", "title": "Compliance FAQs", "intent": "compliance_faqs" }
     ]
   },
 

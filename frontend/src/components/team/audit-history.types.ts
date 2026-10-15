@@ -1,4 +1,5 @@
 import { type AuditOutcome } from '@/lib/audit'
+export type { AuditOutcome }
 import type React from 'react'
 
 // Extended audit event with additional fields
