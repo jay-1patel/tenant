@@ -1381,32 +1381,13 @@ def _fallback_ollama_response(raw_text: str, user_query: str) -> Dict:
     if not raw_text:
         raw_text = "I apologize, but I'm having trouble generating a response right now. Please try again or contact our team for assistance."
 
-    # Try to generate some basic next actions based on query keywords
-    next_actions = []
-    query_lower = user_query.lower()
-
-    # FIX: Changed from "View Products" to better fallback options to prevent loops
-    # When Ollama fails, users should get helpful navigation, not circular "View Products" buttons
-
-    # Check if user is asking for help/assistance
-    if any(word in query_lower for word in ["help", "assistance", "support", "can't", "unable", "problem"]):
-        next_actions.append({"id": "talk_to_team", "title": "👥 Talk to Team"})
-
-    # For product-related queries, offer main menu instead of view products
-    if any(word in query_lower for word in ["product", "chikki", "item"]):
-        next_actions.append({"id": "main_menu", "title": "🏠 Main Menu"})
-
-    # For pricing queries, offer main menu
-    if any(word in query_lower for word in ["price", "cost", "rate", "mrp"]):
-        next_actions.append({"id": "main_menu", "title": "🏠 Main Menu"})
-
-    # Default fallback option - always provide Main Menu
-    if not next_actions:
-        next_actions.append({"id": "main_menu", "title": "🏠 Main Menu"})
-    if any(word in query_lower for word in ["allerg", "ingredient", "safe"]):
-        next_actions.append({"id": "check_allergens", "title": "⚠️ Allergen Info"})
-    if any(word in query_lower for word in ["order", "buy", "purchase"]):
-        next_actions.append({"id": "place_order", "title": "🛒 Place Order"})
+    # Generate contextual next actions
+    try:
+        from routing.button_actions import get_contextual_buttons
+        next_actions = get_contextual_buttons(user_query, limit=3)
+    except Exception as exc:
+        logger.warning(f"Failed to generate contextual buttons in brain.py: {exc}")
+        next_actions = [{"id": "main_menu", "title": "🏠 Main Menu"}]
 
     logger.info(f"OLLAMA_FALLBACK | actions_generated={len(next_actions)}")
 

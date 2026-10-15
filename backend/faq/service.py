@@ -248,10 +248,10 @@ except Exception as exc:
 # Dynamic Button Generation
 # ─────────────────────────────────────────────
 async def _generate_ollama_dynamic_response(
-    system_prompt: str, user_query: str, context: str = "", source_file: str = ""
+    system_prompt: str, user_query: str, context: str = "", source_file: str = "", tenant_id: str | None = None
 ) -> dict:
-    allowed_buttons = registry_prompt_text()
-    suggested = suggest_actions(user_query, source_file=source_file)
+    allowed_buttons = registry_prompt_text(tenant_id=tenant_id)
+    suggested = suggest_actions(user_query, source_file=source_file, tenant_id=tenant_id)
     suggested_text = ", ".join(f'"{s["id"]}"' for s in suggested) if suggested else "none"
 
     json_prompt = f"""{system_prompt}
@@ -286,7 +286,7 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
             continue
         try:
             raw_response = await _call_llm_provider(name, url, model, api_key, api_type, json_prompt, user_query)
-            parsed = _parse_faq_dynamic_json(raw_response, user_query)
+            parsed = _parse_faq_dynamic_json(raw_response, user_query, tenant_id=tenant_id)
             if parsed and parsed.get("answer"):
                 logger.info(f"FAQ_DYNAMIC_SUCCESS | provider={name} | actions={len(parsed.get('next_actions', []))}")
                 return parsed
@@ -319,10 +319,12 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
     logger.info("FAQ_DYNAMIC_ALL_FAILED | attempting direct plain text LLM generation")
     direct_ans = await _generate_direct_llm_answer(system_prompt, user_query, context)
     if direct_ans and direct_ans.strip():
-        return {"answer": direct_ans.strip(), "next_actions": suggested[:2]}
+        from routing.button_actions import get_contextual_buttons
+        ctx_actions = get_contextual_buttons(user_query, tenant_id=tenant_id, limit=3)
+        return {"answer": direct_ans.strip(), "next_actions": ctx_actions or suggested[:2]}
 
     logger.warning("DIRECT_LLM_FAILED | using keyword fallback")
-    return _fallback_dynamic_buttons("", user_query)
+    return _fallback_dynamic_buttons("", user_query, tenant_id=tenant_id)
 
 
 def _get_ordered_providers() -> list:
@@ -416,7 +418,7 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
             return content.strip()
 
 
-def _parse_faq_dynamic_json(raw_response: str, user_query: str) -> dict | None:
+def _parse_faq_dynamic_json(raw_response: str, user_query: str = "", tenant_id: str | None = None) -> dict | None:
     if not raw_response:
         return None
 
@@ -432,7 +434,7 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str) -> dict | None:
         try:
             parsed = json.loads(cand)
             if isinstance(parsed, dict) and "answer" in parsed:
-                return _validate_faq_dynamic_result(parsed, user_query)
+                return _validate_faq_dynamic_result(parsed, user_query, tenant_id=tenant_id)
         except (json.JSONDecodeError, TypeError):
             continue
 
@@ -449,19 +451,19 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str) -> dict | None:
                 json_str = match.group(1) if match.groups() else match.group(0)
                 parsed = json.loads(json_str)
                 if isinstance(parsed, dict) and "answer" in parsed:
-                    return _validate_faq_dynamic_result(parsed, user_query)
+                    return _validate_faq_dynamic_result(parsed, user_query, tenant_id=tenant_id)
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
 
     # Strategy 5: If LLM returned direct conversational text without JSON wrapper, preserve it
     cleaned_text = raw_response.strip()
     if cleaned_text and not cleaned_text.startswith("{") and len(cleaned_text) > 10:
-        return _validate_faq_dynamic_result({"answer": cleaned_text, "next_actions": []}, user_query)
+        return _validate_faq_dynamic_result({"answer": cleaned_text, "next_actions": []}, user_query, tenant_id=tenant_id)
 
     return None
 
 
-def _validate_faq_dynamic_result(parsed: dict, user_query: str = "") -> dict:
+def _validate_faq_dynamic_result(parsed: dict, user_query: str = "", tenant_id: str | None = None) -> dict:
     parsed = dict(parsed)
     parsed["_query"] = user_query
     answer = parsed.get("answer", "")
@@ -469,46 +471,45 @@ def _validate_faq_dynamic_result(parsed: dict, user_query: str = "") -> dict:
     if not isinstance(next_actions, list):
         next_actions = []
 
+    try:
+        from routing.button_actions import get_tenant_action_registry
+        tenant_registry = get_tenant_action_registry(tenant_id)
+    except Exception:
+        tenant_registry = BUTTON_REGISTRY
+
     # Only keep actions that exist in the registry — invented buttons are dropped.
-    # (BUTTON_REGISTRY / enforce_topic_actions are module-level imports; see the
-    # "Button registry + topic-relevance filter" section near the top.)
     validated = []
     for action in next_actions:
         if isinstance(action, dict):
             aid = (action.get("id", "") or "").strip()
-            spec = BUTTON_REGISTRY.get(aid)
+            spec = tenant_registry.get(aid) or BUTTON_REGISTRY.get(aid)
             if not spec:
                 logger.info(f"BUTTON_DROPPED | invented/unknown id: {aid!r}")
                 continue
             # Prefer the registry title (canonical, <= 20 chars).
             validated.append({"id": aid[:50], "title": spec["title"][:20]})
 
-    # Topic relevance filter: keep only buttons related to the user's query,
-    # backfilling in topic relevance order. Prevents unrelated generic
-    # buttons (e.g. "View Catalogue" on a payments answer).
-    if enforce_topic_actions:
+    # If LLM didn't pick any valid buttons, fall back to high-relevance contextual buttons
+    if not validated:
         try:
-            validated = enforce_topic_actions(validated, parsed.get("_query", ""), limit=3)
+            from routing.button_actions import get_contextual_buttons
+            validated = get_contextual_buttons(user_query, tenant_id=tenant_id, limit=3)
         except Exception as exc:
-            logger.warning(f"enforce_topic_actions failed ({exc}) — keeping registry-valid buttons")
-    else:
-        logger.warning("enforce_topic_actions unavailable — topic filter disabled")
+            logger.debug(f"get_contextual_buttons failed: {exc}")
 
     return {"answer": answer[:10000], "next_actions": validated[:3]}
 
 
-def _fallback_dynamic_buttons(raw_text: str, user_query: str, source_file: str = "") -> dict:
+def _fallback_dynamic_buttons(raw_text: str, user_query: str, source_file: str = "", tenant_id: str | None = None) -> dict:
     if not raw_text:
         raw_text = "I'm having trouble generating a response. Please try again or contact our support team."
 
-    # Topic-aware suggestions from the shared registry (guaranteed-implemented actions).
+    # Tenant-aware contextual suggestions
     try:
-        next_actions = [
-            {"id": s["id"], "title": s["title"]}
-            for s in suggest_actions(user_query, source_file=source_file)
-        ]
+        from routing.button_actions import get_contextual_buttons
+        next_actions = get_contextual_buttons(user_query, tenant_id=tenant_id, limit=3)
     except Exception as exc:
-        logger.warning(f"Registry suggestion failed, using no buttons: {exc}")
+        logger.warning(f"Contextual button suggestion failed: {exc}")
         next_actions = []
 
     return {"answer": raw_text[:4000], "next_actions": next_actions[:3]}
@@ -1022,7 +1023,7 @@ async def handle_faq_query(payload: dict) -> dict:
     if not faq_index.is_built:
         logger.warning("FAQ index still not built — returning fallback with buttons")
         fallback = _fallback_dynamic_buttons(
-            "I'm still learning. Please try again shortly or contact our support team.", message
+            "I'm still learning. Please try again shortly or contact our support team.", message, tenant_id=tenant_id
         )
         result = {"answer": _append_signature(fallback.get("answer", ""), tenant_id)}
         interactive = _build_interactive(fallback.get("next_actions", []))
@@ -1094,6 +1095,7 @@ async def handle_faq_query(payload: dict) -> dict:
         response = await _generate_ollama_dynamic_response(
             system_prompt, message, context,
             source_file=best_meta.get("source_file", "") or "",
+            tenant_id=tenant_id,
         )
 
         answer = response.get("answer", "")
@@ -1111,7 +1113,13 @@ async def handle_faq_query(payload: dict) -> dict:
             result["media_url"]  = media_url
             result["media_type"] = media_type
 
+        # Ensure interactive buttons match the tenant's context
         interactive = _build_interactive(next_actions)
+        if not interactive:
+            from routing.button_actions import get_contextual_buttons
+            ctx_btns = get_contextual_buttons(message, tenant_id=tenant_id, limit=3)
+            interactive = _build_interactive(ctx_btns)
+
         if interactive:
             result["interactive"] = interactive
         return result
@@ -1122,13 +1130,19 @@ async def handle_faq_query(payload: dict) -> dict:
         try:
             direct_ans = await _generate_direct_llm_answer(system_prompt, message, context)
             if direct_ans and direct_ans.strip():
-                return {"answer": _append_signature(direct_ans, tenant_id)}
+                from routing.button_actions import get_contextual_buttons
+                ctx_btns = get_contextual_buttons(message, tenant_id=tenant_id, limit=3)
+                res = {"answer": _append_signature(direct_ans, tenant_id)}
+                interactive = _build_interactive(ctx_btns)
+                if interactive:
+                    res["interactive"] = interactive
+                return res
         except Exception as e2:
             logger.error(f"Direct LLM fallback error: {e2}")
 
         best_chunk, best_meta_fb, _ = results[0]
         cleaned_fallback = _format_answer_lines(best_chunk)
-        fallback = _fallback_dynamic_buttons(cleaned_fallback, message, source_file=best_meta_fb.get("source_file", "") or "")
+        fallback = _fallback_dynamic_buttons(cleaned_fallback, message, source_file=best_meta_fb.get("source_file", "") or "", tenant_id=tenant_id)
         result = {"answer": _append_signature(fallback.get("answer", cleaned_fallback), tenant_id)}
         if media_url:
             result["media_url"]  = media_url

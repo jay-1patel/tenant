@@ -90,7 +90,16 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
 def get_tenant(tenant_id: str) -> Optional[dict]:
     with _db().get_db_context() as conn:
         try:
-            row = conn.execute("SELECT * FROM tenants WHERE id = ?", (str(tenant_id),)).fetchone()
+            tid_str = str(tenant_id or "").strip()
+            norm = tid_str.replace("-", "").replace("_", "").lower()
+            row = conn.execute(
+                """SELECT * FROM tenants 
+                   WHERE id = ? 
+                      OR slug = ? 
+                      OR LOWER(slug) = LOWER(?)
+                      OR LOWER(REPLACE(REPLACE(slug, '-', ''), '_', '')) = ?""",
+                (tid_str, tid_str, tid_str, norm),
+            ).fetchone()
         except Exception as exc:
             # Tolerate a database that has not been migrated yet — the loader
             # falls back to file + vertical defaults rather than hard-failing.

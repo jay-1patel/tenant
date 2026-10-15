@@ -56,23 +56,64 @@ import re
 # ---------------------------------------------------------------------------
 
 BUTTONS: dict[str, str] = {
-    # policies / support
+    # general / navigation
+    "main_menu": "🏠 Main Menu",
+    "contact_support": "💬 Contact Support",
+    # flows
+    "book_callback": "📞 Book a Callback",
+    "get_quote": "📝 Get a Quote",
+    "raise_ticket": "🆘 Raise Ticket",
+    # IT / Software & Services
+    "menu_services": "🛠️ Our Services",
+    "menu_technologies": "💻 Technologies",
+    "menu_projects": "📁 Projects",
+    "menu_brochure": "📄 Service Brochure",
+    "menu_careers": "💼 Careers",
+    "menu_benefits": "🎁 Benefits",
+    "menu_quote": "📝 Get a Quote",
+    "menu_callback": "📞 Book a Callback",
+    "menu_support": "🆘 Support",
+    "menu_human": "🙋 Talk to Human",
+    # Banking
+    "menu_products": "🏦 Banking Products",
+    "menu_cards": "💳 Cards",
+    "menu_loans": "🏠 Loans",
+    "menu_eligibility": "✅ Check Eligibility",
+    "menu_grievance": "📝 Raise Complaint",
+    "menu_branch": "📍 Branch & Support",
+    # Finance
+    "menu_proposal": "📝 Request Proposal",
+    "menu_faq": "❓ FAQs",
+    # Tours & Travel
+    "menu_destinations": "🗺️ Destinations",
+    "menu_packages": "🎒 Tour Packages",
+    "menu_booking_policy": "📋 Booking Policy",
+    "menu_visa": "🛂 Visa & Documents",
+    # E-commerce / Retail
+    "menu_catalogue": "📄 Brochure",
+    "menu_new_arrivals": "✨ New Releases",
+    "menu_about": "🏢 Company Policies",
+    "menu_discounts": "🎁 Offers & Deals",
+    "menu_gst": "🧾 GST Info",
+    "menu_credit_policy": "💳 Credit Policy",
+    "menu_complaint": "📝 Raise Complaint",
+    "menu_view_cart": "🛒 View Cart",
+    # policies / support legacy
     "privacy_policy": "🔒 Privacy Policy",
     "terms_conditions": "📄 Terms & Conditions",
     "company_policy": "🏢 Company Policies",
-    "contact_support": "💬 Contact Support",
-    # orders / logistics
+    # orders / logistics legacy
     "return_policy": "🔁 Returns & Refunds",      # was "↩️ Return & Refund Policy" (25 chars, got chopped)
     "track_order": "📦 Track Order",
     "shipping_policy": "🚚 Shipping Policy",       # was "🚚 Shipping & Delivery" (21 chars)
     "order_policy": "🧾 Orders & Payments",        # was "🧾 Order, Payment & GST" (22 chars)
-    # products
+    # products legacy
     "product_prices": "💰 Product Prices",
     "new_arrival": "✨ New Releases",
     "product_ingredients": "🥜 Ingredients Info",  # was "🥜 Ingredients & Nutrition" (25 chars)
     "allergen_info": "⚠️ Allergen Info",
     "shelf_life": "📅 Shelf Life",                 # was "📅 Shelf Life & Storage" (22 chars)
-    # B2B
+    # B2B legacy
     "moq_policy": "📊 MOQ & Bulk Orders",
     "credit_period_policy": "💳 Credit Period",    # was "💳 Credit Period & Terms" (23 chars)
     "distributor_info": "🤝 Distributorship",
@@ -105,7 +146,7 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "moq", "mov", "min order",
         ],
         "source": [],
-        "actions": ["moq_policy", "credit_period", "contact_support"],
+        "actions": ["moq_policy", "product_prices", "contact_support"],
     },
     {
         "keywords": [
@@ -115,14 +156,14 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "partnership", "trade partner", "agency", "carry your products",
         ],
         "source": [],
-        "actions": ["moq_policy", "credit_period", "contact_support"],
+        "actions": ["distributor_info", "product_prices", "contact_support"],
     },
     # ---- 2. Policy topics ----
     {
         # NOTE: removed bare "data" (matched everything); use "data privacy".
         "keywords": ["privacy", "personal information", "cookie", "gdpr", "data privacy"],
         "source": [],
-        "actions": ["company_policy", "terms_conditions", "contact_support"],
+        "actions": ["privacy_policy", "terms_conditions", "contact_support"],
     },
     {
         # NOTE: removed bare "terms"/"conditions" (they hijacked "payment terms").
@@ -131,8 +172,8 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "terms and conditions", "terms of use", "terms of service",
             "t&c", "tnc", "disclaimer", "agreement",
         ],
-        "source": [],  # fixed: was "terms_condition"
-        "actions": ["company_policy", "privacy_policy", "refund_return_policy"],
+        "source": [],
+        "actions": ["terms_conditions", "privacy_policy", "contact_support"],
     },
     {
         # NOTE: removed bare "policies"/"law" (false-matched every "* policy" query).
@@ -151,14 +192,14 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "damaged", "money back", "wrong item", "defective", "expired item",
         ],
         "source": [],
-        "actions": ["return_return_policy", "track_order", "contact_support"],
+        "actions": ["return_policy", "track_order", "contact_support"],
     },
     {
         # NOTE: split out of the old generic "order" group and placed BEFORE
         # tracking — "cancel my order" contains "my order".
         "keywords": ["cancel order", "cancel my order", "cancellation", "cancel"],
         "source": [],
-        "actions": ["order_policy", "track_order", "return_cancellation_policy"],
+        "actions": ["order_policy", "track_order", "contact_support"],
     },
     {
         # NOTE: owns "my order" / "where is my order" / "order id" now.
@@ -193,7 +234,7 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "bulk order", "bulk", "discount", "offer", "deal", "price list",
         ],
         "source": [],
-        "actions": ["credit_period", "moq_policy", "contact_support"],
+        "actions": ["product_prices", "moq_policy", "contact_support"],
     },
     {
         "keywords": [
@@ -212,7 +253,7 @@ TOPIC_SUGGESTIONS: list[dict] = [
             "catalogue", "catalog", "composition", "recipe", "calorie",
         ],
         "source": [],
-        "actions": ["product_ingredients", "product_nutrition", "new_arrival"],
+        "actions": ["product_ingredients", "allergen_info", "new_arrival"],
     },
 ]
 
@@ -418,10 +459,7 @@ if __name__ == "__main__":
     print(f"\n{failed == 0 and 'ALL PASSED ✅' or f'{failed} CHECK(S) FAILED ❌'}")
 
 # ─────────────────────────────────────────────
-# Backwards-compatibility shims
-# webhook.py and other modules import these legacy names from
-# routing.button_actions. They are thin wrappers over the new
-# BUTTONS / TOPIC_SUGGESTIONS data defined above.
+# Backwards-compatibility & Tenant-Aware helpers
 # ─────────────────────────────────────────────
 
 # Legacy registry shape: id -> {"id": ..., "title": ...}
@@ -430,22 +468,202 @@ BUTTON_REGISTRY: dict[str, dict] = {
 }
 
 
-def get_action(action_id: str) -> dict | None:
-    """Legacy accessor used by routing/webhook.py. Returns spec or None."""
+def get_tenant_action_registry(tenant_id: str | None = None) -> dict[str, dict]:
+    """Return dictionary of allowed button specs for the given tenant profile."""
+    tid = tenant_id
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            tid = resolve_default_tenant()
+        except Exception:
+            pass
+
+    if not tid:
+        return BUTTON_REGISTRY
+
+    try:
+        from shared.tenancy.loader import get_tenant_profile
+        profile = get_tenant_profile(tid)
+    except Exception:
+        profile = None
+
+    if profile is None or not getattr(profile, "menu", None) or not getattr(profile.menu, "buttons", None):
+        return BUTTON_REGISTRY
+
+    registry = {}
+    for b in profile.menu.buttons:
+        if b.enabled and (not b.requires_feature or profile.features.is_on(b.requires_feature)):
+            title = BUTTONS.get(b.id) or b.title[:20]
+            registry[b.id] = {"id": b.id, "title": title}
+
+    # Ensure main_menu is always available
+    registry["main_menu"] = {"id": "main_menu", "title": BUTTONS["main_menu"]}
+
+    # Ensure active flows have direct button specs
+    if profile.features.is_on("quote"):
+        registry["get_quote"] = {"id": "get_quote", "title": BUTTONS["get_quote"]}
+    if profile.features.is_on("callback"):
+        registry["book_callback"] = {"id": "book_callback", "title": BUTTONS["book_callback"]}
+    if profile.features.is_on("complaints"):
+        registry["raise_ticket"] = {"id": "raise_ticket", "title": BUTTONS["raise_ticket"]}
+    if profile.features.is_on("human_handover"):
+        registry["menu_human"] = {"id": "menu_human", "title": BUTTONS["menu_human"]}
+
+    return registry if registry else BUTTON_REGISTRY
+
+
+def get_action(action_id: str, tenant_id: str | None = None) -> dict | None:
+    """Return action spec for action_id, checking tenant registry first."""
     if not action_id:
         return None
-    return BUTTON_REGISTRY.get(action_id.strip())
+    aid = action_id.strip()
+    tenant_reg = get_tenant_action_registry(tenant_id)
+    if aid in tenant_reg:
+        return tenant_reg[aid]
+    return BUTTON_REGISTRY.get(aid)
 
 
-def registry_prompt_text() -> str:
-    """Legacy helper: allowed-buttons list for the LLM prompt."""
+def registry_prompt_text(tenant_id: str | None = None) -> str:
+    """Allowed-buttons list formatted for the LLM prompt, scoped to tenant."""
+    reg = get_tenant_action_registry(tenant_id)
     return "\n".join(
-        f'- "{bid}" -> "{spec["title"]}"' for bid, spec in BUTTON_REGISTRY.items()
+        f'- "{bid}" -> "{spec["title"]}"' for bid, spec in reg.items()
     )
 
 
-def suggest_actions(query: str, source_file: str = "") -> list[dict]:
-    """Legacy helper returning [{"id", "title"}]."""
+def get_contextual_buttons(
+    topic_or_query: str,
+    tenant_id: str | None = None,
+    wa_id: str | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    """Generate high-relevance, tenant-aware interactive buttons for any reply.
+
+    Guarantees:
+      - All button titles are <= 20 chars (WhatsApp reply-button limit).
+      - All button ids match active tenant actions, flows, or main_menu.
+      - Maximum `limit` buttons returned (default 3).
+    """
+    if limit <= 0:
+        return []
+
+    profile = None
+    try:
+        from shared.tenancy.loader import get_tenant_profile
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        tid = tenant_id or resolve_tenant_for_user(wa_id or "")
+        profile = get_tenant_profile(tid)
+    except Exception:
+        pass
+
+    vertical = getattr(profile, "vertical", "generic") if profile else "generic"
+    q = (topic_or_query or "").lower().strip()
+
+    picked_ids: list[str] = []
+
+    # 1. Services / Tech Stack / Solutions / Projects
+    if any(k in q for k in ("service", "technolog", "tech", "stack", "project", "portfolio", "solution", "build", "develop", "software", "app", "web")):
+        if profile and profile.features.is_on("quote"):
+            picked_ids.append("menu_quote")
+        if profile and profile.features.is_on("callback"):
+            picked_ids.append("menu_callback")
+        if profile and "menu_services" in [b.id for b in profile.menu.buttons]:
+            if "technolog" in q or "project" in q:
+                picked_ids.insert(0, "menu_services")
+        if profile and "menu_technologies" in [b.id for b in profile.menu.buttons] and "technolog" not in q:
+            picked_ids.append("menu_technologies")
+        picked_ids.append("main_menu")
+
+    # 2. Careers / Hiring / Jobs
+    elif any(k in q for k in ("career", "job", "hiring", "vacancy", "internship", "work with us")):
+        picked_ids.append("menu_services")
+        if profile and profile.features.is_on("human_handover"):
+            picked_ids.append("menu_human")
+        picked_ids.append("main_menu")
+
+    # 3. Pricing / Cost / Quote / Rates / Fees
+    elif any(k in q for k in ("price", "pricing", "cost", "quote", "rate", "budget", "fee", "how much")):
+        if profile and profile.features.is_on("quote"):
+            picked_ids.append("menu_quote")
+        if profile and profile.features.is_on("callback"):
+            picked_ids.append("menu_callback")
+        if profile and profile.features.is_on("human_handover"):
+            picked_ids.append("menu_human")
+        picked_ids.append("main_menu")
+
+    # 4. Callback / Meeting / Schedule / Google Meet / Consultation
+    elif any(k in q for k in ("callback", "call", "meet", "meeting", "schedule", "consultation", "demo")):
+        if profile and profile.features.is_on("callback"):
+            picked_ids.append("menu_callback")
+        if profile and profile.features.is_on("quote"):
+            picked_ids.append("menu_quote")
+        picked_ids.append("main_menu")
+
+    # 5. Support / Complaint / Ticket / Issue / Help
+    elif any(k in q for k in ("support", "complaint", "issue", "ticket", "problem", "bug", "broken", "help")):
+        if profile and profile.features.is_on("complaints"):
+            support_btn = "menu_support" if "menu_support" in [b.id for b in profile.menu.buttons] else "menu_complaint"
+            picked_ids.append(support_btn)
+        if profile and profile.features.is_on("human_handover"):
+            picked_ids.append("menu_human")
+        picked_ids.append("main_menu")
+
+    # 6. E-Commerce specific (products, cart, orders)
+    elif vertical == "ecommerce" or any(k in q for k in ("product", "cart", "order", "delivery", "shipping", "chikki", "snack")):
+        picked_ids.append("menu_products")
+        if profile and profile.features.is_on("cart"):
+            picked_ids.append("menu_view_cart")
+        if profile and profile.features.is_on("track_order"):
+            picked_ids.append("track_order")
+        picked_ids.append("main_menu")
+
+    # 7. Fallback by vertical
+    else:
+        if vertical == "it_software":
+            picked_ids = ["menu_services", "menu_callback", "main_menu"]
+        elif vertical == "ecommerce":
+            picked_ids = ["menu_products", "menu_catalogue", "main_menu"]
+        elif vertical == "banking":
+            picked_ids = ["menu_products", "menu_eligibility", "main_menu"]
+        elif vertical == "tours_travel":
+            picked_ids = ["menu_packages", "menu_callback", "main_menu"]
+        else:
+            picked_ids = ["menu_offerings", "menu_callback", "main_menu"]
+
+    # Filter to unique, valid buttons
+    result = []
+    seen = set()
+    for bid in picked_ids:
+        if bid not in seen and bid in BUTTONS:
+            seen.add(bid)
+            title = BUTTONS[bid]
+            result.append({"id": bid[:50], "title": title[:20]})
+            if len(result) >= limit:
+                break
+
+    # If still fewer than limit, ensure main_menu is present
+    if not any(b["id"] == "main_menu" for b in result) and len(result) < limit:
+        result.append({"id": "main_menu", "title": BUTTONS["main_menu"][:20]})
+
+    return result[:limit]
+
+
+def suggest_actions(query: str, source_file: str = "", tenant_id: str | None = None) -> list[dict]:
+    """Helper returning [{"id", "title"}] for query or tenant."""
+    # If a tenant profile is present and matches the vertical, use contextual buttons
+    tid = tenant_id
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            tid = resolve_default_tenant()
+        except Exception:
+            pass
+
+    if tid:
+        contextual = get_contextual_buttons(query, tenant_id=tid, limit=3)
+        if contextual:
+            return contextual
+
     out = [
         {"id": s["id"], "title": s.get("label", s["id"])}
         for s in get_suggestion_buttons(query, top_k=3)
@@ -462,3 +680,4 @@ def suggest_actions(query: str, source_file: str = "") -> list[dict]:
                     if a in BUTTONS
                 ]
     return out
+

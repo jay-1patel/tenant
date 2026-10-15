@@ -64,8 +64,9 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
 
     # ── Main menu / start ─────────────────────────────────────────────────────
     if state == cfg.B2C_MAIN_MENU_STATE or not state:
-        if message == "Main Menu" or message.lower() in ("menu", "start", "hi", "hello", "hey"):
-            await send_list_menu(wa_id, **menus.get_main_menu())
+        clean_msg = _clean(message)
+        if clean_msg in ("main menu", "menu", "start", "hi", "hello", "hey", "show options", "options") or message in ("Main Menu", "main_menu", "menu_main"):
+            await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
         return await _handle_main_selection(wa_id, message, context, cfg)
@@ -262,7 +263,19 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
         if not tenant_answer:
             tenant_answer = answer_for_text(wa_id, message)
         if tenant_answer:
-            await send_text_message(wa_id, await _llm_synthesize(tenant_answer, message, message))
+            tid = None
+            try:
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                tid = resolve_tenant_for_user(wa_id)
+            except Exception:
+                pass
+            synthesized = await _llm_synthesize(tenant_answer, message, message, tenant_id=tid)
+            from routing.button_actions import get_contextual_buttons
+            buttons = get_contextual_buttons(message, tenant_id=tid, wa_id=wa_id, limit=3)
+            if buttons:
+                await send_button_message(wa_id, synthesized, buttons)
+            else:
+                await send_text_message(wa_id, synthesized)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Tenant intent resolution failed: {e}")
@@ -279,7 +292,14 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 from backend.services import service_answers
             svc = service_answers.answer_for_text(wa_id, message)
             if svc:
-                await send_text_message(wa_id, await _llm_synthesize(svc, "Services", message))
+                synthesized = await _llm_synthesize(svc, "Services", message)
+                from routing.button_actions import get_contextual_buttons
+                from services.whatsapp_sender import send_button_message
+                buttons = get_contextual_buttons("services", wa_id=wa_id, limit=3)
+                if buttons:
+                    await send_button_message(wa_id, synthesized, buttons)
+                else:
+                    await send_text_message(wa_id, synthesized)
                 return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")
@@ -292,6 +312,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     answer = None
 
     # 0. Check Tenant Intent Answers first (safety net for tenant menu options/queries)
+    tid = None
     try:
         from shared.tenancy.resolver import resolve_tenant_for_user
         try:
@@ -305,7 +326,14 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             or intent_answers.answer_for_text(wa_id, message, tenant_id=tid)
         )
         if intent_rep:
-            await send_text_message(wa_id, await _llm_synthesize(intent_rep, message, message, tenant_id=tid))
+            synthesized = await _llm_synthesize(intent_rep, message, message, tenant_id=tid)
+            from routing.button_actions import get_contextual_buttons
+            from services.whatsapp_sender import send_button_message
+            buttons = get_contextual_buttons(message, tenant_id=tid, wa_id=wa_id, limit=3)
+            if buttons:
+                await send_button_message(wa_id, synthesized, buttons)
+            else:
+                await send_text_message(wa_id, synthesized)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as exc:
         logger.debug(f"B2C tenant intent fallback check: {exc}")
@@ -314,7 +342,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     interactive = None
     try:
         from faq.service import handle_faq_query
-        faq_res = await handle_faq_query({"message": message, "wa_id": wa_id})
+        faq_res = await handle_faq_query({"message": message, "wa_id": wa_id, "tenant_id": tid})
         if faq_res and faq_res.get("answer") and faq_res.get("answer").strip():
             answer = faq_res["answer"]
             interactive = faq_res.get("interactive")
@@ -346,12 +374,12 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
 
             if kb_chunks:
                 from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature
-                brand = _brand_context()
+                brand = _brand_context(tid)
                 sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
                 combined_context = "\n\n---\n\n".join(kb_chunks)
-                llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context)
+                llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context, tenant_id=tid)
                 if llm_res and llm_res.get("answer"):
-                    answer = _append_signature(llm_res["answer"])
+                    answer = _append_signature(llm_res["answer"], tid)
                     interactive = llm_res.get("interactive")
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
@@ -361,6 +389,13 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             "I'm not certain about that. Would you like to check our services, "
             "book a callback, or talk to an agent?"
         )
+
+    # If no interactive buttons were returned, attach tenant-aware contextual follow-up buttons
+    if not (interactive and interactive.get("buttons")):
+        from routing.button_actions import get_contextual_buttons
+        ctx_btns = get_contextual_buttons(message, tenant_id=tid, wa_id=wa_id, limit=3)
+        if ctx_btns:
+            interactive = {"type": "button", "buttons": ctx_btns}
 
     if interactive and interactive.get("buttons"):
         await send_button_message(wa_id, answer, interactive["buttons"])

@@ -87,6 +87,22 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
 
             tenant_id = resolve_tenant_for_user(wa_id)
 
+            # 0. Check Main Menu trigger (e.g. user clicked "🏠 Main Menu" interactive button)
+            clean_btn = (message or "").strip().lower()
+            clean_btn = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", clean_btn).strip()
+            if clean_btn in ("main menu", "menu", "show options", "options") or message in ("main_menu", "menu_main"):
+                from bots.customer_b2c import menus
+                from services.whatsapp_sender import send_list_menu
+                await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+                return {
+                    "status": "processed",
+                    "messages": drain_captured(),
+                    "new_state": "B2C_MAIN_MENU",
+                    "human_handover": False,
+                    "user_type": "b2c",
+                    "error": None,
+                }
+
             # 1. If user is currently running a flow, advance the flow with their reply
             if flow_runner.is_running(wa_id):
                 outcome = flow_runner.handle_reply(wa_id, message, tenant_id=tenant_id)
@@ -138,7 +154,13 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     user_query=message,
                     tenant_id=tenant_id,
                 )
-                await send_text_message(wa_id, synthesized)
+                from routing.button_actions import get_contextual_buttons
+                from services.whatsapp_sender import send_button_message
+                buttons = get_contextual_buttons(message, tenant_id=tenant_id, wa_id=wa_id, limit=3)
+                if buttons:
+                    await send_button_message(wa_id, synthesized, buttons)
+                else:
+                    await send_text_message(wa_id, synthesized)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -152,9 +174,6 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             if service_answers.is_service_query(message):
                 service_reply = service_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
                 if service_reply:
-                    # Services are stored as structured DB rows; pass them
-                    # through the LLM (Ollama) like every other answer instead
-                    # of replying with the raw stored text.
                     from faq.service import synthesize_intent_answer
                     synthesized = await synthesize_intent_answer(
                         raw_content=service_reply,
@@ -162,7 +181,13 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                         user_query=message,
                         tenant_id=tenant_id,
                     )
-                    await send_text_message(wa_id, synthesized)
+                    from routing.button_actions import get_contextual_buttons
+                    from services.whatsapp_sender import send_button_message
+                    buttons = get_contextual_buttons("services", tenant_id=tenant_id, wa_id=wa_id, limit=3)
+                    if buttons:
+                        await send_button_message(wa_id, synthesized, buttons)
+                    else:
+                        await send_text_message(wa_id, synthesized)
                     return {
                         "status": "processed",
                         "messages": drain_captured(),

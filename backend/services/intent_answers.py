@@ -71,15 +71,16 @@ def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
     Dispatches on the button id (load-bearing, stable) via its ``intent``
     field — the row's title never enters the decision.
     """
-    if not button_id:
-        return None
-    profile = _profile(tenant_id, wa_id)
-    if profile is None:
-        return None
+    raw_id = (button_id or "").strip()
+    clean_id = raw_id.replace("intent:", "").replace("menu_", "").strip()
     for b in profile.menu.buttons:
-        if b.id == button_id and getattr(b, "intent", None):
+        if b.id == raw_id and getattr(b, "intent", None):
             return answer_for_intent(wa_id, b.intent, tenant_id=tenant_id or profile.tenant_id)
-    return None
+    # Direct intent lookup (e.g. careers, technologies, projects, benefits)
+    ans = answer_for_intent(wa_id, clean_id, tenant_id=tenant_id or profile.tenant_id)
+    if ans:
+        return ans
+    return answer_for_intent(wa_id, raw_id, tenant_id=tenant_id or profile.tenant_id)
 
 
 def answer_for_menu_title(wa_id: str, text: str, tenant_id=None) -> str | None:

@@ -304,13 +304,21 @@ def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
     except Exception as e:
         logger.debug("flow_for_button: profile unavailable: %s", e)
         return None
+    raw_id = (button_id or "").strip()
+    clean_id = raw_id.replace("flow:", "").replace("flow_", "").strip()
     for b in profile.menu.buttons:
-        if b.id == button_id and getattr(b, "flow", None):
+        if b.id == raw_id and getattr(b, "flow", None):
             flow = profile.flow(b.flow)
             if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
                 return flow.name
             logger.info("Button %s wants flow %s but its feature is off — "
-                        "falling through to the default pipeline", button_id, b.flow)
+                        "falling through to the default pipeline", raw_id, b.flow)
+
+    # Direct flow lookup by flow name
+    direct_flow = profile.flow(clean_id) or profile.flow(raw_id)
+    if direct_flow and (not direct_flow.requires_feature or profile.feature_on(direct_flow.requires_feature)):
+        return direct_flow.name
+
     return None
 
 
