@@ -89,5 +89,28 @@
       "name": "get_quote",
       "success_message": "Thanks! An advisor has your details and will reach out with a proposal shortly."
     }
+  ],
+
+  "menu": {
+    "buttons": [
+      { "id": "menu_services", "intent": "advisory_services" },
+      { "id": "menu_brochure", "intent": "service_guide" },
+      { "id": "menu_faq", "intent": "compliance_faqs" }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "advisory_services",
+      "answer": "📊 *Northwind Capital — Advisory & Compliance Services*\n\n• *Tax Planning & Filing:* Individual income tax (salary, capital gains, F&O) and advance tax computation.\n• *Business Compliance:* GST registration & monthly/quarterly returns, TDS returns, and ROC company filings.\n• *Investment Advisory:* Goal-based retirement planning, mutual fund portfolio reviews, and risk analysis.\n\n_Note: First consultation (30 minutes) is complimentary!_"
+    },
+    {
+      "name": "service_guide",
+      "answer": "📑 *Northwind Capital — Engagement Terms*\n\n• *Transparent Pricing:* Fixed-fee engagements for tax filings and monthly retainers for corporate compliance.\n• *Dedicated Advisor:* A named financial advisor is assigned to every client.\n• *Fiduciary Standard:* Advisory is delivered only after a signed engagement letter and risk profiling."
+    },
+    {
+      "name": "compliance_faqs",
+      "answer": "🗓️ *Key Statutory Deadlines (Indicative)*\n\n• *GST:* GSTR-1 by 11th; GSTR-3B by 20th of every month.\n• *TDS Payment:* 7th of every month; returns quarterly.\n• *Advance Tax:* 15 Jun / 15 Sep / 15 Dec / 15 Mar.\n• *ITR:* 31 July for individuals (unless extended by CBDT).\n\n_Facing an audit or tax notice? Select 'Request a Proposal' or 'Book a Callback'._"
+    }
   ]
 }

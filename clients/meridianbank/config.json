@@ -87,5 +87,33 @@
       "name": "raise_ticket",
       "success_message": "Your reference has been logged with our grievance desk. We respond within 24 hours."
     }
+  ],
+
+  "menu": {
+    "buttons": [
+      { "id": "menu_products", "intent": "banking_products" },
+      { "id": "menu_cards", "intent": "cards" },
+      { "id": "menu_loans", "intent": "loans" },
+      { "id": "menu_branch", "intent": "branch_support" }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "banking_products",
+      "answer": "🏦 *Meridian Bank — Products*\n\n• *Savings Accounts:* Zero-balance option for salary accounts. Regular savings requires ₹5,000 monthly average balance (MAB). Digital account opens in ~10 mins with PAN & Aadhaar.\n• *Current Accounts:* For businesses & professionals with cheque book, net banking, and overdraft facilities.\n\n_Interested in applying? Select 'Check Eligibility' or 'Request a Callback' below._"
+    },
+    {
+      "name": "cards",
+      "answer": "💳 *Meridian Bank — Cards*\n\n• *Debit Cards:* Free with savings accounts, contactless, with configurable daily limits via our app.\n• *Credit Cards:* Travel, cashback, and secured (FD-backed) card variants available.\n• *Activation:* Set your PIN at any Meridian ATM or activate instantly via the mobile app.\n• *Lost/Stolen Card:* Block immediately in the app or call 1800 123 4567 (24x7)."
+    },
+    {
+      "name": "loans",
+      "answer": "💰 *Meridian Bank — Loan Options*\n\n• *Home Loans:* Up to 80% property value funding with tenures up to 30 years.\n• *Personal Loans:* Quick sanction for salaried & self-employed; tenures up to 5 years.\n• *Vehicle Loans:* Up to 90% on-road funding for new four-wheelers & two-wheelers.\n• *Education Loans:* Collateral-free options available for premier institutes.\n\n_Note: Final interest rate and approval depend on credit score and documentation._"
+    },
+    {
+      "name": "branch_support",
+      "answer": "📍 *Meridian Bank — Branch & Support*\n\n• *Helpline:* 1800 123 4567 (24x7 for fraud & card blocking).\n• *Hours:* Mon–Fri 09:00–18:00 IST.\n• *Email:* care@meridianbank.example\n• *Grievance Officer:* grievance@meridianbank.example (Complaints acknowledged in 24 hours)."
+    }
   ]
 }

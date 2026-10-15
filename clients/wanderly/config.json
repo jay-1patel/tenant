@@ -93,5 +93,38 @@
       "name": "raise_ticket",
       "success_message": "Ticket raised. Our support team will get back to you shortly."
     }
+  ],
+
+  "menu": {
+    "buttons": [
+      { "id": "menu_destinations", "intent": "destinations" },
+      { "id": "menu_packages", "intent": "packages" },
+      { "id": "menu_booking_policy", "intent": "booking_policy" },
+      { "id": "menu_visa", "intent": "visa_documents" },
+      { "id": "menu_brochure", "intent": "travel_brochure" }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "destinations",
+      "answer": "✈️ *Wanderly Travel — Featured Destinations*\n\n🌴 *Domestic (India):*\n• *Kerala:* Munnar hills, Alleppey houseboats & backwaters (5N/6D)\n• *Rajasthan:* Jaipur, Udaipur & Jaisalmer desert camps (6N/7D)\n• *Himachal:* Manali & Spiti Valley circuits (5N/6D)\n• *Goa & Andaman:* Beach breaks & scuba adventures\n\n🌏 *International:*\n• *Bali:* Beaches, Ubud & waterfalls (5N/6D)\n• *Dubai:* Desert safari & Burj Khalifa (4N/5D)\n• *Thailand / Singapore / Europe Grand Tour (10N/11D)*\n\n_Tap 'Enquire' or 'Book a Callback' for personalized itineraries._"
+    },
+    {
+      "name": "packages",
+      "answer": "🎒 *Wanderly Tour Packages — What's Included*\n\n✅ *Included in Every Package:*\n• Quality hotel/resort/houseboat accommodation\n• Daily breakfast (half-board on request)\n• Complete transfers & guided sightseeing\n• On-trip coordinator & 24x7 emergency helpline\n\n❌ *Usually Excluded:*\n• International/domestic flights, visa fees, and personal expenses."
+    },
+    {
+      "name": "booking_policy",
+      "answer": "📋 *Wanderly Travel — Booking & Cancellation Policy*\n\n• *Advance:* 30% advance payment to confirm your booking.\n• *Full Payment:* Due 15 days before departure date.\n• *Date Changes:* Free date change up to 21 days before departure.\n• *Cancellations:*\n  - 30+ days before travel: 90% refund\n  - 15–29 days before travel: 50% refund\n  - Within 14 days of travel: Non-refundable"
+    },
+    {
+      "name": "visa_documents",
+      "answer": "🛂 *Visa & Documentation Support*\n\n• *Assistance:* End-to-end guidance for Dubai, Thailand, Bali, Singapore & Schengen Europe visas.\n• *Requirements:* Passport with 6+ months validity, photos, 6-month bank statements, and employment proof.\n• *Turnaround:* Typically 5–15 working days depending on destination.\n• *Domestic Tours:* Carry any government photo ID."
+    },
+    {
+      "name": "travel_brochure",
+      "answer": "📖 *Wanderly Travel — Brochure & Custom Trips*\n\nLooking for a tailored family holiday, honeymoon package, or corporate tour? Our planners design custom itineraries to suit your travel style and budget.\n\nTap *'Get a Quote'* or *'Book a Callback'* to plan your dream vacation!"
+    }
   ]
 }

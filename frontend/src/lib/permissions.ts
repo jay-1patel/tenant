@@ -82,6 +82,45 @@ function contentGroupsFor(vertical: string | null | undefined): { label: string;
       ],
     }
   }
+  if (vertical === 'banking') {
+    return {
+      label: 'Banking products & accounts',
+      permissions: [
+        'view_products',
+        'add_product',
+        'edit_product',
+        'delete_product',
+        'catalogue_new_arrival',
+        'view_complaints',
+        'manage_complaints',
+      ],
+    }
+  }
+  if (vertical === 'finance') {
+    return {
+      label: 'Financial services & advisory',
+      permissions: [
+        'view_products',
+        'add_product',
+        'edit_product',
+        'delete_product',
+        'manage_services',
+        'catalogue_new_arrival',
+      ],
+    }
+  }
+  if (vertical === 'tours_travel') {
+    return {
+      label: 'Tour packages & travel',
+      permissions: [
+        'view_products',
+        'add_product',
+        'edit_product',
+        'delete_product',
+        'catalogue_new_arrival',
+      ],
+    }
+  }
   return {
     label: 'Products & brochure',
     permissions: [
