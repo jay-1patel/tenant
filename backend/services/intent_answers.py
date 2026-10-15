@@ -71,6 +71,9 @@ def answer_for_button(wa_id: str, button_id: str, tenant_id=None) -> str | None:
     Dispatches on the button id (load-bearing, stable) via its ``intent``
     field — the row's title never enters the decision.
     """
+    profile = _profile(tenant_id, wa_id)
+    if profile is None:
+        return None
     raw_id = (button_id or "").strip()
     clean_id = raw_id.replace("intent:", "").replace("menu_", "").strip()
     for b in profile.menu.buttons:

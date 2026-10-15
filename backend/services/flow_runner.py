@@ -340,6 +340,7 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         return None
 
     # Callback & Meeting triggers
+    clean = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", raw).strip()
     callback_phrases = (
         "book a callback", "book callback", "request a callback", "request callback",
         "call me back", "call back", "callback", "schedule a call", "schedule call",
@@ -347,10 +348,30 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         "google meet", "google meeting", "arrange a call", "arrange call",
         "callback request", "meeting request", "book a google meet", "need a callback",
     )
-    if any(raw == p or raw.startswith(p + " ") or f" {p} " in f" {raw} " for p in callback_phrases):
+    if any(p in clean or clean == p for p in callback_phrases):
         flow = profile.flow("book_callback")
         if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
             return "book_callback"
+
+    # Quote triggers
+    quote_phrases = (
+        "get a quote", "get quote", "request a quote", "request quote",
+        "need a quote", "project quote", "quote",
+    )
+    if any(p in clean or clean == p for p in quote_phrases):
+        flow = profile.flow("get_quote")
+        if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
+            return "get_quote"
+
+    # Ticket / Complaint triggers
+    ticket_phrases = (
+        "raise a ticket", "raise ticket", "raise complaint", "raise a complaint",
+        "create ticket", "log complaint", "support ticket",
+    )
+    if any(p in clean or clean == p for p in ticket_phrases):
+        flow = profile.flow("raise_ticket") or profile.flow("register_complaint")
+        if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
+            return flow.name
 
     # Profile intent flows
     for intent in profile.active_intents():
@@ -360,15 +381,15 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         fl = profile.flow(flow_target)
         if not fl or (fl.requires_feature and not profile.feature_on(fl.requires_feature)):
             continue
-        if raw == intent.name.lower():
+        if raw == intent.name.lower() or clean == intent.name.lower():
             return fl.name
         for kw in (intent.keywords or []):
             k = kw.lower().strip()
-            if k and (raw == k or raw.startswith(k + " ") or f" {k} " in f" {raw} "):
+            if k and (raw == k or clean == k or raw.startswith(k + " ") or f" {k} " in f" {raw} "):
                 return fl.name
         for ex in (intent.examples or []):
             e = ex.lower().strip()
-            if e and (raw == e or raw.startswith(e + " ") or f" {e} " in f" {raw} "):
+            if e and (raw == e or clean == e or raw.startswith(e + " ") or f" {e} " in f" {raw} "):
                 return fl.name
 
     return None

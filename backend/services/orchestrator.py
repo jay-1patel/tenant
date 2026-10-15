@@ -14,6 +14,7 @@ Callers can request capture-only mode when they own outbound delivery.
 
 import json
 import logging
+import re
 
 from database import get_db_context
 from services.whatsapp_sender import begin_capture, drain_captured, end_capture

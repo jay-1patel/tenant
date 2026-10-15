@@ -145,8 +145,32 @@ async def _send_reply(wa_id: str, messages: list) -> None:
                 # from the workflows; normalize tolerates flat {"id","title"} too.
                 api_buttons = normalize_reply_buttons(msg.get("buttons", []))
                 if text and api_buttons:
-                    send_whatsapp_interactive(wa_id, text, api_buttons)
-                    logger.info(f"Sent buttons reply to {wa_id}: {len(api_buttons)} buttons")
+                    # Convert to interactive list menu because send2.digital's incoming-report
+                    # returns Message: null for WhatsApp quick-reply button taps. List menu selections
+                    # return the selected option title in Message, ensuring 100% reliable clicks.
+                    rows = []
+                    for b in api_buttons:
+                        r = b.get("reply", {})
+                        bid = r.get("id", "")
+                        btitle = r.get("title", "")[:24]
+                        if bid and btitle:
+                            rows.append({
+                                "id": bid,
+                                "title": btitle,
+                                "description": "",
+                            })
+                    if rows:
+                        send_whatsapp_list_menu(
+                            to=wa_id,
+                            header_text="Leeway Softech",
+                            body_text=text,
+                            button_text="Select Option",
+                            sections=[{"title": "Options", "rows": rows}],
+                        )
+                        logger.info(f"Sent options list menu to {wa_id}: {len(rows)} options")
+                    else:
+                        send_whatsapp_message(wa_id, text)
+                        logger.info(f"Sent text reply (no valid buttons) to {wa_id}")
                 elif text:
                     send_whatsapp_message(wa_id, text)
                     logger.info(f"Sent text reply (no valid buttons) to {wa_id}")
@@ -235,8 +259,8 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                     date_str = msg.get("Date", "")
                     sender_name = str(msg.get("Name") or msg.get("SenderName") or "").strip()
 
-                    # Skip if no message ID (test/dummy entries) or empty text.
-                    if not message_id or not wa_id or not text:
+                    # Skip if no message ID (test/dummy entries).
+                    if not message_id or not wa_id:
                         continue
 
                     # Only inbound rows spawn a bot reply + customer record;
@@ -249,6 +273,27 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
 
                     # Skip if already processed (memory + persisted ledger).
                     if _was_processed(message_id):
+                        continue
+
+                    if not text:
+                        # send2.digital's incoming-report API returns Message=null when a user taps
+                        # a WhatsApp quick-reply button. Handle it gracefully by sending the list options.
+                        if str(status).strip().lower() == "received":
+                            logger.info(f"Handling unmapped button click (null text) from {wa_id} id={message_id[:20]}")
+                            try:
+                                from bots.customer_b2c import menus
+                                from routing.whatsapp import send_whatsapp_list_menu
+                                menu_data = menus.get_main_menu(wa_id)
+                                send_whatsapp_list_menu(
+                                    to=wa_id,
+                                    header_text=menu_data.get("header", "Leeway Softech"),
+                                    body_text="I received your selection! Please choose an option from the menu below:",
+                                    button_text=menu_data.get("button_text", "Show Options"),
+                                    sections=menu_data.get("sections", []),
+                                )
+                            except Exception as ex:
+                                logger.error(f"Failed to handle null message fallback: {ex}")
+                            _record_processed(message_id, wa_id)
                         continue
 
                     logger.info(f"New message from {wa_id}: {text[:80]}... (id={message_id[:20]}...)")

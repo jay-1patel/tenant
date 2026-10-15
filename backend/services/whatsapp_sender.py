@@ -85,8 +85,27 @@ def _live_sender(kind: str):
             from kb.services.whatsapp import send_document
             return lambda wa_id, doc_url, filename=None: send_document(wa_id, doc_url, filename)
         if kind == "buttons":
-            from kb.services.whatsapp import send_interactive_buttons
+            from routing.whatsapp import send_whatsapp_list_menu, normalize_reply_buttons
             def _btns(wa_id, body, buttons, header_media=None):
+                # When using Send2, quick-reply buttons return Message: null on click in incoming-report.
+                # Sending options via list menu guarantees Send2 captures and returns the option title.
+                api_buttons = normalize_reply_buttons(buttons)
+                rows = []
+                for b in api_buttons:
+                    r = b.get("reply", {})
+                    bid = r.get("id", "")
+                    btitle = r.get("title", "")[:24]
+                    if bid and btitle:
+                        rows.append({"id": bid, "title": btitle, "description": ""})
+                if rows:
+                    return send_whatsapp_list_menu(
+                        to=wa_id,
+                        header_text="Leeway Softech",
+                        body_text=body,
+                        button_text="Select Option",
+                        sections=[{"title": "Options", "rows": rows}],
+                    )
+                from kb.services.whatsapp import send_interactive_buttons
                 return send_interactive_buttons(
                     to=wa_id, body_text=body, buttons=buttons,
                     header_media=header_media, footer_text=None,
