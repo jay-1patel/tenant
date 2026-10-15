@@ -397,9 +397,8 @@ class WhatsAppFormatter:
         if not self.options.signature:
             return text
             
-        # Add separator and signature
-        separator = "─" * min(len(self.options.signature) + 4, 20)
-        signature_text = f"\n\n{separator}\n{self.options.signature}"
+        # Add signature (no separator line)
+        signature_text = f"\n\n{self.options.signature}"
         
         return text.rstrip() + signature_text
     

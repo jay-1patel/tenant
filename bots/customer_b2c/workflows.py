@@ -284,15 +284,10 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")
 
-    # A tapped menu row that a tenant has no answer for must not fall through
-    # to a random document chunk — say so instead of guessing.
-    if _is_menu_title(wa_id, message):
-        await send_text_message(
-            wa_id,
-            "I'm not certain about that. Would you like to check our services, "
-            "book a callback, or talk to an agent?",
-        )
-        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+    # A tapped menu row with no configured answer/description (and no intent)
+    # must not dead-end: search the uploaded documents (FAQ + KB) below and let
+    # the relevance floor decide. The generic "not certain" reply stays the
+    # final fallback if the database has nothing relevant either.
 
     answer = None
 
@@ -372,44 +367,6 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
     else:
         await send_text_message(wa_id, answer)
     return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
-
-
-def _is_menu_title(wa_id: str, message: str) -> bool:
-    """True if the message refers to one of the current menu row titles.
-
-    Used as a guard so an unmatched menu tap gets a polite fallback instead of
-    an unrelated RAG chunk. Matches exact dealings AND single tokens contained
-    in a title (send2 may deliver "Services" for the "Our Services" row).
-    """
-    if not (message or "").strip():
-        return False
-    try:
-        from services.menu_catalog import get_kb_main_menu
-        from services.intent_answers import _clean_title as _tc
-        target = _clean(message)
-        if not target:
-            return False
-        titles = [_tc(item.title) for item in get_kb_main_menu(wa_id)]
-        # Accept the row name only when the tap is short (a menu row, not a
-        # free-form question): a multi-word sentence is treated as RAG-worthy.
-        if len(target.split()) > 4:
-            return False
-        for title in titles:
-            if not title:
-                continue
-            if target == title:
-                return True
-            title_tokens = title.split()
-            for token in target.split():
-                if len(token) < 4:
-                    continue
-                if token in title_tokens or any(
-                    len(t) >= 4 and t.startswith(token) for t in title_tokens
-                ):
-                    return True
-    except Exception as e:
-        logger.debug(f"Menu title check failed: {e}")
-    return False
 
 
 def _is_services_title(wa_id: str, message: str) -> bool:
