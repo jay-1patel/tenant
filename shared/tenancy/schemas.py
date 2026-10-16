@@ -34,6 +34,10 @@ FEATURE_FLAGS = (
     # catalogue / offerings (all verticals)
     "offerings",
     "offering_details",
+    # content types a vertical surfaces in its menu
+    "services",
+    "products",
+    "products_schemes",
     # conversational commerce / lead gen
     "lead_capture",
     "quote",
@@ -192,6 +196,9 @@ class Features(_Base):
     distributors: bool = False
     offerings: bool = True
     offering_details: bool = True
+    services: bool = True
+    products: bool = True
+    products_schemes: bool = True
     lead_capture: bool = False
     quote: bool = False
     callback: bool = False

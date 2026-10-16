@@ -98,7 +98,7 @@ export const FEATURE_GROUPS: {
     id: 'catalogue',
     label: 'Brochure',
     description: 'What you sell or offer, and the brochure that lists it.',
-    flags: ['offerings', 'offering_details', 'brochure_pdf'],
+    flags: ['offerings', 'offering_details', 'services', 'products', 'products_schemes', 'brochure_pdf'],
   },
   {
     id: 'enquiry',
@@ -130,6 +130,9 @@ export const FEATURE_LABELS: Record<FeatureFlag, { label: string; help: string }
   distributors: { label: 'Distributors', help: 'A separate reseller price list.' },
   offerings: { label: 'Offerings', help: 'Browse what you sell or offer.' },
   offering_details: { label: 'Offering details', help: 'Price, specs and images per item.' },
+  services: { label: 'Services', help: 'Browse the services you deliver.' },
+  products: { label: 'Products', help: 'Browse the products you sell.' },
+  products_schemes: { label: 'Products & Schemes', help: 'Browse the products and schemes you offer.' },
   lead_capture: { label: 'Lead capture', help: 'Collect name, phone and email.' },
   quote: { label: 'Quotes', help: 'Collect requirements and send a quote request.' },
   callback: { label: 'Callback', help: 'Offer to call the customer back.' },
@@ -180,6 +183,7 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       'returns',
       'offerings',
       'offering_details',
+      'products',
       'brochure_pdf',
       'faq',
       'kb',
@@ -262,6 +266,7 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
     recommended: [
       'offerings',
       'offering_details',
+      'services',
       'brochure_pdf',
       'lead_capture',
       'quote',
@@ -427,6 +432,7 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
     recommended: [
       'offerings',
       'offering_details',
+      'products_schemes',
       'brochure_pdf',
       'lead_capture',
       'callback',
@@ -489,6 +495,7 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
     recommended: [
       'offerings',
       'offering_details',
+      'services',
       'brochure_pdf',
       'lead_capture',
       'callback',
