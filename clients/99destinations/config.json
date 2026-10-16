@@ -1,0 +1,131 @@
+{
+  "tenant_id": "99destinations",
+  "vertical": "tours_travel",
+  "display_name": "99 Destinations Holidays",
+
+  "brand": {
+    "name": "99 Destinations Holidays Pvt. Ltd.",
+    "bot_name": "99 Destinations Assistant",
+    "tagline": "Recognized by Gujarat Tourism (TCGL) | Customized Domestic & International Holidays",
+    "website": "https://www.99destinations.in",
+    "support_email": "info@99destinations.in",
+    "support_phone": "+91 7874833999",
+    "signature": "99 Destinations Holidays — Making Your Moments Special with 20,000+ Happy Customers."
+  },
+
+  "features": {
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "track_order": false,
+    "returns": false,
+    "brochure_pdf": true,
+    "distributors": false,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "quote": true,
+    "callback": true,
+    "book_appointment": true,
+    "handoff": true,
+    "faq": true,
+    "kb": true,
+    "complaints": true,
+    "campaigns": true,
+    "human_handover": true
+  },
+
+  "vocabulary": {
+    "item_noun": "packages",
+    "item_noun_singular": "package",
+    "browse_label": "Tour Packages",
+    "catalog_label": "Packages",
+    "catalog_noun": "packages",
+    "brochure_label": "Travel Brochure",
+    "brochure_noun": "brochure",
+    "offer_noun": "holiday deal",
+    "offer_noun_plural": "holiday deals",
+    "lead_noun": "trip inquiry",
+    "enquiry_label": "Enquire",
+    "quote_label": "Get a Quote",
+    "callback_label": "Book a Callback",
+    "support_label": "Customer Support"
+  },
+
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "10:30",
+    "close": "19:30",
+    "open_days": [0, 1, 2, 3, 4, 5]
+  },
+
+  "guardrails": {
+    "never_state": [
+      "package prices before the travel planning team confirms availability and travel dates",
+      "visa approval guarantees (visa issuance is solely at consular/embassy discretion)",
+      "flight schedules or hotel room allocations before formal booking confirmation",
+      "free cancellations contrary to official cancellation terms"
+    ],
+    "escalate_keywords": [
+      "missed flight", "lost luggage", "medical emergency", "passport lost",
+      "visa denied", "accident", "hotel issue", "stranded"
+    ],
+    "escalation_message": "Let me connect you with a 99 Destinations holiday specialist immediately.",
+    "handoff_keywords": ["human", "agent", "manager", "urgent", "complaint", "representative"]
+  },
+
+  "notifications": {
+    "sales_email": "info@99destinations.in",
+    "support_email": "info@99destinations.in",
+    "brochure_url": "https://www.99destinations.in/indian-tour/gujarat-tourism",
+    "brochure_label": "99 Destinations Tour Catalog",
+    "channels": [
+      { "type": "email", "to": "info@99destinations.in", "label": "sales" }
+    ]
+  },
+
+  "flows": [
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Our tour experts have received your travel details and will send a tailored itinerary & quote shortly."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your support request has been logged. Our customer service team will reach out to assist you."
+    }
+  ],
+
+  "menu": {
+    "buttons": [
+      { "id": "menu_destinations", "intent": "destinations" },
+      { "id": "menu_packages", "intent": "packages" },
+      { "id": "menu_booking_policy", "intent": "booking_policy" },
+      { "id": "menu_visa", "intent": "visa_documents" },
+      { "id": "menu_brochure", "intent": "travel_brochure" }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "destinations",
+      "answer": "🌍 *99 Destinations Holidays — Top Destinations*\n\n🏛️ *Gujarat Tourism (Official Partner)*:\n• *Spiritual Circuits:* Dwarka Char Dham, Somnath Jyotirlinga, Panch Dwarka, Palitana Jain Temples\n• *Wildlife & Nature:* Sasan Gir Asiatic Lion Safari, Velavadar Blackbuck, Saputara Hills\n• *Cultural & Desert:* Rann Utsav Kutch White Desert, Seema Darshan Nada Bet border\n• *Heritage & Modern:* Statue of Unity, Laxmi Vilas Palace Vadodara, Ahmedabad UNESCO World Heritage City\n\n🇮🇳 *Indian Holidays*:\n• Kashmir, Leh Ladakh, Himachal, Kerala Backwaters, Rajasthan Royals, Andaman Islands, Cordelia Cruises (Lakshadweep/Goa/Mumbai)\n\n✈️ *International Tours*:\n• Dubai & UAE, Switzerland & Alps, Grand Europe Tour, Austria, Turkey Golden Triangle, Georgia, USA\n\n_Tap 'Get a Quote' or 'Book a Callback' to customize your trip!_"
+    },
+    {
+      "name": "packages",
+      "answer": "🎒 *99 Destinations Tour Packages — Inclusions & Highlights*\n\n✅ *What is Included:*\n• Hand-picked hotel / resort / heritage stay accommodation\n• Meal plans as specified in your itinerary (daily breakfast/half-board)\n• Dedicated private vehicle for all airport/station transfers and sightseeing\n• Forest entry permits (e.g. Sasan Gir Lion Safari permits, subject to availability)\n• Toll taxes, state border permits, parking, night halt charges, driver bata\n• Complimentary travel insurance for safe journeys (T&C apply)\n• All applicable government taxes\n\n❌ *What is Excluded:*\n• Flights/train tickets (unless booked through our air ticketing desk)\n• Personal expenses, porterage, tips, laundry, monument entry fees\n• Meals outside pre-set itinerary"
+    },
+    {
+      "name": "booking_policy",
+      "answer": "📋 *99 Destinations — Booking & Cancellation Policy*\n\n💳 *Payment Terms:*\n• 50% advance payment at confirmation.\n• Balance 50% due 20 days prior to departure.\n• If booking within 20 days of travel, 100% advance is required.\n\n❌ *Cancellation Policy:*\n• 45+ days prior: 10% fee (90% refund)\n• 15–44 days prior: 25% fee (75% refund)\n• 07–14 days prior: 50% fee (50% refund)\n• Within 48 hours or No Show: Non-refundable\n\n_Note: Written cancellations accepted on working days (Mon–Sat). Sunday requests are processed on Monday._"
+    },
+    {
+      "name": "visa_documents",
+      "answer": "🛂 *Worldwide Visa Assistance & Services*\n\n99 Destinations provides comprehensive visa processing for all countries:\n• Updated application forms, consular requirements, and latest embassy fee guidelines\n• Scrutiny of documentation prior to consular submission to maximize approval chances\n• Direct document delivery from consular offices straight to your doorstep\n• Competitive rates with full transparency\n\n_Note: While we ensure thorough paperwork, final visa approvals remain at the sole discretion of embassies/consulates._"
+    },
+    {
+      "name": "travel_brochure",
+      "answer": "📖 *99 Destinations Holidays — Catalogs & Services*\n\nWith 10+ years of excellence, 20,000+ happy travelers, and TCGL / IATA / IATO / TAAI recognition, we offer:\n• 56+ Customized Gujarat Tour Packages\n• Pan-India Domestic Holidays & Cordelia Cruises\n• Worldwide International Tours & Flights\n• Heritage Palace Stays in Ahmedabad & Bhavnagar\n• Nada Bet Seema Darshan & Rann Utsav Tent City\n\nTap *'Get a Quote'* to plan your journey with our travel specialists!"
+    }
+  ]
+}

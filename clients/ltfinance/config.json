@@ -1,0 +1,127 @@
+{
+  "tenant_id": "ltfinance",
+  "vertical": "finance",
+  "display_name": "L&T Finance",
+
+  "brand": {
+    "name": "L&T Finance Limited",
+    "bot_name": "LTF Virtual Assistant",
+    "tagline": "Leading NBFC | Two-Wheeler, Personal, Home, Gold, Farm & SME Loans",
+    "website": "https://www.ltfs.com",
+    "support_email": "customercare@ltfs.com",
+    "support_phone": "+91 7378333451",
+    "signature": "L&T Finance — Nationally Trusted Financial Partner."
+  },
+
+  "features": {
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "track_order": false,
+    "returns": false,
+    "brochure_pdf": true,
+    "distributors": false,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "quote": true,
+    "callback": true,
+    "book_appointment": true,
+    "handoff": true,
+    "faq": true,
+    "kb": true,
+    "complaints": true,
+    "campaigns": true,
+    "human_handover": true
+  },
+
+  "vocabulary": {
+    "item_noun": "loans",
+    "item_noun_singular": "loan",
+    "browse_label": "Loan Products",
+    "catalog_label": "Products",
+    "catalog_noun": "loan products",
+    "brochure_label": "Product Guide",
+    "brochure_noun": "product guide",
+    "offer_noun": "special scheme",
+    "offer_noun_plural": "special schemes",
+    "lead_noun": "loan application",
+    "enquiry_label": "Apply Now",
+    "quote_label": "Check Eligibility",
+    "callback_label": "Request Callback",
+    "support_label": "Raise Complaint"
+  },
+
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "09:00",
+    "close": "18:00",
+    "open_days": [0, 1, 2, 3, 4, 5]
+  },
+
+  "guardrails": {
+    "never_state": [
+      "specific loan approvals or sanctioned amounts before credit underwriting",
+      "exact interest rates as binding offers before credit score evaluation",
+      "customer OTP, MPIN, CVV, or banking passwords (strictly confidential)",
+      "investment or guaranteed return promises"
+    ],
+    "escalate_keywords": [
+      "fraud", "unauthorized transaction", "police complaint", "rbi notice",
+      "harassment", "legal notice", "wrong debit", "recovery agent issue"
+    ],
+    "escalation_message": "This requires immediate escalation to our Grievance Redressal / Customer Support Officer.",
+    "handoff_keywords": ["human", "agent", "support officer", "manager", "complaint", "executive", "nodal officer"]
+  },
+
+  "notifications": {
+    "sales_email": "customercare@ltfs.com",
+    "support_email": "customercare@ltfs.com",
+    "brochure_url": "https://www.ltfs.com/our-products",
+    "brochure_label": "L&T Finance Loan Products",
+    "channels": [
+      { "type": "email", "to": "customercare@ltfs.com", "label": "support" }
+    ]
+  },
+
+  "flows": [
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Your loan inquiry has been registered. An L&T Finance loan specialist will contact you shortly to check your eligibility."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your complaint has been logged. Our Customer Care team will review it and resolve it within standard turnaround time (7 working days)."
+    }
+  ],
+
+  "menu": {
+    "buttons": [
+      { "id": "menu_products", "title": "Loan Products", "intent": "loan_products" },
+      { "id": "menu_self_service", "title": "Instant Services", "intent": "self_service" },
+      { "id": "menu_apply", "title": "Apply for Loan", "intent": "apply_loan" },
+      { "id": "menu_faq", "title": "FAQs", "intent": "faqs" },
+      { "id": "menu_support", "title": "Complaints", "intent": "complaint" }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "loan_products",
+      "answer": "💼 *L&T Finance — Comprehensive Loan Offerings*\n\n1. 🏍️ *Two-Wheeler Loans:* Up to ₹20 Lakhs, up to 100% on-road funding, instant digital approval.\n2. 💰 *Personal Loans:* Up to ₹15L–₹30L, 100% paperless digital journey, flexible tenure.\n3. 🏡 *Home Loans & LAP:* Competitive interest rates, up to 30 years tenure, balance transfer & top-up.\n4. 🪙 *Gold Loans:* Starting from ₹5,000, rates from 11.75%* p.a., 24x7 vault security.\n5. 🏢 *Business / SME Loans:* Collateral-free working capital & machinery loans up to ₹50 Lakhs.\n6. 🚜 *Farm Equipment / Tractor Loans:* New & used tractor finance with seasonal crop repayment.\n7. 🌾 *Rural Business Finance (Vikaas Loans):* Group micro-loans empowering women entrepreneurs.\n\n_Tap 'Apply Now' or 'Request Callback' to get started!_"
+    },
+    {
+      "name": "self_service",
+      "answer": "📲 *L&T Finance — Instant Digital Services*\n\nYou can manage your loan 24x7 via WhatsApp or the *PLANET by L&T Finance* app:\n\n📄 *Download Documents:*\n• Statement of Account (SOA)\n• Repayment Schedule\n• Interest Certificate (Provisional & Final)\n• Foreclosure Statement / Settlement Letter\n• No Objection Certificate (NOC / No Dues Certificate)\n\n💳 *Payments & Account:*\n• Pay EMI online via UPI / NetBanking / Debit Card\n• Check Outstanding Balance & Next Due Date\n• Update Bank Mandate (NACH/e-Mandate)\n\n_Download the PLANET app or type your Loan Account Number (LAN) to fetch details._"
+    },
+    {
+      "name": "apply_loan",
+      "answer": "📝 *Apply for an L&T Finance Loan*\n\nApplying is 100% digital, fast, and paperless:\n1. Select your loan category (Personal, Two-Wheeler, Home, Gold, SME, Tractor).\n2. Keep your PAN Card, Aadhaar, and recent bank statements ready.\n3. Get instant in-principle eligibility & approval.\n4. Quick disbursal directly into your verified bank account.\n\n_Tap 'Request Callback' to speak with an authorized loan advisor!_"
+    },
+    {
+      "name": "faqs",
+      "answer": "❓ *Frequently Asked Questions*\n\n• *How do I pay my missed EMI?* Pay instantly online via ltfs.com/quickpay, PLANET App, or UPI.\n• *How long does NOC take after loan closure?* 7 to 14 working days after realization of full dues.\n• *Customer Care Helpline:* Call 1800-268-0000 (Mon–Sun, 9 AM – 6 PM).\n• *WhatsApp Banking:* +91 7378333451\n• *Grievance Escalation:* Write to customercare@ltfs.com or GRO at gro@ltfs.com."
+    }
+  ]
+}
