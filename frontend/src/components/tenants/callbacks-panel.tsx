@@ -85,8 +85,23 @@ export function CallbacksPanel({ tenantId }: { tenantId: string }) {
 
   const update = (patch: Partial<CallbackInput>) => setForm((f) => ({ ...f, ...patch }))
 
+  const isValidPhone = (val: string) => {
+    const raw = val.trim()
+    if (!/^\+?[\d\s\-()]+$/.test(raw)) return false
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 10) return true
+    if (digits.startsWith('0') && digits.length === 11) return true
+    if (raw.startsWith('+') && digits.length >= 11 && digits.length <= 13) return true
+    if (digits.startsWith('91') && digits.length === 12) return true
+    return false
+  }
+
   const create = async () => {
     if (!form.customer_name.trim() || !form.wa_id.trim()) return
+    if (form.customer_phone?.trim() && !isValidPhone(form.customer_phone)) {
+      toast.push('Please enter a valid 10-digit phone number (or country code + 10 digits).', 'error')
+      return
+    }
     const result = await createAction.run(() => callbacksApi.create(tenantId, form), 'Callback created')
     if (result) {
       setForm(EMPTY_FORM)

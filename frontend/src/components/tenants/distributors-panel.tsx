@@ -358,7 +358,7 @@ function DistributorForm({
               phoneMissing
                 ? 'Phone number is required'
                 : !phoneValid
-                  ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
+                  ? 'Phone must be a 10-digit number (or country code followed by 10 digits, e.g. +91 98765 43210)'
                   : undefined
             }
             onChange={(e) => set('phone', e.target.value)}

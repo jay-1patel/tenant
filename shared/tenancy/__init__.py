@@ -57,6 +57,8 @@ from .schemas import (
     Notifications,
     TenantProfile,
     Vocabulary,
+    is_valid_phone,
+    is_valid_phone_input,
 )
 from .store import (
     create_tenant_token,
@@ -85,6 +87,7 @@ __all__ = [
     "TenantProfile", "Features", "Vocabulary", "Brand", "MenuSpec", "MenuButton",
     "IntentSpec", "FlowSpec", "FlowStep", "Guardrails", "BusinessHours",
     "Notifications", "NotificationChannel", "FEATURE_FLAGS", "STEP_TYPES", "VERTICALS",
+    "is_valid_phone", "is_valid_phone_input",
     # defaults
     "VERTICAL_DEFAULTS", "get_vertical_defaults", "list_verticals", "DEFAULT_TENANT_ID",
     # store

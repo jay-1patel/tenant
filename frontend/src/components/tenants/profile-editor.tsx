@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
-import { editorContactErrors, editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
+import { editorContactErrors, editorFromProfile, editorToSnapshot, isValidPhone, timezoneOptions, type EditorForm } from '@/lib/profile'
 import { getVertical } from '@/lib/verticals'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -237,6 +237,11 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               label="Support phone"
               disabled={!editing}
               value={form.brand.supportPhone}
+              error={
+                editing && form.brand.supportPhone.trim() && !isValidPhone(form.brand.supportPhone)
+                  ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
+                  : undefined
+              }
               onChange={(e) => patch({ brand: { ...form.brand, supportPhone: e.target.value } })}
             />
             <Input

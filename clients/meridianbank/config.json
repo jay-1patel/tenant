@@ -7,7 +7,7 @@
     "name": "Meridian Bank",
     "bot_name": "Meridian Assistant",
     "tagline": "a full-service bank for savings, cards, loans, and everyday banking",
-    "website": "www.meridianbank.example",
+    "website": "https://www.meridianbank.example",
     "support_email": "care@meridianbank.example",
     "support_phone": "+91 1800 123 456",
     "signature": "Meridian Bank — Banking that puts you first."
@@ -84,6 +84,82 @@
 
   "flows": [
     {
+      "name": "check_eligibility",
+      "intent": "check_eligibility",
+      "requires_feature": "lead_capture",
+      "description": "Assess basic loan or card eligibility and connect with loan desk.",
+      "start_message": "Let's check your loan or card eligibility in a few quick steps.",
+      "success_message": "Thank you! Your profile has been pre-screened. A banking representative will contact you shortly with personalized options.",
+      "steps": [
+        {
+          "id": "ask_product",
+          "type": "choice",
+          "prompt": "Which product would you like to check eligibility for?",
+          "options": ["Personal Loan", "Home Loan", "Vehicle Loan", "Credit Card"],
+          "key": "product_type"
+        },
+        {
+          "id": "ask_employment",
+          "type": "choice",
+          "prompt": "What is your employment type?",
+          "options": ["Salaried", "Self-Employed / Business", "Professional"],
+          "key": "employment_type"
+        },
+        {
+          "id": "ask_income",
+          "type": "ask",
+          "prompt": "What is your approximate monthly take-home income in ₹? (e.g. 45000)",
+          "key": "monthly_income",
+          "validate": "digits",
+          "invalid_message": "Please enter a valid monthly income as numbers (e.g. 45000)."
+        },
+        {
+          "id": "ask_emis",
+          "type": "ask",
+          "prompt": "What is your total ongoing monthly EMI across all existing loans? (Enter amount in ₹ or reply 0)",
+          "key": "existing_emis",
+          "validate": "digits",
+          "optional": true,
+          "invalid_message": "Please enter digits only (e.g. 5000 or 0)."
+        },
+        {
+          "id": "ask_name",
+          "type": "ask",
+          "prompt": "May I know your full name?",
+          "key": "name",
+          "validate": "name:2",
+          "invalid_message": "Please enter your name (at least 2 letters)."
+        },
+        {
+          "id": "ask_phone",
+          "type": "ask",
+          "prompt": "Please share your 10-digit mobile number for sharing pre-approved eligibility results.",
+          "key": "phone",
+          "validate": "phone:10",
+          "invalid_message": "Please enter a valid 10-digit mobile number."
+        },
+        {
+          "id": "save",
+          "type": "save_lead",
+          "collect_keys": ["name", "phone", "product_type", "employment_type", "monthly_income", "existing_emis"],
+          "lead_source": "eligibility_calculator",
+          "next": "notify"
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "channels": [],
+          "subject": "Loan Eligibility Inquiry from WhatsApp",
+          "next": "done"
+        },
+        {
+          "id": "done",
+          "type": "say",
+          "prompt": "📊 *Eligibility Calculation & Pre-Screening Result*\n\n✅ *Criteria Check (Method B):* Income criteria satisfied (Minimum ₹25,000/mo threshold met).\n📈 *Banking FOIR Multiplier (Method C):* Banks permit up to 50% of your monthly income towards total EMIs. Based on your income and existing obligations, you have healthy disposable repayment capacity!\n\n📞 A Meridian Bank loan specialist will contact you shortly with your exact in-principle loan sanction amount and tenure options.\n\n_Note: Final approval is subject to credit bureau score (CIBIL 700+) and document verification._"
+        }
+      ]
+    },
+    {
       "name": "raise_ticket",
       "success_message": "Your reference has been logged with our grievance desk. We respond within 24 hours."
     }
@@ -91,17 +167,20 @@
 
   "menu": {
     "buttons": [
-      { "id": "menu_products", "intent": "banking_products" },
-      { "id": "menu_cards", "intent": "cards" },
-      { "id": "menu_loans", "intent": "loans" },
-      { "id": "menu_branch", "intent": "branch_support" }
+      { "id": "menu_products", "title": "Banking Products", "intent": "banking_products" },
+      { "id": "menu_cards", "title": "Cards", "intent": "cards" },
+      { "id": "menu_loans", "title": "Loans", "intent": "loans" },
+      { "id": "menu_eligibility", "title": "Check Eligibility", "flow": "check_eligibility" },
+      { "id": "menu_callback", "title": "Request Callback", "flow": "book_callback" },
+      { "id": "menu_branch", "title": "Branch & Support", "intent": "branch_support" },
+      { "id": "menu_support", "title": "Raise Complaint", "flow": "raise_ticket" }
     ]
   },
 
   "intents": [
     {
       "name": "banking_products",
-      "answer": "🏦 *Meridian Bank — Products*\n\n• *Savings Accounts:* Zero-balance option for salary accounts. Regular savings requires ₹5,000 monthly average balance (MAB). Digital account opens in ~10 mins with PAN & Aadhaar.\n• *Current Accounts:* For businesses & professionals with cheque book, net banking, and overdraft facilities.\n\n_Interested in applying? Select 'Check Eligibility' or 'Request a Callback' below._"
+      "answer": "🏦 *Meridian Bank — Products*\n\n• *Savings Accounts:* Zero-balance option for salary accounts. Regular savings requires ₹5,000 monthly average balance (MAB). Digital account opens in ~10 mins with PAN & Aadhaar.\n• *Current Accounts:* For businesses & professionals with cheque book, net banking, and overdraft facilities.\n\n_Interested in applying? Select 'Check Eligibility' or 'Request Callback' below._"
     },
     {
       "name": "cards",
@@ -109,7 +188,11 @@
     },
     {
       "name": "loans",
-      "answer": "💰 *Meridian Bank — Loan Options*\n\n• *Home Loans:* Up to 80% property value funding with tenures up to 30 years.\n• *Personal Loans:* Quick sanction for salaried & self-employed; tenures up to 5 years.\n• *Vehicle Loans:* Up to 90% on-road funding for new four-wheelers & two-wheelers.\n• *Education Loans:* Collateral-free options available for premier institutes.\n\n_Note: Final interest rate and approval depend on credit score and documentation._"
+      "answer": "💰 *Meridian Bank — Loan Options*\n\n• *Home Loans:* Up to 80% property value funding with tenures up to 30 years.\n• *Personal Loans:* Quick sanction for salaried & self-employed; tenures up to 5 years.\n• *Vehicle Loans:* Up to 90% on-road funding for new four-wheelers & two-wheelers.\n• *Education Loans:* Collateral-free options available for premier institutes.\n\n_Tap 'Check Eligibility' below to see if you qualify in under 1 minute!_"
+    },
+    {
+      "name": "check_eligibility",
+      "answer": "📊 *Meridian Bank — Eligibility Criteria*\n\n• *Personal Loans:* Age 21–58, minimum monthly net salary ₹25,000, CIBIL score 700+.\n• *Home Loans:* Age 21–65, minimum household income ₹35,000/mo, up to 80% property value funding.\n• *Vehicle Loans:* Age 21–60, minimum income ₹20,000/mo, up to 90% on-road funding.\n• *Credit Cards:* Minimum age 21, regular income ₹20,000/mo or secured against Fixed Deposit (FD).\n\n_Tap *'Check Eligibility'* in the menu to check your pre-qualification!_"
     },
     {
       "name": "branch_support",

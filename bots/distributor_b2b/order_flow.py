@@ -258,10 +258,11 @@ async def handle_order_message(wa_id: str, message: str, state: str, context: di
             context.pop(CHECKOUT_KEY, None)
             await send_text_message(wa_id, "Checkout cancelled. Your cart is saved — type 'cart' to resume.")
             return {"new_state": cfg.DIST_REVIEW_ORDER, "context": context}
-        mobile = re.sub(r"[\s\-+]", "", message)
-        if not re.fullmatch(r"\d{10}", mobile) and not re.fullmatch(r"\d{11,13}", mobile):
+        from shared.tenancy.schemas import is_valid_phone_input
+        if not is_valid_phone_input(message, wanted=10):
             await send_text_message(wa_id, "That doesn't look like a valid mobile number. Please enter a 10-digit number.")
             return {"new_state": cfg.DIST_ASK_MOBILE, "context": context}
+        mobile = re.sub(r"[\s\-+]", "", message)
         checkout = context.get(CHECKOUT_KEY) or {}
         checkout["mobile"] = mobile
         context[CHECKOUT_KEY] = checkout

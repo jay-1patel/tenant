@@ -167,7 +167,7 @@ def is_valid_email(value: str) -> bool:
 
 
 def is_valid_phone(value: str) -> bool:
-    """Country code followed by exactly 10 digits — the one rule everywhere."""
+    """Country code followed by exactly 10 digits — the one rule for profiles."""
     v = re.sub(r"[\s\-()]", "", (value or "").strip())
     if not v or not _PHONE_RE.fullmatch(v):
         return False
@@ -176,6 +176,41 @@ def is_valid_phone(value: str) -> bool:
         body.startswith(cc) and len(body) - len(cc) == 10
         for cc in _PHONE_COUNTRY_CODES
     )
+
+
+def is_valid_phone_input(value: str, wanted: int = 10) -> bool:
+    """Validate user-entered phone number in conversation flows and forms.
+
+    Accepts:
+    - Exactly `wanted` digits (e.g. 10 digits: 9876543210, with optional spaces/dashes/parentheses)
+    - Leading trunk prefix '0' + `wanted` digits (e.g. 09876543210)
+    - Starting with '+' and a valid country code (1-3 digits) + exactly `wanted` digits (e.g. +91 9876543210)
+    - Country code '91' without '+' + exactly 10 digits (e.g. 919876543210)
+
+    Rejects:
+    - Any number where subscriber digits exceed `wanted` (e.g. 11, 12, 13, 15 digits)
+    - Any number where digits after country code exceed `wanted` (e.g. +9198765432101)
+    - Numbers with fewer than `wanted` digits
+    - Strings with invalid characters
+    """
+    if not value:
+        return False
+    raw = value.strip()
+    if not re.match(r"^\+?[\d\s\-()]+$", raw):
+        return False
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == wanted:
+        return True
+    if raw.startswith("+"):
+        return any(
+            digits.startswith(cc) and len(digits) - len(cc) == wanted
+            for cc in _PHONE_COUNTRY_CODES
+        )
+    if digits.startswith("0") and len(digits) == wanted + 1:
+        return True
+    if wanted == 10 and len(digits) == 12 and digits.startswith("91"):
+        return True
+    return False
 
 
 # ── Leaves ────────────────────────────────────────────────────────────────

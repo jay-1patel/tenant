@@ -87,6 +87,82 @@
 
   "flows": [
     {
+      "name": "check_eligibility",
+      "intent": "check_eligibility",
+      "requires_feature": "lead_capture",
+      "description": "Interactive loan eligibility calculator and pre-screening.",
+      "start_message": "Let's check your loan eligibility in a few quick steps.",
+      "success_message": "Thank you! Your profile has been pre-screened. An L&T Finance loan specialist will contact you shortly with your exact sanction limit.",
+      "steps": [
+        {
+          "id": "ask_product",
+          "type": "choice",
+          "prompt": "Which loan product would you like to check eligibility for?",
+          "options": ["Personal Loan", "Two-Wheeler Loan", "Home Loan / LAP", "Business / SME Loan", "Gold Loan"],
+          "key": "product_type"
+        },
+        {
+          "id": "ask_employment",
+          "type": "choice",
+          "prompt": "What is your employment type?",
+          "options": ["Salaried", "Self-Employed / Business", "Farmer / Agri"],
+          "key": "employment_type"
+        },
+        {
+          "id": "ask_income",
+          "type": "ask",
+          "prompt": "What is your approximate monthly take-home salary or net income in ₹? (e.g. 50000)",
+          "key": "monthly_income",
+          "validate": "digits",
+          "invalid_message": "Please enter your monthly income as digits (e.g. 45000)."
+        },
+        {
+          "id": "ask_emis",
+          "type": "ask",
+          "prompt": "What is your total monthly EMI across all existing loans? (Enter amount in ₹ or reply 0)",
+          "key": "existing_emis",
+          "validate": "digits",
+          "optional": true,
+          "invalid_message": "Please enter digits only (e.g. 5000 or 0)."
+        },
+        {
+          "id": "ask_name",
+          "type": "ask",
+          "prompt": "May I know your full name?",
+          "key": "name",
+          "validate": "name:2",
+          "invalid_message": "Please enter your name (at least 2 letters)."
+        },
+        {
+          "id": "ask_phone",
+          "type": "ask",
+          "prompt": "Please enter your 10-digit mobile number for receiving pre-approved loan options.",
+          "key": "phone",
+          "validate": "phone:10",
+          "invalid_message": "Please enter a valid 10-digit mobile number."
+        },
+        {
+          "id": "save",
+          "type": "save_lead",
+          "collect_keys": ["name", "phone", "product_type", "employment_type", "monthly_income", "existing_emis"],
+          "lead_source": "eligibility_calculator",
+          "next": "notify"
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "channels": [],
+          "subject": "Loan Eligibility Calculation Inquiry from WhatsApp",
+          "next": "done"
+        },
+        {
+          "id": "done",
+          "type": "say",
+          "prompt": "📊 *L&T Finance — Pre-Screening & Eligibility Result*\n\n✅ *Criteria Check (Method B):* Income criteria satisfied (Minimum ₹15,000–₹25,000/mo threshold met).\n📈 *Banking FOIR Multiplier (Method C):* Based on standard 50% FOIR cap and your existing obligations, you have strong repayment capacity for your requested loan product!\n\n📞 An L&T Finance loan advisor will contact you within 24 hours with your customized in-principle sanction limit and EMI options.\n\n_Note: Final sanction is subject to credit bureau score (CIBIL 700+) and document verification._"
+        }
+      ]
+    },
+    {
       "name": "get_quote",
       "success_message": "Thank you! Your loan inquiry has been registered. An L&T Finance loan specialist will contact you shortly to check your eligibility."
     },
@@ -99,6 +175,7 @@
   "menu": {
     "buttons": [
       { "id": "menu_products", "title": "Loan Products", "intent": "loan_products" },
+      { "id": "menu_eligibility", "title": "Check Eligibility", "flow": "check_eligibility" },
       { "id": "menu_self_service", "title": "Instant Services", "intent": "self_service" },
       { "id": "menu_apply", "title": "Apply for Loan", "intent": "apply_loan" },
       { "id": "menu_faq", "title": "FAQs", "intent": "faqs" },

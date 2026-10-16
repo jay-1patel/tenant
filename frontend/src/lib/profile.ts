@@ -85,12 +85,29 @@ export const COUNTRY_CODES = [
 ].sort((a, b) => b.length - a.length)
 
 export const isValidPhone = (raw: string) => {
-  const digits = normalizePhone(raw)
-  if (!/^\+\d{9,15}$/.test(digits)) return false
-  const body = digits.slice(1)
-  const cc = COUNTRY_CODES.find((code) => body.startsWith(code))
+  if (!raw) return false
+  const v = normalizePhone(raw.trim())
+  if (!/^\+\d{11,13}$/.test(v)) return false
+  const digits = v.slice(1)
+  const cc = COUNTRY_CODES.find((code) => digits.startsWith(code))
   if (!cc) return false
-  return /^\d{10}$/.test(body.slice(cc.length))
+  return digits.slice(cc.length).length === 10
+}
+
+export const isValidPhoneInput = (raw: string, wanted: number = 10): boolean => {
+  if (!raw) return false
+  const trimmed = raw.trim()
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return false
+  const digits = trimmed.replace(/\D/g, '')
+  if (digits.length === wanted) return true
+  if (digits.startsWith('0') && digits.length === wanted + 1) return true
+  if (trimmed.startsWith('+')) {
+    const cc = COUNTRY_CODES.find((code) => digits.startsWith(code))
+    if (!cc) return false
+    return digits.slice(cc.length).length === wanted
+  }
+  if (wanted === 10 && digits.startsWith('91') && digits.length === 12) return true
+  return false
 }
 
 /** Scheme optional, domain required: "example.com", "https://x.io/a?b=1". */
@@ -113,7 +130,7 @@ export function editorContactErrors(form: EditorForm): string[] {
   if (brand.supportEmail.trim() && !EMAIL_RE.test(brand.supportEmail.trim()))
     errors.push('The support email does not look valid.')
   if (brand.supportPhone.trim() && !isValidPhone(brand.supportPhone))
-    errors.push('The support phone must include the country code, e.g. +91 98765 43210.')
+    errors.push('The support phone must be a 10-digit number (or country code followed by 10 digits, e.g. +91 98765 43210).')
   if (notes.salesEmail.trim() && !EMAIL_RE.test(notes.salesEmail.trim()))
     errors.push('The sales / enquiries email does not look valid.')
   if (notes.supportEmail.trim() && !EMAIL_RE.test(notes.supportEmail.trim()))

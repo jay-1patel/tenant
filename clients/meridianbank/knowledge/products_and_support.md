@@ -21,11 +21,25 @@
 - Vehicle loans: up to 90% on-road funding for new vehicles
 - Education loans: collateral-free up to a published limit for premier institutes
 
-## Eligibility
-- Loan eligibility depends on income, credit score, existing obligations, and the product
-- The bot NEVER promises approval — eligibility means "you can apply", not "you are approved"
-- Check eligibility: share name, phone, and product interest and the team calls back with the published criteria
-- Pre-approved offers (if any) are visible ONLY in the mobile app — the bot cannot see or confirm them
+## Eligibility & Borrowing Power Calculation
+
+### 1. Published Eligibility Benchmarks (Method B)
+- **Personal Loans:** Age 21–58 years, minimum monthly net salary of ₹25,000, CIBIL credit score 700+.
+- **Home Loans:** Age 21–65 years, minimum household income of ₹35,000/month, funding up to 80% of property value (LTV), tenures up to 30 years.
+- **Vehicle Loans:** Age 21–60 years, minimum income ₹20,000/month, up to 90% on-road funding.
+- **Credit Cards:** Minimum age 21, regular income ₹20,000/month or secured against a Fixed Deposit (FD).
+
+### 2. FOIR & Multiplier Calculation Logic (Method C)
+- **FOIR Rule (Fixed Obligation to Income Ratio):** Maximum allowable monthly EMI across all loans is capped at 50% of the customer's net monthly income.
+  - `Max Permissible Total EMI = 50% * Net Monthly Income`
+  - `Available New EMI Capacity = Max Permissible Total EMI - Existing Ongoing EMIs`
+- **Indicative Loan Sanction Multipliers:**
+  - *Personal Loan:* Sanction amount ≈ 18x to 24x of net disposable monthly income (or approx. 36x of available monthly EMI capacity).
+  - *Home Loan:* Sanction amount ≈ 50x to 65x of monthly income (or approx. 110x of available monthly EMI capacity for 20–30 year tenures).
+
+### 3. Compliance & Underwriting Rules
+- The bot NEVER promises guaranteed approval — eligibility indicates "you meet the criteria to apply", while final sanction is subject to underwriting, CIBIL bureau verification, and physical/digital document scrutiny.
+- Pre-approved loan offers are confidential and visible ONLY within the secure Meridian Mobile Banking App.
 
 ## KYC & Documents
 - KYC: PAN, Aadhaar, and a recent photograph; re-KYC every 2-10 years depending on account type

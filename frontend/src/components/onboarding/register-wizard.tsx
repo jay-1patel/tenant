@@ -20,6 +20,7 @@ import {
   EMAIL_RE,
   emptyDraft,
   isValidPhone,
+  isValidPhoneInput,
   slugify,
   timezoneOptions,
   URL_RE,
@@ -56,10 +57,6 @@ const DAYS = [
 ]
 
 /** Dropdown for the working-hours timezone — free text invited typos. */
-
-// Either the Meta phone-number id (all digits) or the WhatsApp number
-// itself (+91 8000305305); the backend stores digits only.
-const WABA_ID_RE = /^\+?[\d\s\-()]{10,24}$/
 
 // The super admin only registers the company basics; an admin completes the
 // tenant from WhatsApp onwards, and that completion goes for approval.
@@ -634,6 +631,11 @@ function BrandStep({ draft, patch }: StepProps) {
           onChange={(e) => patch({ supportPhone: e.target.value })}
           placeholder="+91 98765 43210"
           inputMode="tel"
+          error={
+            draft.supportPhone.trim() && !isValidPhone(draft.supportPhone)
+              ? 'Phone must be a 10-digit number (or country code followed by 10 digits, e.g. +91 98765 43210)'
+              : undefined
+          }
           hint="Country code followed by a 10-digit number, e.g. +91 98765 43210."
         />
       </div>
@@ -981,8 +983,10 @@ function validationError(
     case 'whatsapp': {
       if (!draft.wabaPhoneId.trim()) return 'A WhatsApp phone number (or its id) is required.'
       const phoneDigits = draft.wabaPhoneId.replace(/\D/g, '')
-      if (!WABA_ID_RE.test(draft.wabaPhoneId.trim()) || phoneDigits.length < 10 || phoneDigits.length > 16)
-        return 'Enter the WhatsApp number in international format (+91 8000305305) or its 15-digit id from Meta.'
+      const isMetaId = /^\d{15,16}$/.test(phoneDigits)
+      const isPhoneNumber = isValidPhone(draft.wabaPhoneId) || isValidPhoneInput(draft.wabaPhoneId)
+      if (!isMetaId && !isPhoneNumber)
+        return 'Enter a valid 10-digit WhatsApp phone number (e.g. +91 98765 43210) or its 15-digit ID from Meta.'
       if (!draft.timezone.trim()) return 'Select a timezone.'
       if (!draft.alwaysOpen && draft.openDays.length === 0) return 'Pick at least one working day.'
       return null

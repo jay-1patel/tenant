@@ -87,9 +87,9 @@ def validate_answer(rule: str, value: str) -> bool:
     if rule == "digits":
         return bool(value) and value.isdigit()
     if rule.startswith("phone"):
-        digits = re.sub(r"\D", "", value)
+        from shared.tenancy.schemas import is_valid_phone_input
         wanted = int(rule.split(":", 1)[1]) if ":" in rule else 10
-        return len(digits) >= wanted
+        return is_valid_phone_input(value, wanted=wanted)
     if rule.startswith("name"):
         wanted = int(rule.split(":", 1)[1]) if ":" in rule else 2
         return len(value.replace(" ", "")) >= wanted

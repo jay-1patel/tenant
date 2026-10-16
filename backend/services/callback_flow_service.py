@@ -696,20 +696,9 @@ class CallbackFlowService:
         return bool(re.match(email_regex, email))
     
     def _is_valid_phone(self, phone: str) -> bool:
-        """Validate phone format (country code + number)."""
-        import re
-        # Remove spaces and dashes
-        cleaned = re.sub(r'[\s\-]', '', phone)
-        
-        # Should start with + and have reasonable length
-        if not cleaned.startswith('+'):
-            return False
-        
-        # Check for country code + at least 8 digits
-        if len(cleaned[1:]) < 8:
-            return False
-        
-        return True
+        """Validate phone format (10-digit phone number with optional country code or leading 0)."""
+        from shared.tenancy.schemas import is_valid_phone_input
+        return is_valid_phone_input(phone, wanted=10)
 
 
 # Singleton instance

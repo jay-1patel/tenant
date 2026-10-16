@@ -84,8 +84,7 @@ def _contact_errors(name=None, phone=None, email=None, wa_id=None):
             errors.append("phone is required")
         elif not is_valid_phone(phone):
             errors.append(
-                "phone must be a country code followed by a 10-digit number, "
-                "e.g. +91 98765 43210"
+                "phone must be a 10-digit number (or country code followed by 10 digits, e.g. +91 98765 43210)"
             )
     if email is not None:
         if not str(email).strip():

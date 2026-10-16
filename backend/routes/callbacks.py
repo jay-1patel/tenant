@@ -43,6 +43,7 @@ from services.callback_service import (
     notification_service,
     parse_preferred_time_to_range,
 )
+from shared.tenancy.schemas import is_valid_phone_input
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tenants", tags=["callbacks"])
@@ -449,6 +450,14 @@ async def create_callback(
             detail=f"Invalid priority. Must be one of: {valid_priorities}"
         )
     
+    # Validate customer_phone if provided
+    if body.customer_phone:
+        if not is_valid_phone_input(body.customer_phone, wanted=10):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid customer_phone. Phone number must be 10 digits (or country code followed by 10 digits)."
+            )
+    
     # Create callback request
     callback_request = callback_service.create_callback_request(
         tenant_id=tenant_id,
@@ -657,6 +666,11 @@ async def update_callback(
         if body.customer_email:
             callback_request.customer_email = body.customer_email
         if body.customer_phone:
+            if not is_valid_phone_input(body.customer_phone, wanted=10):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid customer_phone. Phone number must be 10 digits (or country code followed by 10 digits)."
+                )
             callback_request.customer_phone = body.customer_phone
         if body.callback_type:
             callback_request.callback_type = body.callback_type
