@@ -23,7 +23,14 @@
 
 ## Eligibility & Borrowing Power Calculation
 
-### 1. Published Eligibility Benchmarks (Method B)
+### 1. Loan Eligibility, Interest Rates & Guidelines
+- 🏠 **Home Loan Interest Rates:** Home loan interest rates start from 8.50% p.a. and depend on your credit score, income, loan amount, and tenure.
+- 📋 **Personal Loan Requirements & Documents:** For a personal loan, you need KYC, PAN, last 3 months’ salary slips, last 6 months’ bank statements, and Form 16 or ITR (salaried), or 2 years’ ITR and business proof (self-employed).
+- ⏱ **Processing & Approval Timelines:** Personal loans can be approved in 24 to 48 hours, while home loans usually take 5 to 10 working days after documents are complete.
+- ✅ **Prepayment Rules:** Yes, you can prepay your loan. Floating-rate home loans have no prepayment charge for individual borrowers.
+- 📞 Need further assistance? Our support team is happy to help! Meridian Bank - Bank of All Banks
+
+### 2. Published Eligibility Benchmarks (Method B)
 - **Personal Loans:** Age 21–58 years, minimum monthly net salary of ₹25,000, CIBIL credit score 700+.
 - **Home Loans:** Age 21–65 years, minimum household income of ₹35,000/month, funding up to 80% of property value (LTV), tenures up to 30 years.
 - **Vehicle Loans:** Age 21–60 years, minimum income ₹20,000/month, up to 90% on-road funding.

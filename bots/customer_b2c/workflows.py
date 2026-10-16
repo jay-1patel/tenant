@@ -73,26 +73,59 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
 
     # ── Complaint: awaiting type ─────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_COMPLAINT_TYPE:
-        # Send interactive buttons for complaint type selection.
+        clean = (message or "").strip().lower()
+        if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back", "restart", "start over"):
+            await send_text_message(wa_id, "Complaint registration cancelled. Type *menu* or ask me anything anytime! 🙏")
+            return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
+
+        # If user asked a new question, break out of complaint flow and answer it via RAG
+        question_words = (
+            "what", "how", "where", "when", "why", "who", "which",
+            "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+            "show", "tell", "price", "cost", "rates", "hi", "hello", "hey",
+            "help", "support", "services", "products", "loans", "cards"
+        )
+        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in question_words):
+            return await _fallback_to_rag(wa_id, message, cfg)
+
         buttons = [
             {"id": "b2c_complaint_damaged", "title": "Damaged"},
             {"id": "b2c_complaint_wrong_item", "title": "Wrong Item"},
             {"id": "b2c_complaint_other", "title": "Other"},
         ]
-        # A known type (button title or typed text) advances the flow.
         complaint_type = _match_complaint_type(message)
         if complaint_type:
             context["complaint_type"] = complaint_type
-            await send_text_message(wa_id, "Please briefly describe the issue.")
+            await send_text_message(wa_id, "Please briefly describe the issue (or type *cancel* to exit).")
             return {"new_state": cfg.B2C_AWAITING_COMPLAINT_DESC, "context": context}
-        await send_button_message(wa_id, "Please select the type of complaint:", buttons)
+        await send_button_message(wa_id, "Please select the type of complaint (or type *cancel*):", buttons)
         return {"new_state": cfg.B2C_AWAITING_COMPLAINT_TYPE}
 
     # ── Complaint: awaiting description ───────────────────────────────────────
     if state == cfg.B2C_AWAITING_COMPLAINT_DESC:
+        clean = (message or "").strip().lower()
+        if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back"):
+            context.pop("complaint_type", None)
+            await send_text_message(wa_id, "Complaint registration cancelled. Type *menu* or ask me anything anytime! 🙏")
+            return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
+
+        question_words = (
+            "what", "how", "where", "when", "why", "who", "which",
+            "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+            "show", "tell", "price", "cost", "rates", "hi", "hello", "hey",
+            "help", "support", "services", "products", "loans", "cards"
+        )
+        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in question_words):
+            context.pop("complaint_type", None)
+            return await _fallback_to_rag(wa_id, message, cfg)
+
         ctype = context.get("complaint_type", "Other")
         ticket = tools.register_b2c_complaint(wa_id, ctype, message)
-        await send_text_message(wa_id, f"Complaint registered! Your ticket ID is {ticket}. We'll be in touch soon.")
+        context.pop("complaint_type", None)
+        await send_text_message(
+            wa_id,
+            f"✅ Complaint registered! Your ticket ID is {ticket}. We'll be in touch soon.\n\nType *menu* anytime or feel free to ask another question."
+        )
         return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
 
     # ── Nutrition lookup ──────────────────────────────────────────────────────

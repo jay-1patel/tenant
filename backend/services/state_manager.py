@@ -201,12 +201,17 @@ def ensure_conversation_row(wa_id: str) -> None:
     every flow write.
     """
     try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        t_id = resolve_tenant_for_user(wa_id)
+    except Exception:
+        t_id = "troogood"
+    try:
         with get_db_context() as conn:
             conn.execute(
-                """INSERT INTO user_states (wa_id, state, context_json, collected, status)
-                   VALUES (?, 'MAIN_MENU', '{}', '{}', ?)
+                """INSERT INTO user_states (wa_id, tenant_id, state, context_json, collected, status)
+                   VALUES (?, ?, 'B2C_MAIN_MENU', '{}', '{}', ?)
                    ON CONFLICT(wa_id) DO NOTHING""",
-                (wa_id, STATUS_BOT),
+                (wa_id, t_id, STATUS_BOT),
             )
     except Exception as e:
         logger.error(f"ensure_conversation_row failed for {wa_id}: {e}")
@@ -291,6 +296,13 @@ def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> 
             logger.warning(f"update_conversation_with_retry: no user_states row for {wa_id}")
             return {}
         mutate(convo)
+        tid = convo.get("tenant_id")
+        if not tid:
+            try:
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                tid = resolve_tenant_for_user(wa_id)
+            except Exception:
+                tid = "troogood"
         try:
             with get_db_context() as conn:
                 cur = conn.execute(
@@ -298,7 +310,7 @@ def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> 
                     "collected = ?, status = ?, version = version + 1, "
                     "updated_at = CURRENT_TIMESTAMP WHERE wa_id = ? AND version = ?",
                     (
-                        convo.get("tenant_id"),
+                        tid,
                         convo.get("active_flow"),
                         convo.get("current_step"),
                         json.dumps(convo.get("collected") or {}),

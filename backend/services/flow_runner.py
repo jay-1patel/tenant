@@ -34,11 +34,76 @@ if str(_ROOT) not in sys.path:
 
 logger = logging.getLogger("flow_runner")
 
-CANCEL_WORDS = {"cancel", "stop", "quit", "exit", "menu", "nevermind", "never mind", "cancel it"}
+CANCEL_WORDS = {
+    "cancel", "stop", "quit", "exit", "menu", "main menu", "nevermind", "never mind",
+    "cancel it", "cancel form", "back", "home", "restart", "start over", "leave",
+    "abort", "close", "end", "done", "clear"
+}
 SKIP_WORDS = {"skip", "-", "na", "n/a", "none", "no email"}
 
 _STATUS_BOT = "bot"
 _STATUS_PAUSED = "paused"
+
+_QUESTION_STARTERS = (
+    "what", "how", "where", "when", "why", "who", "which",
+    "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+    "tell me", "show me", "i want to", "i would like", "i have a question",
+    "details of", "information on", "info about", "price of", "cost of",
+    "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+)
+
+
+def _is_explicit_topic_switch(text: str, tenant_id=None) -> bool:
+    """Return True if the text is definitively invoking another service/intent/topic."""
+    if not text:
+        return False
+    t = text.strip().lower()
+    if "?" in t:
+        return True
+    try:
+        try:
+            from services import intent_answers, service_answers
+        except ImportError:
+            from backend.services import intent_answers, service_answers
+        if service_answers.is_service_query(t):
+            return True
+        if intent_answers.answer_for_text("", t, tenant_id=tenant_id):
+            return True
+        if intent_answers.answer_for_menu_title("", t, tenant_id=tenant_id):
+            return True
+    except Exception:
+        pass
+    switch_starters = (
+        "what are your", "what is your", "tell me about", "show me",
+        "how much", "what services", "what products", "what loans",
+        "do you offer", "who are you", "office timings", "location", "address",
+    )
+    return any(t.startswith(s) for s in switch_starters)
+
+
+def is_likely_question_or_intent(text: str, tenant_id=None) -> bool:
+    """Return True if user input is asking a question or invoking another topic."""
+    if not text:
+        return False
+    t = text.strip().lower()
+    if "?" in t:
+        return True
+    if any(t.startswith(w + " ") or t == w for w in _QUESTION_STARTERS):
+        return True
+    try:
+        try:
+            from services import intent_answers, service_answers
+        except ImportError:
+            from backend.services import intent_answers, service_answers
+        if service_answers.is_service_query(t):
+            return True
+        if intent_answers.answer_for_text("", t, tenant_id=tenant_id):
+            return True
+        if intent_answers.answer_for_menu_title("", t, tenant_id=tenant_id):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # ── profile / tenant resolution ───────────────────────────────────────────
@@ -91,6 +156,8 @@ def validate_answer(rule: str, value: str) -> bool:
         wanted = int(rule.split(":", 1)[1]) if ":" in rule else 10
         return is_valid_phone_input(value, wanted=wanted)
     if rule.startswith("name"):
+        if is_likely_question_or_intent(value):
+            return False
         wanted = int(rule.split(":", 1)[1]) if ":" in rule else 2
         return len(value.replace(" ", "")) >= wanted
     if rule.startswith("min_len"):
@@ -169,7 +236,9 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
     # Complaint wrap: keep the legacy complaints admin surface alive while
     # the runner owns the conversation (see module docstring).
     if (lead_source or "").lower() in ("complaint", "ticket", "support_ticket"):
-        _insert_complaint_row(tenant_id, wa_id, data)
+        t_id = _insert_complaint_row(tenant_id, wa_id, data)
+        if t_id:
+            collected["ticket_id"] = t_id
 
     # Callback & Google Meeting auto-scheduling
     if flow_name in ("book_callback", "callback_request") or (lead_source or "").lower() in ("callback", "appointment"):
@@ -210,23 +279,41 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
 
 def _insert_complaint_row(tenant_id: str, wa_id: str, data: dict) -> str:
     now = datetime.now().isoformat()
-    ticket_id = f"CMP-{uuid.uuid4().hex[:8].upper()}"
-    description = " ".join(
-        f"{k}: {v}" for k, v in data.items() if k not in ("name", "phone", "email")
-    ) or (data.get("need") or "")
+    ticket_id = data.get("ticket_id") or f"CMP-{uuid.uuid4().hex[:8].upper()}"
+    raw_urgency = str(data.get("urgency") or "normal").strip().lower()
+    priority = "urgent" if ("urgent" in raw_urgency or "high" in raw_urgency) else "normal"
+    issue_desc = str(data.get("issue") or data.get("need") or "").strip()
+    description = issue_desc
+    if data.get("urgency"):
+        description = f"Urgency: {data.get('urgency')}\nDetails: {issue_desc}" if issue_desc else f"Urgency: {data.get('urgency')}"
+    subject = (issue_desc or data.get("need") or "WhatsApp complaint")[:120]
+
+    # Map complaint type from issue text if possible
+    ctype = "Other"
+    issue_lower = issue_desc.lower()
+    if any(k in issue_lower for k in ("damage", "broken", "cracked", "defect", "leak", "tear")):
+        ctype = "Damaged Product"
+    elif any(k in issue_lower for k in ("wrong", "incorrect", "different")):
+        ctype = "Wrong Item"
+    elif any(k in issue_lower for k in ("delivery", "late", "delay", "not delivered", "shipping")):
+        ctype = "Delivery Issue"
+    elif any(k in issue_lower for k in ("bill", "payment", "charge", "refund", "paid")):
+        ctype = "Billing & Payment"
+    elif any(k in issue_lower for k in ("quality", "taste", "smell", "stale", "expired")):
+        ctype = "Product Quality"
+
     try:
         with _db().get_db_context() as conn:
             conn.execute(
                 """INSERT INTO complaints (ticket_id, wa_id, complaint_type, description,
                    status, priority, subject, updated_at, created_at, tenant_id)
-                   VALUES (?, ?, ?, ?, 'open', 'normal', ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)""",
                 (
-                    ticket_id, wa_id, "Other", description,
-                    (data.get("need") or "WhatsApp complaint")[:120],
-                    now, now, tenant_id,
+                    ticket_id, wa_id, ctype, description or "Complaint submitted via WhatsApp",
+                    priority, subject, now, now, tenant_id,
                 ),
             )
-        logger.info("COMPLAINT_WRAPPED | tenant=%s | ticket=%s", tenant_id, ticket_id)
+        logger.info("COMPLAINT_WRAPPED | tenant=%s | ticket=%s | priority=%s", tenant_id, ticket_id, priority)
     except Exception as e:
         logger.error("Complaint wrap insert failed: %s", e)
     return ticket_id
@@ -290,6 +377,12 @@ def _handoff(tenant_id: str, wa_id: str, flow_name: str, step,
 
 def is_running(wa_id: str) -> bool:
     return bool(_state().active_flow(wa_id))
+
+
+def clear_flow(wa_id: str, *, reset_status: bool = True) -> bool:
+    """Clear any running flow for a user."""
+    return _state().clear_flow(wa_id, reset_status=reset_status)
+
 
 
 _EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
@@ -414,7 +507,13 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
     # Ticket / Complaint triggers
     ticket_phrases = (
         "raise a ticket", "raise ticket", "raise complaint", "raise a complaint",
-        "create ticket", "log complaint", "support ticket",
+        "create ticket", "log complaint", "support ticket", "file a complaint",
+        "file complaint", "register complaint", "register a complaint",
+        "have a complaint", "i have a complaint", "complaint", "complaints",
+        "complain", "want to complain", "grievance", "shikayat",
+        "bad experience", "bad service", "unacceptable service", "unacceptable",
+        "report an issue", "report issue", "issue with order", "order issue",
+        "damaged product", "damaged item", "wrong item", "wrong product",
     )
     if any(p in clean or clean == p for p in ticket_phrases):
         flow = profile.flow("raise_ticket") or profile.flow("register_complaint")
@@ -524,11 +623,22 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
             return _retry(wa_id, flow, step, collected,
                          "Please reply with an answer, or type *cancel*.")
         elif validate_answer(step.validate_rule, answer):
+            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id) and (
+                key not in ("need", "issue", "project", "details", "subject")
+                or _is_explicit_topic_switch(answer, profile.tenant_id)
+            ):
+                logger.info("FLOW_BREAK | wa_id=%s | user asked question during ask step %s: %r", wa_id, step.id, answer[:50])
+                sm.clear_flow(wa_id)
+                return {"handled": False, "switched_topic": True}
             collected[key] = answer
             collected.pop("_attempts", None)
         else:
+            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
+                logger.info("FLOW_BREAK | wa_id=%s | user asked question instead of flow input: %r", wa_id, answer[:50])
+                sm.clear_flow(wa_id)
+                return {"handled": False, "switched_topic": True}
             return _retry(wa_id, flow, step, collected,
-                          step.invalid_message or "That doesn't look right — please try again.")
+                          step.invalid_message or "That doesn't look right — please try again (or type *cancel* to exit).")
         next_id = step.on.get(str(collected[key]).lower()) if step.on else None
         sm.merge_collected(wa_id, {key: collected[key]})
         return _run_from(wa_id, profile, flow, next_id or step.next, collected, messages)
@@ -536,9 +646,13 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
     if step.type == "choice":
         match = _match_choice(answer, step.options)
         if match is None:
+            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
+                logger.info("FLOW_BREAK | wa_id=%s | user asked question instead of choice: %r", wa_id, answer[:50])
+                sm.clear_flow(wa_id)
+                return {"handled": False, "switched_topic": True}
             return _retry(wa_id, flow, step, collected,
                           step.invalid_message or
-                          f"Please pick one of: {', '.join(step.options)}")
+                          f"Please pick one of: {', '.join(step.options)} (or type *cancel* to exit)")
         key = step.key or step.id
         collected[key] = match
         sm.merge_collected(wa_id, {key: match})
@@ -548,9 +662,13 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
     if step.type == "confirm":
         verdict = _yes_no(answer, step)
         if verdict is None:
+            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
+                logger.info("FLOW_BREAK | wa_id=%s | user asked question instead of confirm: %r", wa_id, answer[:50])
+                sm.clear_flow(wa_id)
+                return {"handled": False, "switched_topic": True}
             return _retry(wa_id, flow, step, collected,
                           step.invalid_message or
-                          f"Please reply *{step.yes_label}* or *{step.no_label}*.")
+                          f"Please reply *{step.yes_label}* or *{step.no_label}* (or type *cancel* to exit).")
         collected[step.key or step.id] = verdict
         sm.merge_collected(wa_id, {step.key or step.id: verdict})
         next_id = step.on.get(verdict) if step.on else None
@@ -710,6 +828,27 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             messages[-1] = cb_confirmation
         else:
             messages.append(cb_confirmation)
+    elif flow.name in ("raise_ticket", "register_complaint") or collected.get("ticket_id") or "issue" in collected:
+        ticket_id = collected.get("ticket_id") or f"CMP-{uuid.uuid4().hex[:8].upper()}"
+        cust_name = collected.get("name") or "there"
+        phone = collected.get("phone") or wa_id
+        issue = collected.get("issue") or collected.get("need") or "Complaint details logged"
+        raw_urgency = str(collected.get("urgency") or "Normal").strip().title()
+
+        cmp_lines = [
+            "📝 *Complaint Registered Successfully!*",
+            f"🎫 *Ticket ID:* `{ticket_id}`",
+            f"👤 *Name:* {cust_name}",
+            f"📞 *Contact:* {phone}",
+            f"⚡ *Priority:* {raw_urgency}",
+            f"📄 *Issue:* {issue}",
+            "\nOur support team has logged your complaint and will review and address it shortly. Please keep this Ticket ID for your reference. 🙏",
+        ]
+        cmp_confirmation = "\n".join(cmp_lines)
+        if messages and any(kw in messages[-1].lower() for kw in ("ticket", "shortly", "done", "team", "complaint")):
+            messages[-1] = cmp_confirmation
+        else:
+            messages.append(cmp_confirmation)
     elif flow.success_message and not emitted_done and flow.success_message not in messages:
         messages.append(flow.success_message)
     return _outcome(flow.name, messages, finished=True, lead_id=lead_id,

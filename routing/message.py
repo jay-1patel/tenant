@@ -575,6 +575,30 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
         if b2b is not None:
             return b2b
 
+    # ── PROFILE FLOWS (active flow progression & flow triggers) ───────────
+    try:
+        from backend.services import flow_runner
+        if wa_id and flow_runner.is_running(wa_id):
+            outcome = flow_runner.handle_reply(wa_id, user_text, tenant_id=tenant_id)
+            if outcome and outcome.get("handled") and outcome.get("messages"):
+                result["answer"] = "\n".join(outcome["messages"])
+                result["query_type"] = "flow"
+                return result
+
+        flow_name = (
+            flow_runner.flow_for_button(wa_id or "", interactive_id or "", tenant_id=tenant_id)
+            or flow_runner.flow_for_text(wa_id or "", user_text, tenant_id=tenant_id)
+        )
+        if flow_name:
+            outcome = flow_runner.start_flow(wa_id or "", flow_name, tenant_id=tenant_id)
+            if outcome.get("handled") and outcome.get("messages"):
+                result["answer"] = "\n".join(outcome["messages"])
+                result["query_type"] = "flow"
+                logger.info("FLOW_STARTED_VIA_MESSAGE | wa_id=%s | flow=%s", wa_id, flow_name)
+                return result
+    except Exception as exc:
+        logger.debug("Flow check in process_message: %s", exc)
+
     # Typed brochure requests share the same tenant-specific sender as menu taps.
     if not is_btn_reply and _wants_catalogue(user_text) and not _wants_new_arrivals(user_text):
         enabled, tid = _tenant_feature_enabled(wa_id or "", "brochure_pdf", tenant_id)

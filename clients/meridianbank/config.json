@@ -192,7 +192,11 @@
     },
     {
       "name": "check_eligibility",
-      "answer": "📊 *Meridian Bank — Eligibility Criteria*\n\n• *Personal Loans:* Age 21–58, minimum monthly net salary ₹25,000, CIBIL score 700+.\n• *Home Loans:* Age 21–65, minimum household income ₹35,000/mo, up to 80% property value funding.\n• *Vehicle Loans:* Age 21–60, minimum income ₹20,000/mo, up to 90% on-road funding.\n• *Credit Cards:* Minimum age 21, regular income ₹20,000/mo or secured against Fixed Deposit (FD).\n\n_Tap *'Check Eligibility'* in the menu to check your pre-qualification!_"
+      "answer": "📊 *Meridian Bank — Loan Eligibility Details*\n\n🧠 • 🏠 Home loan interest rates start from 8.50% p.a. and depend on your credit score, income, loan amount, and tenure.\n• 📋 For a personal loan, you need KYC, PAN, last 3 months’ salary slips, last 6 months’ bank statements, and Form 16 or ITR (salaried), or 2 years’ ITR and business proof (self-employed).\n• ⏱ Personal loans can be approved in 24 to 48 hours, while home loans usually take 5 to 10 working days after documents are complete.\n• ✅ Yes, you can prepay your loan. Floating-rate home loans have no prepayment charge for individual borrowers.\n• 📞 Need further assistance? Our support team is happy to help! Meridian Bank- Bank of All Banks"
+    },
+    {
+      "name": "eligibility_check",
+      "answer": "📊 *Meridian Bank — Loan Eligibility Details*\n\n🧠 • 🏠 Home loan interest rates start from 8.50% p.a. and depend on your credit score, income, loan amount, and tenure.\n• 📋 For a personal loan, you need KYC, PAN, last 3 months’ salary slips, last 6 months’ bank statements, and Form 16 or ITR (salaried), or 2 years’ ITR and business proof (self-employed).\n• ⏱ Personal loans can be approved in 24 to 48 hours, while home loans usually take 5 to 10 working days after documents are complete.\n• ✅ Yes, you can prepay your loan. Floating-rate home loans have no prepayment charge for individual borrowers.\n• 📞 Need further assistance? Our support team is happy to help! Meridian Bank- Bank of All Banks"
     },
     {
       "name": "branch_support",

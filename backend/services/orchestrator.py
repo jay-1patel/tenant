@@ -183,21 +183,57 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                         "error": None,
                     }
 
-            # 0. Check Main Menu trigger (e.g. user clicked "🏠 Main Menu" interactive button)
+            # 0. Check Main Menu & Cancel triggers
             clean_btn = (message or "").strip().lower()
             clean_btn = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", clean_btn).strip()
-            if clean_btn in ("main menu", "menu", "show options", "options") or message in ("main_menu", "menu_main"):
-                from bots.customer_b2c import menus
-                from services.whatsapp_sender import send_list_menu
-                await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
-                return {
-                    "status": "processed",
-                    "messages": drain_captured(),
-                    "new_state": "B2C_MAIN_MENU",
-                    "human_handover": False,
-                    "user_type": "b2c",
-                    "error": None,
-                }
+            is_menu_cmd = (
+                clean_btn in ("main menu", "menu", "show options", "options", "start", "hi", "hello", "hey", "restart", "start over")
+                or message in ("main_menu", "menu_main", "menu_start")
+            )
+            is_cancel_cmd = clean_btn in (
+                "cancel", "stop", "exit", "quit", "abort", "back", "home", "leave", "close", "nevermind", "never mind"
+            )
+
+            if is_menu_cmd or is_cancel_cmd:
+                flow_runner.clear_flow(wa_id)
+                db.execute(
+                    "UPDATE user_states SET state = 'B2C_MAIN_MENU', context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
+                    (wa_id,),
+                )
+                if is_cancel_cmd:
+                    await send_text_message(
+                        wa_id,
+                        "Okay, I've cancelled that. Type *menu* anytime to see options, or feel free to ask any question! 🙏"
+                    )
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": "B2C_MAIN_MENU",
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+                else:
+                    from bots.customer_b2c import menus
+                    from services.whatsapp_sender import send_list_menu
+                    await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+                    return {
+                        "status": "processed",
+                        "messages": drain_captured(),
+                        "new_state": "B2C_MAIN_MENU",
+                        "human_handover": False,
+                        "user_type": "b2c",
+                        "error": None,
+                    }
+
+            # If user clicked a menu or action button, clear any stale flow & state first
+            if message and (message.startswith(("menu_", "b2c_", "flow:", "flow_")) or clean_btn.startswith("menu_")):
+                flow_runner.clear_flow(wa_id)
+                db.execute(
+                    "UPDATE user_states SET state = 'B2C_MAIN_MENU', context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
+                    (wa_id,),
+                )
+                user_state = ("B2C_MAIN_MENU", "{}")
 
             # 1. If user is currently running a flow, advance the flow with their reply
             if flow_runner.is_running(wa_id):
@@ -214,6 +250,15 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                         "user_type": "b2c",
                         "error": None,
                     }
+                # If outcome was not handled (user asked a question / broke flow),
+                # clear any leftover state and allow fall-through to answer question directly!
+                if outcome and not outcome.get("handled"):
+                    flow_runner.clear_flow(wa_id)
+                    db.execute(
+                        "UPDATE user_states SET state = 'B2C_MAIN_MENU', context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
+                        (wa_id,),
+                    )
+                    user_state = ("B2C_MAIN_MENU", "{}")
 
             # 2. Check flow trigger for button ID or typed text (e.g. 'book a callback', 'schedule meeting')
             flow_name = (
@@ -228,7 +273,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     return {
                         "status": "processed",
                         "messages": drain_captured(),
-                        "new_state": outcome.get("new_state", user_state[0] if user_state else None),
+                        "new_state": outcome.get("new_state", "B2C_MAIN_MENU"),
                         "human_handover": False,
                         "user_type": "b2c",
                         "error": None,
@@ -260,7 +305,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
-                    "new_state": user_state[0] if user_state else None,
+                    "new_state": "B2C_MAIN_MENU",
                     "human_handover": False,
                     "user_type": "b2c",
                     "error": None,
@@ -287,7 +332,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     return {
                         "status": "processed",
                         "messages": drain_captured(),
-                        "new_state": user_state[0] if user_state else None,
+                        "new_state": "B2C_MAIN_MENU",
                         "human_handover": False,
                         "user_type": "b2c",
                         "error": None,

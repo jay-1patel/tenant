@@ -425,9 +425,9 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
 
             try:
                 from backend.services import flow_runner
-                flow_name = flow_runner.flow_for_button(wa_id, pressed_id)
+                flow_name = flow_runner.flow_for_button(wa_id, pressed_id, tenant_id=tenant_id)
                 if flow_name:
-                    outcome = flow_runner.start_flow(wa_id, flow_name)
+                    outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
                     if outcome.get("handled") and outcome.get("messages"):
                         for msg in outcome["messages"]:
                             if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -495,6 +495,31 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
 
         # Log incoming message to company API
         await log_incoming_message(wa_id, user_text, msg_type)
+
+        # ── FLOW TRIGGER BY TEXT OR BUTTON (Complaints, Callbacks, Quotes) ────
+        try:
+            from backend.services import flow_runner
+            flow_name = (
+                flow_runner.flow_for_button(wa_id, pressed_id or button_id or "", tenant_id=tenant_id)
+                or flow_runner.flow_for_text(wa_id, user_text, tenant_id=tenant_id)
+            )
+            if flow_name:
+                outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                if outcome.get("handled") and outcome.get("messages"):
+                    for msg in outcome["messages"]:
+                        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                            send_whatsapp_message(wa_id, msg)
+                    reply_text = "\n".join(outcome["messages"])
+                    save_chat(wa_id, sender_name, user_text, reply_text, "flow")
+                    await log_outgoing_message(wa_id, reply_text, "text")
+                    logger.info(f"FLOW_STARTED | {wa_id} | flow={outcome.get('flow')}")
+                    response_time_ms = int((time.time() - start_time) * 1000)
+                    log_webhook("outgoing", "/webhook/flow", json.dumps({
+                        "to": wa_id, "flow": outcome.get("flow")
+                    }), 200, f"Flow {outcome.get('flow')} started", response_time_ms=response_time_ms)
+                    return
+        except Exception as e:
+            logger.error(f"Flow trigger check failed for {user_text!r}: {e}")
 
         response = await process_message(user_text, wa_id, raw_message=message, tenant_id=tenant_id)
         response_text = response.get("answer", "")

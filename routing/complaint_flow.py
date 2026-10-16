@@ -45,7 +45,10 @@ COMPLAINT_START_PHRASES = [
     "shikayat", "want to complain",
 ]
 
-CANCEL_PHRASES = ["cancel", "cancel form", "exit", "quit", "stop", "never mind", "cancel complaint"]
+CANCEL_PHRASES = [
+    "cancel", "cancel form", "exit", "quit", "stop", "never mind", "nevermind",
+    "cancel complaint", "back", "menu", "main menu", "home", "restart", "start over"
+]
 
 # Button-friendly complaint types (max 20 chars each).
 COMPLAINT_TYPE_BUTTONS = [
@@ -226,9 +229,13 @@ def handle_complaint_state(wa_id: str, user_text: str) -> bool:
 
     # ── Step 1: complaint type ───────────────────────────────────────────
     if state == COMPLAINT_AWAITING_TYPE:
+        clean = (text or "").strip().lower()
+        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in ("what", "how", "where", "can", "show", "tell", "price", "is", "do", "hi", "hello", "hey")):
+            set_user_state(wa_id, MAIN_MENU_STATE, {})
+            return False  # Let main message pipeline answer the question directly
         ctype = _match_complaint_type(text)
         if not ctype:
-            _send(wa_id, "I didn't catch that. Please select one of the options above:")
+            _send(wa_id, "I didn't catch that. Please select one of the options above (or type *cancel*):")
             if config.SEND2_USERNAME and config.SEND2_PASSWORD:
                 send_whatsapp_interactive(wa_id, "Select complaint type:", _buttons())
             return True
