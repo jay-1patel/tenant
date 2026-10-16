@@ -45,6 +45,9 @@ scratchpad/
 *.stdout
 *.stderr
 
+# ---- Per-tenant chat-history JSON logs ----
+exports/
+
 # ---- Ad-hoc local test payloads (contain hardcoded credentials) ----
 payload.json
 incoming_payload.json

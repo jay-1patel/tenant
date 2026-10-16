@@ -2373,13 +2373,24 @@ def mark_inbound_processed(message_id: str, wa_id: str, channel: str = "send2") 
 
 def save_chat(wa_id, sender_name, message, response, route="faq", tenant_id=None):
     tid = tenant_id or _current_tenant.get() or _resolve_tenant()
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    stored_message = f"[{route}] {message}"
     with get_db_context() as conn:
         conn.execute(
             "INSERT INTO chat_history (wa_id, sender_name, message, response, route, tenant_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (wa_id, sender_name, f"[{route}] {message}", response, route, tid,
-             datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            (wa_id, sender_name, stored_message, response, route, tid, created_at),
         )
+    # Mirror every exchange into a per-tenant, per-day JSON audit file,
+    # alongside (never instead of) the DB row above.
+    try:
+        try:
+            from json_history import append_chat as _json_append
+        except ImportError:
+            from backend.json_history import append_chat as _json_append
+        _json_append(wa_id, sender_name, stored_message, response, route, tid, created_at)
+    except Exception as e:
+        logger.warning(f"json_history mirror failed for {wa_id}: {e}")
 
 
 def get_recent_history(wa_id: str, limit: int = 5, ttl_minutes: int = 30):

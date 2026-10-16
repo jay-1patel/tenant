@@ -144,7 +144,7 @@ _ECOMMERCE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_products", "title": "View Products", "description": "Browse all products",
-             "section": "🛍️ Products", "icon": "🛍️", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "🛍️ Products", "icon": "🛍️", "sort_order": 0, "requires_feature": "products"},
             {"id": "menu_catalogue", "title": "Brochure", "description": "Download the brochure PDF",
              "section": "🛍️ Products", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf"},
             {"id": "menu_new_arrivals", "title": "New Releases", "description": "Fresh releases this month",
@@ -284,7 +284,7 @@ _IT_SOFTWARE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_services", "title": "Our Services", "description": "What we build and deliver",
-             "section": "🛠️ Services", "icon": "🛠️", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "🛠️ Services", "icon": "🛠️", "sort_order": 0, "requires_feature": "services"},
             {"id": "menu_technologies", "title": "Technologies", "description": "Our tech stack & expertise",
              "section": "🛠️ Services", "icon": "💻", "sort_order": 1, "requires_feature": "offering_details",
              "intent": "technologies"},
@@ -568,7 +568,7 @@ _BANKING = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_products", "title": "Banking Products", "description": "Accounts, cards & loans",
-             "section": "🏦 Products", "icon": "🏦", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "🏦 Products", "icon": "🏦", "sort_order": 0, "requires_feature": "products_schemes"},
             {"id": "menu_cards", "title": "Cards", "description": "Credit & debit card help",
              "section": "🏦 Products", "icon": "💳", "sort_order": 1, "requires_feature": "offering_details"},
             {"id": "menu_loans", "title": "Loans", "description": "Personal, home & business loans",
@@ -686,7 +686,7 @@ _FINANCE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_services", "title": "Our Services", "description": "What we offer",
-             "section": "💼 Services", "icon": "💼", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "💼 Services", "icon": "💼", "sort_order": 0, "requires_feature": "services"},
             {"id": "menu_brochure", "title": "Services Brochure", "description": "Download our brochure",
              "section": "💼 Services", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf"},
             {"id": "menu_faq", "title": "FAQs", "description": "Common questions answered",

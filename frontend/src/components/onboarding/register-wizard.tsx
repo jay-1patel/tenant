@@ -745,6 +745,42 @@ function DomainStep({ draft, patch }: StepProps) {
             label="Distributors"
             description="Manage the reseller/distributor network and their pricing tiers."
           />
+          <Switch
+            checked={draft.features.includes('services')}
+            onChange={(on) =>
+              patch({
+                features: on
+                  ? [...draft.features, 'services']
+                  : draft.features.filter((f) => f !== 'services'),
+              })
+            }
+            label="Services"
+            description="Show the Services menu entry and answer questions about what you deliver."
+          />
+          <Switch
+            checked={draft.features.includes('products')}
+            onChange={(on) =>
+              patch({
+                features: on
+                  ? [...draft.features, 'products']
+                  : draft.features.filter((f) => f !== 'products'),
+              })
+            }
+            label="Products"
+            description="Show the Products menu entry and answer questions about what you sell."
+          />
+          <Switch
+            checked={draft.features.includes('products_schemes')}
+            onChange={(on) =>
+              patch({
+                features: on
+                  ? [...draft.features, 'products_schemes']
+                  : draft.features.filter((f) => f !== 'products_schemes'),
+              })
+            }
+            label="Products & Schemes"
+            description="Show a combined Products & Schemes menu entry."
+          />
         </CardBody>
       </Card>
 

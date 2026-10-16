@@ -477,14 +477,16 @@ def _validate_faq_dynamic_result(parsed: dict, user_query: str = "", tenant_id: 
     except Exception:
         tenant_registry = BUTTON_REGISTRY
 
-    # Only keep actions that exist in the registry — invented buttons are dropped.
+    # Only keep actions that exist in the tenant's menu/flow registry —
+    # invented buttons AND buttons the tenant has hidden from the menu are
+    # dropped. Tenants without a profile get the global registry unchanged.
     validated = []
     for action in next_actions:
         if isinstance(action, dict):
             aid = (action.get("id", "") or "").strip()
-            spec = tenant_registry.get(aid) or BUTTON_REGISTRY.get(aid)
+            spec = tenant_registry.get(aid)
             if not spec:
-                logger.info(f"BUTTON_DROPPED | invented/unknown id: {aid!r}")
+                logger.info(f"BUTTON_DROPPED | id not in tenant menu: {aid!r}")
                 continue
             # Prefer the registry title (canonical, <= 20 chars).
             validated.append({"id": aid[:50], "title": spec["title"][:20]})
@@ -764,7 +766,7 @@ POLICIES, GST, TERMS OF USE & DETAILED QUERIES:
 - Do not over-summarize; ensure critical facts, figures, and legal/policy limits from the context are fully stated.
 - Never include URLs unless explicitly provided in the context.
 - Never tell the user to visit the website if the information is available in the context.
-- Use 100-160 words.
+- Use 100-140 words.
 - Cover important amount, days, period, conditions etc
 
 
@@ -810,7 +812,7 @@ EXPANDED POLICY & TERMS RULE:
 - For questions on GST, Policies, Terms of Use, Shipping, Replacements, or Pricing, extract and present ALL available conditions, rules, timelines, and numbers in thorough bullet points.
 - Keep all specific numbers, percentages, fees, and conditions intact without skipping details.
 - Add relevant emojis to points for readability.
-- Use 100-160 words.
+- Use 100-140 words.
 - Cover important amount, days, period, conditions etc
 
 RESPONSE STRUCTURE:
@@ -1273,7 +1275,9 @@ async def synthesize_intent_answer(
         f"A user asked about '{intent_name}'. "
         f"Using ONLY the factual data provided in the context below, "
         f"write a concise, professional, WhatsApp‑friendly reply. "
-        f"Use bullet points (•), bold (*text*) for headings, and keep it under 400 words. "
+        f"Use bullet points (•), bold (*text*) for headings, and keep it under 120 words "
+        f"(about 700 characters) so the whole reply fits in one WhatsApp message without "
+        f"being cut off. "
         f"Do NOT add information that is not present in the context."
     )
 

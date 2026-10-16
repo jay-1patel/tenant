@@ -504,14 +504,25 @@ def get_tenant_action_registry(tenant_id: str | None = None) -> dict[str, dict]:
     # Ensure main_menu is always available
     registry["main_menu"] = {"id": "main_menu", "title": BUTTONS["main_menu"]}
 
-    # Ensure active flows have direct button specs
-    if profile.features.is_on("quote"):
+    # Ensure active flows have direct button specs — but only when the tenant's
+    # menu actually surfaces that flow. A flow hidden from the menu (tombstoned,
+    # disabled, or simply never added) must not resurface as a suggested button.
+    enabled_rows = [b for b in profile.menu.buttons if b.enabled]
+    row_ids = {getattr(b, "id", "") for b in enabled_rows}
+    row_flows = {getattr(b, "flow", None) for b in enabled_rows}
+
+    def _flow_surfaced(flow_name: str, *row_ids_for_flow: str) -> bool:
+        if flow_name in row_flows:
+            return True
+        return any(rid in row_ids for rid in row_ids_for_flow)
+
+    if profile.features.is_on("quote") and _flow_surfaced("get_quote", "menu_quote", "menu_proposal"):
         registry["get_quote"] = {"id": "get_quote", "title": BUTTONS["get_quote"]}
-    if profile.features.is_on("callback"):
+    if profile.features.is_on("callback") and _flow_surfaced("book_callback", "menu_callback", "menu_human"):
         registry["book_callback"] = {"id": "book_callback", "title": BUTTONS["book_callback"]}
-    if profile.features.is_on("complaints"):
+    if profile.features.is_on("complaints") and _flow_surfaced("raise_ticket", "menu_support", "menu_complaint", "menu_grievance"):
         registry["raise_ticket"] = {"id": "raise_ticket", "title": BUTTONS["raise_ticket"]}
-    if profile.features.is_on("human_handover"):
+    if profile.features.is_on("human_handover") and _flow_surfaced("book_callback", "menu_human"):
         registry["menu_human"] = {"id": "menu_human", "title": BUTTONS["menu_human"]}
 
     return registry if registry else BUTTON_REGISTRY
@@ -553,6 +564,7 @@ def get_contextual_buttons(
         return []
 
     profile = None
+    tid = tenant_id
     try:
         from shared.tenancy.loader import get_tenant_profile
         from shared.tenancy.resolver import resolve_tenant_for_user
@@ -738,6 +750,15 @@ def get_contextual_buttons(
             result.append({"id": bid[:50], "title": title[:20]})
             if len(result) >= limit:
                 break
+
+    # Honor the tenant's actual menu: a suggestion the tenant has tombstoned,
+    # disabled, or gated off (e.g. a removed "Get a Quote" row) must not surface.
+    try:
+        allowed_ids = set(get_tenant_action_registry(tid).keys())
+    except Exception:
+        allowed_ids = None
+    if allowed_ids is not None:
+        result = [b for b in result if b["id"] in allowed_ids]
 
     # If still fewer than limit, ensure main_menu is present
     if not any(b["id"] == "main_menu" for b in result) and len(result) < limit:

@@ -151,7 +151,10 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
             api_section["rows"].append(api_row)
         api_sections.append(api_section)
 
-    norm_body = normalize_whatsapp_formatting(body_text or " ")
+    # WhatsApp rejects the whole message when the body is empty or > 1024 chars
+    # ("Body text length invalid. Min length: 1, Max length: 1024"). Long LLM
+    # answers are re-sent as a list menu (buttons -> rows), so clamp the body.
+    norm_body = _truncate_body(normalize_whatsapp_formatting(body_text or " "))
 
     payload = {
         "username": SEND2_USERNAME,
