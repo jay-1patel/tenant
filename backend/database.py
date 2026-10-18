@@ -761,6 +761,9 @@ def init_db():
             ("tier", "TEXT DEFAULT 'Bronze'"),
             ("discount_applied", "REAL DEFAULT 0"),
             ("delivery_date", "TEXT"),
+            ("customer_name", "TEXT"),
+            ("customer_mobile", "TEXT"),
+            ("order_type", "TEXT DEFAULT 'order'"),
         ])
         _ensure_columns(conn, "complaints", [
             ("priority", "TEXT DEFAULT 'normal'"),

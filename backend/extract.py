@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import csv
 import re
 import logging
 import shutil
@@ -49,8 +50,8 @@ else:
         "path of tesseract.exe."
     )
 
-CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", 500))
-CHUNK_OVERLAP = int(os.environ.get("CHUNK_OVERLAP", 60))
+CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", 1200))
+CHUNK_OVERLAP = int(os.environ.get("CHUNK_OVERLAP", 150))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploaded_files"))
@@ -59,11 +60,11 @@ EXTRACTED_DIR = os.environ.get("EXTRACTED_DIR", os.path.join(UPLOAD_DIR, "extrac
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(EXTRACTED_DIR, exist_ok=True)
 
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls")
+SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".md", ".csv")
 
 
 # ----------------------------------------------------------------------
-# Text Splitting Helpers
+# Text Splitting Helpers (Semantic & Boundary-Aware)
 # ----------------------------------------------------------------------
 
 def split_qa(text: str) -> List[str]:
@@ -77,30 +78,59 @@ def split_qa(text: str) -> List[str]:
 
 
 def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-    """Fallback fixed-size chunker with overlap for text that has no Q/A markers."""
+    """Semantic boundary-aware chunker that splits on paragraphs and sentence breaks
+    rather than severing arbitrary words or table rows."""
     if not text:
         return []
+    text = text.strip()
     if len(text) <= chunk_size:
         return [text]
 
+    # First split by double newlines (paragraphs / markdown blocks)
+    paragraphs = re.split(r'\n{2,}', text)
     chunks = []
-    start = 0
-    text_len = len(text)
+    current_chunk = []
+    current_len = 0
 
-    while start < text_len:
-        end = start + chunk_size
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        next_start = end - overlap
-        # Guard against infinite loop if overlap >= chunk_size
-        start = next_start if next_start > start else end
+    for para in paragraphs:
+        p_clean = para.strip()
+        if not p_clean:
+            continue
 
-    return chunks
+        # If a single paragraph is larger than chunk_size, split by sentences or lines
+        if len(p_clean) > chunk_size:
+            sentences = re.split(r'(?<=[.?!])\s+|\n', p_clean)
+            for s in sentences:
+                s_clean = s.strip()
+                if not s_clean:
+                    continue
+                if current_len + len(s_clean) + 1 > chunk_size and current_chunk:
+                    chunks.append("\n\n".join(current_chunk))
+                    # Carry over overlap if possible
+                    tail = current_chunk[-1] if current_chunk else ""
+                    current_chunk = [tail] if len(tail) <= overlap else []
+                    current_len = sum(len(x) + 2 for x in current_chunk)
+                current_chunk.append(s_clean)
+                current_len += len(s_clean) + 1
+        else:
+            if current_len + len(p_clean) + 2 > chunk_size and current_chunk:
+                chunks.append("\n\n".join(current_chunk))
+                tail = current_chunk[-1] if current_chunk else ""
+                current_chunk = [tail] if len(tail) <= overlap else []
+                current_len = sum(len(x) + 2 for x in current_chunk)
+            current_chunk.append(p_clean)
+            current_len += len(p_clean) + 2
+
+    if current_chunk:
+        chunk_str = "\n\n".join(current_chunk).strip()
+        if chunk_str and (not chunks or chunks[-1] != chunk_str):
+            chunks.append(chunk_str)
+
+    return chunks if chunks else [text[:chunk_size]]
 
 
 def chunk_paragraph(text: str) -> List[str]:
-    """Common helper: try Q/A splitting first, fall back to fixed-size chunking."""
+    """Common helper: try Q/A splitting first, fall back to semantic chunking."""
     splits = split_qa(text)
     if len(splits) <= 1 and len(text) > CHUNK_SIZE:
         return split_text(text)
@@ -273,6 +303,60 @@ def extract_excel(filepath: str) -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------------------
+# Markdown Extraction
+# ----------------------------------------------------------------------
+
+def extract_markdown(filepath: str) -> Dict[str, Any]:
+    """Extract markdown text preserving section headers (#, ##, ###) for semantic chunking."""
+    results = {"file": os.path.basename(filepath), "type": "md", "paragraphs": []}
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        # Split on markdown header boundaries while keeping the header text
+        sections = re.split(r'\n(?=#{1,4}\s+)', content)
+        for s in sections:
+            s_clean = s.strip()
+            if s_clean:
+                results["paragraphs"].append(s_clean)
+        if not results["paragraphs"] and content.strip():
+            results["paragraphs"].append(content.strip())
+    except Exception as e:
+        logger.error(f"Failed to read Markdown ({filepath}): {e}")
+
+    return results
+
+
+# ----------------------------------------------------------------------
+# CSV Extraction
+# ----------------------------------------------------------------------
+
+def extract_csv(filepath: str) -> Dict[str, Any]:
+    """Extract CSV records converting each row into structured key-value text."""
+    results = {"file": os.path.basename(filepath), "type": "csv", "paragraphs": [], "tables": []}
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            reader = csv.reader(f)
+            rows = [row for row in reader if any(cell.strip() for cell in row)]
+
+        if rows:
+            header = rows[0]
+            for row in rows[1:]:
+                parts = []
+                for i, cell in enumerate(row):
+                    col_name = header[i].strip() if i < len(header) and header[i].strip() else f"Col{i+1}"
+                    if cell.strip():
+                        parts.append(f"{col_name}: {cell.strip()}")
+                if parts:
+                    results["paragraphs"].append(" | ".join(parts))
+            results["tables"].append({"table_index": 1, "data": rows})
+    except Exception as e:
+        logger.error(f"Failed to read CSV ({filepath}): {e}")
+
+    return results
+
+
+# ----------------------------------------------------------------------
 # Dispatcher
 # ----------------------------------------------------------------------
 
@@ -293,6 +377,10 @@ def process_file(filepath: str) -> Optional[Dict[str, Any]]:
             return extract_txt(filepath)
         elif ext in (".xlsx", ".xls"):
             return extract_excel(filepath)
+        elif ext == ".md":
+            return extract_markdown(filepath)
+        elif ext == ".csv":
+            return extract_csv(filepath)
         else:
             logger.warning(f"Unsupported file type: {ext}")
             return None
@@ -351,14 +439,24 @@ def results_to_chunks(results: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "page_number": 1,
             })
 
-    elif file_type == "txt":
-        full_text = "\n".join(results["paragraphs"])
+    elif file_type in ("txt", "md"):
+        full_text = "\n\n".join(results["paragraphs"])
         if full_text.strip():
             for s in chunk_paragraph(full_text):
                 chunks.append({
                     "source_file": filename,
                     "content_type": "paragraph",
                     "content": s,
+                    "page_number": 1,
+                })
+
+    elif file_type == "csv":
+        for row_text in results["paragraphs"]:
+            if row_text.strip():
+                chunks.append({
+                    "source_file": filename,
+                    "content_type": "table",
+                    "content": row_text,
                     "page_number": 1,
                 })
 

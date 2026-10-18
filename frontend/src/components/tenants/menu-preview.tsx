@@ -26,12 +26,17 @@ export function MenuPreview({ tenantId }: { tenantId: string }) {
   const menu = data.menu
   const buttons = [...(menu?.buttons ?? [])].sort((a, b) => a.sort_order - b.sort_order)
   const sections = Array.from(new Set(buttons.map((b) => b.section || 'General')))
+  const enabledButtons = buttons.filter((b) => {
+    const gated = b.requires_feature ? !data.features[b.requires_feature as FeatureFlag] : false
+    return b.enabled && !gated
+  })
+  const isQuickButtons = enabledButtons.length >= 1 && enabledButtons.length <= 3
 
   return (
     <div>
       <PageHeader
         title="Menu"
-        description="The WhatsApp list menu, rendered from the profile. A button is hidden when the feature it depends on is off — that is the same rule the runtime uses."
+        description="Dynamic WhatsApp menu rendered from the tenant profile with Smart Switch (Quick Reply buttons for <= 3 items, List drawer for > 3 items)."
         actions={
           canManageTenants ? (
             <Button size="sm" variant="secondary" onClick={() => navigate(`/tenants/${tenantId}/menu-edit`)}>
@@ -43,15 +48,38 @@ export function MenuPreview({ tenantId }: { tenantId: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
-          <CardHeader title="As the customer sees it" />
+          <CardHeader
+            title="As the customer sees it"
+            description={
+              isQuickButtons
+                ? '⚡ Smart Switch: Quick Reply Buttons'
+                : '📋 Smart Switch: WhatsApp List Menu'
+            }
+          />
           <CardBody>
-            <div className="rounded-xl bg-surface p-4 text-slate-200 ring-1 ring-surface-line">
+            <div className="rounded-xl bg-surface p-4 text-slate-200 ring-1 ring-surface-line space-y-3">
               {menu?.header && <p className="text-sm font-semibold text-slate-100">{menu.header}</p>}
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">{menu?.body}</p>
-              <div className="mt-3 rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-center text-xs font-medium text-accent-700">
-                {menu?.button_text || 'Show Options'}
-              </div>
-              {menu?.footer && <p className="mt-3 text-xs text-slate-500">{menu.footer}</p>}
+              <p className="text-xs leading-relaxed text-slate-400">{menu?.body}</p>
+
+              {isQuickButtons ? (
+                <div className="space-y-2 pt-1">
+                  {enabledButtons.map((btn) => (
+                    <div
+                      key={btn.id}
+                      className="flex items-center justify-center gap-1.5 rounded-lg border border-accent-200/40 bg-accent-50/10 px-3 py-2 text-center text-xs font-medium text-accent-300 hover:bg-accent-50/20 transition-colors shadow-sm"
+                    >
+                      {btn.icon && <span>{btn.icon}</span>}
+                      <span>{btn.title.slice(0, 20)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-accent-200/40 bg-accent-50/10 px-3 py-2.5 text-center text-xs font-semibold text-accent-300 shadow-sm">
+                  {menu?.button_text || 'Show Options'}
+                </div>
+              )}
+
+              {menu?.footer && <p className="text-2xs text-slate-500 pt-1">{menu.footer}</p>}
             </div>
           </CardBody>
         </Card>

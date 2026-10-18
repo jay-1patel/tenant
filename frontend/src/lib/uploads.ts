@@ -36,8 +36,8 @@ export const FILE_MODULES = [
  * in `backend/routes/admin.py`; the picker, the hint text and the server must
  * agree on what is accepted.
  */
-export const UPLOAD_ACCEPT = '.pdf,.docx,.doc,.txt,.xlsx,.xls'
-export const UPLOAD_TYPES_LABEL = 'PDF, DOC, DOCX, TXT, XLS, XLSX'
+export const UPLOAD_ACCEPT = '.pdf,.docx,.doc,.txt,.xlsx,.xls,.md,.csv'
+export const UPLOAD_TYPES_LABEL = 'PDF, DOC, DOCX, TXT, XLS, XLSX, MD, CSV'
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 export const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)} MB`
 

@@ -66,7 +66,21 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     if state == cfg.B2C_MAIN_MENU_STATE or not state:
         clean_msg = _clean(message)
         if clean_msg in ("main menu", "menu", "start", "hi", "hello", "hey", "show options", "options") or message in ("Main Menu", "main_menu", "menu_main"):
-            await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+            menu_data = menus.get_main_menu(wa_id)
+            if menu_data.get("type") == "buttons":
+                await send_button_message(
+                    wa_id,
+                    body=menu_data.get("text", "Options"),
+                    buttons=menu_data.get("buttons", []),
+                )
+            else:
+                await send_list_menu(
+                    wa_id,
+                    header=menu_data.get("header", ""),
+                    body=menu_data.get("body", "What would you like to explore today?"),
+                    button_text=menu_data.get("button_text", "Show Options"),
+                    sections=menu_data.get("sections", []),
+                )
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
         return await _handle_main_selection(wa_id, message, context, cfg)
