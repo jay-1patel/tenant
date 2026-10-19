@@ -59,7 +59,7 @@ export function TenantList() {
     <div>
       <PageHeader
         title="Tenants"
-        description="Each tenant is one business on WhatsApp. Behaviour comes from its profile — menus, intents, features and flows are all data."
+        description="Each tenant is one business on WhatsApp. Behaviour comes from its profile — menus, intents, and features are all data."
         actions={
           <>
             <Button size="sm" variant="ghost" onClick={reload} icon={<RefreshCw className="h-4 w-4" />}>

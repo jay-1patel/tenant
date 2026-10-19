@@ -26,7 +26,7 @@ logger = logging.getLogger("chiki_webhook")
 router = APIRouter(prefix="/api/admin")
 
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploaded_files"))
-SUPPORTED = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls")
+SUPPORTED = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".md", ".csv")
 #: Knowledge-base / FAQ uploads (the Uploads screen and the live inbox share it).
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -48,6 +48,8 @@ def _guess_media_type(filename: str) -> str:
         ".gif": "image/gif",
         ".webp": "image/webp",
         ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".csv": "text/csv",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".doc": "application/msword",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -793,9 +795,12 @@ async def run_upload(
                             logger.error(f"KB FAISS rebuild failed after upload {filename}: {e}")
                     else:
                         save_chunks(chunks, module=module, media_url=effective_url, media_type=effective_media_type, tenant_id=tenant_id)
-                    if module in ("faq", "catalogue", "new_arrival"):
+                    try:
                         from faq.service import faq_index
                         faq_index.build(force=True)
+                        logger.info(f"FAQ_INDEX_AUTOSYNCED | {filename}")
+                    except Exception as e:
+                        logger.warning(f"FAQ index auto-sync failed after upload {filename}: {e}")
         except Exception as e:
             logger.error(f"Extraction failed for {filename}: {e}")
         return {

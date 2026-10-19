@@ -46,6 +46,28 @@ async def process_incoming_message(
         end_capture(capture_tokens)
 
 
+async def _send_b2c_menu(wa_id: str, tenant_id: str = None):
+    """Send active tenant's published profile menu using Smart Switch (Buttons <=3, List >3)."""
+    from bots.customer_b2c import menus
+    from services.whatsapp_sender import send_list_menu, send_button_message
+
+    menu_payload = menus.get_main_menu(wa_id, tenant_id=tenant_id)
+    if menu_payload.get("type") == "buttons":
+        await send_button_message(
+            wa_id,
+            body=menu_payload.get("text", "Options"),
+            buttons=menu_payload.get("buttons", []),
+        )
+    else:
+        await send_list_menu(
+            wa_id,
+            header=menu_payload.get("header", ""),
+            body=menu_payload.get("body", "What would you like to explore today?"),
+            button_text=menu_payload.get("button_text", "Show Options"),
+            sections=menu_payload.get("sections", []),
+        )
+
+
 async def _process_captured_message(wa_id: str, message: str) -> dict:
     # Customer directory: whoever talks to the bot gets a record on their very
     # first message, whichever channel delivered it (Meta webhook, send2 push,
@@ -59,6 +81,14 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         touch_customer(effective_tenant, wa_id, "")
     except Exception as exc:
         logger.debug(f"Could not touch customer {wa_id}: {exc}")
+
+    # A new inbound message reopens a conversation that was previously resolved,
+    # so it reappears in the live inbox instead of staying hidden forever.
+    try:
+        from database import reopen_conversation_on_inbound
+        reopen_conversation_on_inbound(wa_id)
+    except Exception as exc:
+        logger.debug(f"Could not reopen conversation for {wa_id}: {exc}")
 
     with get_db_context() as conn:
         # 1. Check Human Handover first (Global rule)
@@ -119,6 +149,65 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                 "error": None,
             }
 
+        if msg_lower in ("#info", "#status", "#whoami"):
+            from database import get_active_test_tenant
+            from shared.tenancy.loader import get_tenant_profile
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            current_active = get_active_test_tenant() or resolve_tenant_for_user(wa_id) or tenant_id or "default"
+            prof = get_tenant_profile(current_active)
+            brand_name = prof.brand.name if (prof and prof.brand and prof.brand.name) else current_active
+            tagline = prof.brand.tagline if (prof and prof.brand and prof.brand.tagline) else "Multi-tenant Chatbot"
+            buttons_count = len(prof.menu.buttons) if (prof and prof.menu and prof.menu.buttons) else 0
+            menu_mode = "⚡ Quick Reply Buttons (<=3)" if 1 <= buttons_count <= 3 else "📋 WhatsApp List Drawer (>3)"
+
+            chunk_count = 0
+            try:
+                with get_db_context() as conn:
+                    row = conn.execute("SELECT COUNT(*) as c FROM knowledge_base WHERE tenant_id=?", (current_active,)).fetchone()
+                    chunk_count = row[0] if row else 0
+            except Exception:
+                pass
+
+            info_lines = [
+                f"🏢 *Tenant Profile: {brand_name}*",
+                f"• *Tenant ID / Slug:* `{current_active}`",
+                f"• *Tagline:* {tagline}",
+                f"• *Menu Mode:* {menu_mode} ({buttons_count} options)",
+                f"• *Indexed Knowledge Chunks:* {chunk_count}",
+                "",
+                "💡 *Testing Commands:*",
+                "• `#tenants` - List all testable tenants",
+                "• `#tenant <name>` - Switch active tenant",
+                "• `#menu` - Resend active tenant menu",
+                "• `#info` - Show this tenant diagnostic",
+            ]
+            await send_text_message(wa_id, "\n".join(info_lines))
+            return {
+                "status": "processed",
+                "messages": drain_captured(),
+                "new_state": None,
+                "human_handover": False,
+                "user_type": "b2c",
+                "error": None,
+            }
+
+        if msg_lower == "#menu":
+            flow_runner.clear_flow(wa_id)
+            with get_db_context() as conn:
+                conn.execute(
+                    "UPDATE user_states SET state = 'B2C_MAIN_MENU', context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
+                    (wa_id,),
+                )
+            await _send_b2c_menu(wa_id, tenant_id=tenant_id)
+            return {
+                "status": "processed",
+                "messages": drain_captured(),
+                "new_state": "B2C_MAIN_MENU",
+                "human_handover": False,
+                "user_type": "b2c",
+                "error": None,
+            }
+
         if msg_lower.startswith(("#tenant ", "#switch ")):
             from database import set_active_test_tenant
             from shared.tenancy import store
@@ -160,9 +249,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     wa_id,
                     f"✅ *Active Tenant Switched!*\nNow testing: *{disp}* ({vert})\nAll incoming messages are now routed to this tenant."
                 )
-                from bots.customer_b2c import menus
-                from services.whatsapp_sender import send_list_menu
-                await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+                await _send_b2c_menu(wa_id, tenant_id=chosen_id)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -217,9 +304,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     "error": None,
                 }
             else:
-                from bots.customer_b2c import menus
-                from services.whatsapp_sender import send_list_menu
-                await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+                await _send_b2c_menu(wa_id, tenant_id=tenant_id)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -244,8 +329,12 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             outcome = flow_runner.handle_reply(wa_id, message, tenant_id=tenant_id)
             if outcome and outcome.get("handled"):
                 if outcome.get("messages"):
+                    from services.whatsapp_sender import send_button_message
                     for msg in outcome["messages"]:
-                        await send_text_message(wa_id, msg)
+                        if isinstance(msg, dict) and msg.get("type") == "buttons":
+                            await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                        else:
+                            await send_text_message(wa_id, msg)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -273,8 +362,12 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         if flow_name:
             outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
             if outcome.get("handled") and outcome.get("messages"):
+                from services.whatsapp_sender import send_button_message
                 for msg in outcome["messages"]:
-                    await send_text_message(wa_id, msg)
+                    if isinstance(msg, dict) and msg.get("type") == "buttons":
+                        await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                    else:
+                        await send_text_message(wa_id, msg)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),

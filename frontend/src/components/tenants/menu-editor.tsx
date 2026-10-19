@@ -111,7 +111,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   }, [focusId, menu])
 
   const flowNames = useMemo(
-    () => (effective?.flows ?? []).map((f) => f.name).sort(),
+    () => [],
     [effective],
   )
   const intentNames = useMemo(
@@ -408,7 +408,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                     value={draft.id}
                     onChange={(e) => setDraft({ ...draft, id: e.target.value })}
                     placeholder="menu_quote"
-                    hint="Lowercase, no spaces. Referenced by intents and flows."
+                     hint="Lowercase, no spaces. Referenced by intents."
                   />
                   <Input
                     label="Title"

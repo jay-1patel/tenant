@@ -1270,19 +1270,38 @@ async def synthesize_intent_answer(
     # Resolve branding for the system prompt
     bctx = _brand_context(tenant_id)
     brand = (bctx.get("name") if bctx else None) or BRAND_NAME or "our company"
+    
+    # Also search DB (faq_dataset, knowledge_base related tables) for additional context
+    db_context = ""
+    try:
+        results = faq_index.search(user_query, k=5, tenant_id=tenant_id)
+        if results:
+            parts = []
+            for chunk_text, metadata, score in results[:3]:
+                if score > -1:  # include even moderate matches
+                    parts.append(f"[source:{metadata.get('source_file','unknown')}]\n{chunk_text[:500]}")
+            if parts:
+                db_context = "\n\n--- DB CONTEXT ---\n\n" + "\n\n".join(parts)
+    except Exception:
+        db_context = ""
+    
+    combined_context = raw_content
+    if db_context:
+        combined_context = raw_content + "\n\n" + db_context
+    
     system_prompt = (
         f"You are a helpful WhatsApp assistant for {brand}. "
         f"A user asked about '{intent_name}'. "
-        f"Using ONLY the factual data provided in the context below, "
-        f"write a concise, professional, WhatsApp‑friendly reply. "
+        f"Using ONLY the factual data provided in the context below (including any database context), "
+        f"write a concise, professional, WhatsApp-friendly reply. "
         f"Use bullet points (•), bold (*text*) for headings, and keep it under 120 words "
         f"(about 700 characters) so the whole reply fits in one WhatsApp message without "
         f"being cut off. "
         f"Do NOT add information that is not present in the context."
     )
 
-    # Re‑use the existing direct‑LLM generator – it already handles provider fallback.
-    answer = await _generate_direct_llm_answer(system_prompt, user_query, raw_content)
+    # Re—use the existing direct—LLM generator — it already handles provider fallback.
+    answer = await _generate_direct_llm_answer(system_prompt, user_query, combined_context)
     if answer and len(answer.strip()) > 10:
         return _append_signature(answer.strip(), tenant_id)
     # If the LLM call failed or returned an empty string, fall back to the raw content.

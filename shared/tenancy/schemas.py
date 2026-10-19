@@ -194,7 +194,8 @@ def is_valid_phone_input(value: str, wanted: int = 10) -> bool:
 
     Rejects:
     - Any number where subscriber digits exceed `wanted` (e.g. 11, 12, 13, 15 digits)
-    - Any number where digits after country code exceed `wanted` (e.g. +9198765432101)
+    - A '+' number whose digits after the country code are fewer OR more than
+      `wanted` (e.g. +91 12345678, +9198765432101)
     - Numbers with fewer than `wanted` digits
     - Strings with invalid characters
     """
@@ -204,13 +205,19 @@ def is_valid_phone_input(value: str, wanted: int = 10) -> bool:
     if not re.match(r"^\+?[\d\s\-()]+$", raw):
         return False
     digits = re.sub(r"\D", "", raw)
-    if len(digits) == wanted:
-        return True
+
+    # An explicit '+<country code>' must be followed by exactly `wanted`
+    # subscriber digits (e.g. +91 98765 43210). This is checked first: a string
+    # like "+91 12345678" totals 10 digits but only 8 after the country code, so
+    # it must NOT pass the bare-length rule below.
     if raw.startswith("+"):
         return any(
             digits.startswith(cc) and len(digits) - len(cc) == wanted
             for cc in _PHONE_COUNTRY_CODES
         )
+
+    if len(digits) == wanted:
+        return True
     if digits.startswith("0") and len(digits) == wanted + 1:
         return True
     if wanted == 10 and len(digits) == 12 and digits.startswith("91"):

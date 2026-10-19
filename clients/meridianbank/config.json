@@ -2,60 +2,76 @@
   "tenant_id": "meridianbank",
   "vertical": "banking",
   "display_name": "Meridian Bank",
-
   "brand": {
     "name": "Meridian Bank",
-    "bot_name": "Meridian Assistant",
-    "tagline": "a full-service bank for savings, cards, loans, and everyday banking",
-    "website": "https://www.meridianbank.example",
-    "support_email": "care@meridianbank.example",
-    "support_phone": "+91 1800 123 456",
-    "signature": "Meridian Bank — Banking that puts you first."
+    "bot_name": "Meridian bot",
+    "tagline": "Meridian Bank- Bank of All Banks",
+    "website": "https://www.meridianbanker.com/",
+    "support_email": "care@meridianbank.com",
+    "support_phone": "+91 7418527567",
+    "signature": "Meridian Bank- Bank of All Banks"
   },
-
   "features": {
     "cart": false,
     "buy_now": false,
     "orders": false,
     "track_order": false,
     "returns": false,
-    "brochure_pdf": false,
+    "brochure_pdf": true,
     "distributors": false,
     "offerings": true,
     "offering_details": true,
     "lead_capture": true,
     "quote": false,
     "callback": true,
-    "book_appointment": true,
+    "book_appointment": false,
     "handoff": true,
     "faq": true,
     "kb": true,
     "complaints": true,
-    "campaigns": true,
-    "human_handover": true
+    "campaigns": false,
+    "human_handover": true,
+    "services": true,
+    "products": true,
+    "products_schemes": true
   },
-
   "vocabulary": {
-    "item_noun": "products",
-    "item_noun_singular": "product",
-    "browse_label": "Banking Products",
-    "catalog_label": "Products",
+    "item_noun": "schemes",
+    "item_noun_singular": "scheme",
+    "browse_label": "Our Products",
+    "catalog_label": "Product Brochure",
     "catalog_noun": "products",
-    "lead_noun": "request",
-    "enquiry_label": "Check Eligibility",
+    "lead_noun": "enquiry",
+    "enquiry_label": "Enquire",
     "quote_label": "Enquire",
     "callback_label": "Request a Callback",
-    "support_label": "Raise a Complaint"
+    "support_label": "Raise a Complaint",
+    "order_noun": "request",
+    "order_noun_plural": "requests",
+    "cart_noun": "shortlist",
+    "checkout_label": "Apply",
+    "brochure_label": "Product Brochure",
+    "brochure_noun": "product brochure",
+    "offer_noun": "offer",
+    "offer_noun_plural": "offers",
+    "track_label": "Track Request"
   },
-
   "business_hours": {
     "timezone": "Asia/Kolkata",
-    "always_open": false,
+    "always_open": true,
     "open": "09:00",
-    "close": "18:00",
-    "open_days": [0, 1, 2, 3, 4]
+    "close": "21:00",
+    "open_days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "out_of_hours_message": "We are currently outside our working hours. Leave your details and our team will call you back on the next working day."
   },
-
   "guardrails": {
     "never_state": [
       "account balances, transaction history, or any account-specific data",
@@ -65,23 +81,44 @@
       "interest rates as offers — share the published range only, team confirms final rate"
     ],
     "escalate_keywords": [
-      "fraud", "unauthorised", "unauthorized", "stolen card", "lost card",
-      "account frozen", "money deducted twice", "harassment", "urgent"
+      "fraud",
+      "unauthorised",
+      "unauthorized",
+      "stolen card",
+      "lost card",
+      "account frozen",
+      "money deducted twice",
+      "harassment",
+      "urgent"
     ],
-    "escalation_message": "That needs our fraud and security desk right away — connecting you now.",
-    "handoff_keywords": ["human", "agent", "manager", "fraud", "urgent", "complaint"]
+    "escalation_message": "Let me connect you with our team.",
+    "handoff_keywords": [
+      "human",
+      "agent",
+      "person"
+    ],
+    "forbidden_terms": [
+      "add to cart",
+      "buy now",
+      "checkout",
+      "place order",
+      "track order",
+      "shipping"
+    ]
   },
-
   "notifications": {
-    "sales_email": "care@meridianbank.example",
-    "support_email": "grievance@meridianbank.example",
+    "sales_email": "sales@meridianbank.com",
+    "support_email": "care@meridianbank.com",
     "brochure_url": "",
     "brochure_label": "Product Guide",
     "channels": [
-      { "type": "email", "to": "grievance@meridianbank.example", "label": "grievance desk" }
+      {
+        "type": "email",
+        "to": "grievance@meridianbank.example",
+        "label": "grievance desk"
+      }
     ]
   },
-
   "flows": [
     {
       "name": "check_eligibility",
@@ -95,14 +132,27 @@
           "id": "ask_product",
           "type": "choice",
           "prompt": "Which product would you like to check eligibility for?",
-          "options": ["Personal Loan", "Home Loan", "Vehicle Loan", "Credit Card"],
+          "options": [
+            "Personal Loan",
+            "Home Loan",
+            "Vehicle Loan",
+            "Credit Card",
+            "Savings Account",
+            "Current Account",
+            "Minor Account"
+          ],
           "key": "product_type"
         },
         {
           "id": "ask_employment",
           "type": "choice",
           "prompt": "What is your employment type?",
-          "options": ["Salaried", "Self-Employed / Business", "Professional"],
+          "options": [
+            "Salaried",
+            "Self-Employed / Business",
+            "Professional",
+            "Student"
+          ],
           "key": "employment_type"
         },
         {
@@ -141,7 +191,14 @@
         {
           "id": "save",
           "type": "save_lead",
-          "collect_keys": ["name", "phone", "product_type", "employment_type", "monthly_income", "existing_emis"],
+          "collect_keys": [
+            "name",
+            "phone",
+            "product_type",
+            "employment_type",
+            "monthly_income",
+            "existing_emis"
+          ],
           "lead_source": "eligibility_calculator",
           "next": "notify"
         },
@@ -161,46 +218,300 @@
     },
     {
       "name": "raise_ticket",
-      "success_message": "Your reference has been logged with our grievance desk. We respond within 24 hours."
+      "intent": "complaint",
+      "requires_feature": "complaints",
+      "description": "Raise a support ticket with full context for the agent.",
+      "start_message": "I'm sorry about that. Let me capture the details so the right person picks it up.",
+      "success_message": "Ticket raised. Our support team will get back to you shortly.",
+      "out_of_hours_variant": "book_callback",
+      "steps": [
+        {
+          "id": "intro",
+          "type": "say",
+          "prompt": "I'm sorry to hear that. Let me capture the details so our team can resolve your issue quickly."
+        },
+        {
+          "id": "ask_name",
+          "type": "ask",
+          "key": "name",
+          "prompt": "May I know your name?",
+          "validate": "name:2",
+          "invalid_message": "Could you share your name (at least 2 characters)?",
+          "max_attempts": 3,
+          "optional": false
+        },
+        {
+          "id": "ask_phone",
+          "type": "ask",
+          "key": "phone",
+          "prompt": "What's the best phone number to reach you on?",
+          "validate": "phone:10",
+          "invalid_message": "Please enter a valid 10-digit phone number. Please try again.",
+          "max_attempts": 3,
+          "optional": false
+        },
+        {
+          "id": "ask_email",
+          "type": "ask",
+          "key": "email",
+          "prompt": "And your email address? (Or type *skip*)",
+          "validate": "email",
+          "invalid_message": "That email doesn't look right. Please try again or type *skip*.",
+          "max_attempts": 3,
+          "optional": true
+        },
+        {
+          "id": "ask_issue",
+          "type": "ask",
+          "key": "issue",
+          "prompt": "What exactly happened? Please share as much detail as you can.",
+          "validate": "min_len:4",
+          "invalid_message": "A few more words will help us resolve this faster.",
+          "max_attempts": 3,
+          "optional": false
+        },
+        {
+          "id": "ask_urgency",
+          "type": "choice",
+          "key": "urgency",
+          "prompt": "How urgent is this? Select an option.",
+          "max_attempts": 3,
+          "optional": true,
+          "options": [
+            "Normal",
+            "Urgent"
+          ]
+        },
+        {
+          "id": "save",
+          "type": "save_lead",
+          "collect_keys": [
+            "name",
+            "phone",
+            "email",
+            "issue",
+            "urgency"
+          ],
+          "lead_source": "complaint",
+          "next": "notify"
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "channels": [],
+          "subject": "Support ticket from WhatsApp",
+          "next": "handoff"
+        },
+        {
+          "id": "handoff",
+          "type": "handoff",
+          "handoff_reason": "support_ticket",
+          "store_context": true,
+          "next": "done"
+        },
+        {
+          "id": "done",
+          "type": "say",
+          "prompt": "Ticket raised. Our support team will get back to you shortly."
+        }
+      ]
     }
   ],
-
   "menu": {
     "buttons": [
-      { "id": "menu_products", "title": "Banking Products", "intent": "banking_products" },
-      { "id": "menu_cards", "title": "Cards", "intent": "cards" },
-      { "id": "menu_loans", "title": "Loans", "intent": "loans" },
-      { "id": "menu_eligibility", "title": "Check Eligibility", "flow": "check_eligibility" },
-      { "id": "menu_callback", "title": "Request Callback", "flow": "book_callback" },
-      { "id": "menu_branch", "title": "Branch & Support", "intent": "branch_support" },
-      { "id": "menu_support", "title": "Raise Complaint", "flow": "raise_ticket" }
-    ]
+      {
+        "id": "menu_products",
+        "title": "Banking Products",
+        "intent": "banking_products",
+        "description": "Accounts, cards & loans",
+        "section": "🏦 Products",
+        "icon": "🏦",
+        "sort_order": 0,
+        "enabled": true,
+        "requires_feature": "products_schemes",
+        "out_of_hours_only": false,
+        "flow": null
+      },
+      {
+        "id": "menu_cards",
+        "title": "Cards",
+        "intent": "cards",
+        "description": "Credit & debit card help",
+        "section": "🏦 Products",
+        "icon": "💳",
+        "sort_order": 1,
+        "enabled": true,
+        "requires_feature": "offering_details",
+        "out_of_hours_only": false,
+        "flow": null
+      },
+      {
+        "id": "menu_loans",
+        "title": "Loans",
+        "intent": "loans",
+        "description": "Personal, home & business loans",
+        "section": "🏦 Products",
+        "icon": "🏠",
+        "sort_order": 2,
+        "enabled": true,
+        "requires_feature": "offering_details",
+        "out_of_hours_only": false,
+        "flow": null
+      },
+      {
+        "id": "menu_eligibility",
+        "title": "Check Eligibility",
+        "flow": "check_eligibility",
+        "description": "Get a quick check",
+        "section": "📞 Talk To Us",
+        "icon": "✅",
+        "sort_order": 3,
+        "enabled": true,
+        "requires_feature": "lead_capture",
+        "out_of_hours_only": false,
+        "intent": null
+      },
+      {
+        "id": "menu_callback",
+        "title": "Request Callback",
+        "flow": "book_callback",
+        "description": "Have us call you back",
+        "section": "📞 Talk To Us",
+        "icon": "📞",
+        "sort_order": 7,
+        "enabled": true,
+        "requires_feature": "callback",
+        "out_of_hours_only": false,
+        "intent": null
+      },
+      {
+        "id": "menu_branch",
+        "title": "Branch & Support",
+        "intent": "branch_support",
+        "description": "Find us / contact support",
+        "section": "🆘 Support",
+        "icon": "📍",
+        "sort_order": 5,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": null
+      },
+      {
+        "id": "menu_grievance",
+        "title": "Raise a Complaint",
+        "description": "Register a grievance",
+        "section": "🆘 Support",
+        "icon": "📝",
+        "sort_order": 4,
+        "enabled": true,
+        "requires_feature": "complaints",
+        "out_of_hours_only": false,
+        "flow": "raise_ticket",
+        "intent": null
+      },
+      {
+        "id": "menu_human",
+        "title": "Talk to Human",
+        "description": "Chat with our team",
+        "section": "🆘 Support",
+        "icon": "🙋",
+        "sort_order": 6,
+        "enabled": false,
+        "requires_feature": "human_handover",
+        "out_of_hours_only": false,
+        "flow": "book_callback",
+        "intent": null
+      }
+    ],
+    "key": "kb_main",
+    "header": "",
+    "body": "How can we help you today?",
+    "footer": "Or type your question",
+    "button_text": "Show Options"
   },
-
   "intents": [
-    {
-      "name": "banking_products",
-      "answer": "🏦 *Meridian Bank — Products*\n\n• *Savings Accounts:* Zero-balance option for salary accounts. Regular savings requires ₹5,000 monthly average balance (MAB). Digital account opens in ~10 mins with PAN & Aadhaar.\n• *Current Accounts:* For businesses & professionals with cheque book, net banking, and overdraft facilities.\n\n_Interested in applying? Select 'Check Eligibility' or 'Request Callback' below._"
-    },
     {
       "name": "cards",
       "answer": "💳 *Meridian Bank — Cards*\n\n• *Debit Cards:* Free with savings accounts, contactless, with configurable daily limits via our app.\n• *Credit Cards:* Travel, cashback, and secured (FD-backed) card variants available.\n• *Activation:* Set your PIN at any Meridian ATM or activate instantly via the mobile app.\n• *Lost/Stolen Card:* Block immediately in the app or call 1800 123 4567 (24x7)."
     },
     {
       "name": "loans",
-      "answer": "💰 *Meridian Bank — Loan Options*\n\n• *Home Loans:* Up to 80% property value funding with tenures up to 30 years.\n• *Personal Loans:* Quick sanction for salaried & self-employed; tenures up to 5 years.\n• *Vehicle Loans:* Up to 90% on-road funding for new four-wheelers & two-wheelers.\n• *Education Loans:* Collateral-free options available for premier institutes.\n\n_Tap 'Check Eligibility' below to see if you qualify in under 1 minute!_"
+      "answer": "💰 *Meridian Bank — Loan Options*\n\n• *Home Loans:* Up to 20% property value funding with tenures up to 30 years.\n• *Personal Loans:* Quick sanction for salaried & self-employed; tenures up to 5 years.\n• *Vehicle Loans:* Up to 90% on-road funding for new four-wheelers & two-wheelers.\n• *Education Loans:* Collateral-free options available for premier institutes.\n\n_Tap 'Check Eligibility' below to see if you qualify in under 1 minute!_",
+      "keywords": [],
+      "examples": [],
+      "enabled": true
     },
     {
       "name": "check_eligibility",
-      "answer": "📊 *Meridian Bank — Loan Eligibility Details*\n\n🧠 • 🏠 Home loan interest rates start from 8.50% p.a. and depend on your credit score, income, loan amount, and tenure.\n• 📋 For a personal loan, you need KYC, PAN, last 3 months’ salary slips, last 6 months’ bank statements, and Form 16 or ITR (salaried), or 2 years’ ITR and business proof (self-employed).\n• ⏱ Personal loans can be approved in 24 to 48 hours, while home loans usually take 5 to 10 working days after documents are complete.\n• ✅ Yes, you can prepay your loan. Floating-rate home loans have no prepayment charge for individual borrowers.\n• 📞 Need further assistance? Our support team is happy to help! Meridian Bank- Bank of All Banks"
+      "answer": "👶 Minor Savings Account\nAge: Below 18 years\n- Guardian required for children below 10.\n- Ages 10–17: self-operated account permitted, subject to bank approval.\n- Minimum balance: ₹0.\n- Documents: Birth certificate, child's KYC, guardian's KYC.\n- On turning 18: Complete fresh KYC and account conversion formalities.\n\n\n\n\n\n\n\n\n\n\n\n\n🏦 Regular Savings Account\nAge: 18 years and above\n- Minimum balance: ₹2,000.\n- Interest rate: 3.00% p.a.\n- Documents: PAN/Form 60, valid KYC documents, mobile number.\n- Joint account facility available.\n\n\n\n\n\n\n\n\n\n\n\n\n💼 Business Current Account\nEligible businesses and proprietors\n- Minimum average balance: ₹10,000.\n- Documents: PAN, owner KYC, business proof, address proof.\n- GST certificate where applicable.\n- No interest on the account balance in this sample policy.\n\n\n\n\n\n\n\n\n\n\n\n\n🎓 Student Savings Account\nAge: 18–25 years\n- Minimum balance: ₹0.\n- Documents: KYC, student ID, admission proof.\n- Debit card with a sample daily withdrawal limit of ₹10,000.\n- Applicants below 18 follow minor-account rules.\n\n\n\n\n\n\n\n\n\n\n\n\n👴 Senior Citizen Fixed Deposit\nAge: 60 years and above\n- Minimum deposit: ₹10,000.\n- Sample interest rate: 7.50% p.a. for a 1-year FD.\n- Tenure: 7 days to 10 years.\n- PAN and KYC required.\n\n2. Loan eligibility criteria\nLoan type\tSample eligibility\tSample interest rate\n🏠 Home loan\tAge 21–65; minimum monthly income ₹25,000; credit score 700+ preferred\t8.50% p.a.\n💳 Personal loan\tAge 21–58; monthly income ₹25,000+; credit score 700+ preferred\t11.00% p.a.\n🏢 Business loan\tBusiness operating for 2+ years; annual turnover ₹10 lakh+\t12.00% p.a.\n🚗 Car loan\tAge 21–65; monthly income ₹20,000+; stable income\t9.00% p.a.\n🎓 Education loan\tEligible course and institution; co-applicant may be required\t9.50% p.a.\n📞 Need further assistance? Our support team is happy to help!",
+      "keywords": [],
+      "examples": [],
+      "enabled": true,
+      "flow": "enquire"
     },
     {
       "name": "eligibility_check",
-      "answer": "📊 *Meridian Bank — Loan Eligibility Details*\n\n🧠 • 🏠 Home loan interest rates start from 8.50% p.a. and depend on your credit score, income, loan amount, and tenure.\n• 📋 For a personal loan, you need KYC, PAN, last 3 months’ salary slips, last 6 months’ bank statements, and Form 16 or ITR (salaried), or 2 years’ ITR and business proof (self-employed).\n• ⏱ Personal loans can be approved in 24 to 48 hours, while home loans usually take 5 to 10 working days after documents are complete.\n• ✅ Yes, you can prepay your loan. Floating-rate home loans have no prepayment charge for individual borrowers.\n• 📞 Need further assistance? Our support team is happy to help! Meridian Bank- Bank of All Banks"
+      "answer": "1. Account eligibility criteria\n👶 Minor Savings Account\nAge: Below 18 years\n- Guardian required for children below 10.\n- Ages 10–17: self-operated account permitted, subject to bank approval.\n- Minimum balance: ₹0.\n- Documents: Birth certificate, child's KYC, guardian's KYC.\n- On turning 18: Complete fresh KYC and account conversion formalities.\n\n\n\n\n\n\n\n\n\n\n\n\n🏦 Regular Savings Account\nAge: 18 years and above\n- Minimum balance: ₹2,000.\n- Interest rate: 3.00% p.a.\n- Documents: PAN/Form 60, valid KYC documents, mobile number.\n- Joint account facility available.\n\n\n\n\n\n\n\n\n\n\n\n\n💼 Business Current Account\nEligible businesses and proprietors\n- Minimum average balance: ₹10,000.\n- Documents: PAN, owner KYC, business proof, address proof.\n- GST certificate where applicable.\n- No interest on the account balance in this sample policy.\n\n\n\n\n\n\n\n\n\n\n\n\n🎓 Student Savings Account\nAge: 18–25 years\n- Minimum balance: ₹0.\n- Documents: KYC, student ID, admission proof.\n- Debit card with a sample daily withdrawal limit of ₹10,000.\n- Applicants below 18 follow minor-account rules.\n\n\n\n\n\n\n\n\n\n\n\n\n👴 Senior Citizen Fixed Deposit\nAge: 60 years and above\n- Minimum deposit: ₹10,000.\n- Sample interest rate: 7.50% p.a. for a 1-year FD.\n- Tenure: 7 days to 10 years.\n- PAN and KYC required.\n\n\n\n💰 2. Loan eligibility criteria\nLoan type\tSample eligibility\tSample interest rate\n🏠 Home loan\tAge 21–65; minimum monthly income ₹25,000; credit score 700+ preferred\t8.50% p.a.\n💳 Personal loan\tAge 21–58; monthly income ₹25,000+; credit score 700+ preferred\t11.00% p.a.\n🏢 Business loan\tBusiness operating for 2+ years; annual turnover ₹10 lakh+\t12.00% p.a.\n🚗 Car loan\tAge 21–65; monthly income ₹20,000+; stable income\t9.00% p.a.\n🎓 Education loan\tEligible course and institution; co-applicant may be required\t9.50% p.a.\nAll rates and thresholds above are fictional sample values. Actual approval depends on credit assessment, repayment capacity, loan terms, and applicable rules.",
+      "keywords": [
+        "eligible",
+        "eligibility",
+        "pre-approved",
+        "apply",
+        "application"
+      ],
+      "examples": [
+        "am I eligible for a loan",
+        "check my eligibility"
+      ],
+      "enabled": true,
+      "flow": "enquire",
+      "requires_feature": "lead_capture"
     },
     {
       "name": "branch_support",
-      "answer": "📍 *Meridian Bank — Branch & Support*\n\n• *Helpline:* 1800 123 4567 (24x7 for fraud & card blocking).\n• *Hours:* Mon–Fri 09:00–18:00 IST.\n• *Email:* care@meridianbank.example\n• *Grievance Officer:* grievance@meridianbank.example (Complaints acknowledged in 24 hours)."
+      "answer": "📍 *Meridian Bank — Branch & Support*\n\n• *Helpline:* 1800 123 4567 (24x7 for fraud & card blocking).\n• *Hours:* Mon–Fri 09:00–18:00 IST.\n• *Email:* care@meridianbank.com\n• *Grievance Officer:* grievance@meridianbank.com(Complaints acknowledged in 24 hours).",
+      "keywords": [],
+      "examples": [],
+      "enabled": true
+    },
+    {
+      "name": "greeting",
+      "keywords": [
+        "hi",
+        "hello",
+        "hey",
+        "good morning",
+        "good evening",
+        "hie"
+      ],
+      "examples": [
+        "hi",
+        "hello",
+        "hey there",
+        "good morning"
+      ],
+      "enabled": true
     }
-  ]
+  ],
+  "prompt": {
+    "tone": "formal and compliant",
+    "industry": "banking and insurance",
+    "listing_type": "products or schemes",
+    "domain_specific_queries": "accounts, cards, charges, claims, or eligibility",
+    "keywords": [
+      "account",
+      "card",
+      "loan",
+      "branch",
+      "atm",
+      "deposit",
+      "interest rate",
+      "emi",
+      "kyc",
+      "net banking",
+      "upi",
+      "fraud"
+    ]
+  }
 }

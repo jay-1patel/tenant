@@ -25,7 +25,8 @@ import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
 import { UploadsPanel } from '@/components/tenants/uploads-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
-import { IntentsAndFlows } from '@/components/tenants/intents-and-flows'
+
+import { IntentsEditor } from '@/components/tenants/intents-editor'
 import { InfoPagePanel } from '@/components/tenants/info-page-panel'
 import { VersionsPanel } from '@/components/tenants/versions-panel'
 import { LayersPanel } from '@/components/tenants/layers-panel'
@@ -148,7 +149,7 @@ function Router() {
       {route.view === 'menu-edit' && (
         <MenuEditor tenantId={route.tenantId} focusId={route.query.get('focus')} />
       )}
-      {route.view === 'flows' && <IntentsAndFlows tenantId={route.tenantId} />}
+      {route.view === 'intents' && <IntentsEditor tenantId={route.tenantId} />}
       {route.view === 'records' && <RecordsPanel tenantId={route.tenantId} />}
       {route.view === 'customers' && <CustomersPanel tenantId={route.tenantId} />}
       {route.view === 'orders' && <OrdersPanel tenantId={route.tenantId} />}
@@ -195,6 +196,7 @@ const KNOWN_VIEWS = [
   'menu',
   'menu-edit',
   'flows',
+  'intents',
   'records',
   'offerings',
   'customers',

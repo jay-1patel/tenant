@@ -29,7 +29,7 @@ const PAYMENT_TONE: Record<string, 'neutral' | 'accent' | 'success' | 'warning' 
 }
 
 /**
- * Orders placed through the B2B and B2C bot flows. Read-only; seeing it needs
+ * Orders placed through the bot. Read-only; seeing it needs
  * `view_orders` — status changes stay on the backend order endpoints.
  */
 export function OrdersPanel({ tenantId }: { tenantId: string }) {
