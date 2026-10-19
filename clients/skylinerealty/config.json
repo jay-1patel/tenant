@@ -1,0 +1,111 @@
+{
+  "tenant_id": "skylinerealty",
+  "vertical": "real_estate",
+  "display_name": "Skyline Realty & Developers",
+
+  "brand": {
+    "name": "Skyline Realty",
+    "bot_name": "Skyline Property Advisor",
+    "tagline": "Premium residential residences, luxury villas & commercial spaces",
+    "website": "www.skylinerealty.com",
+    "support_email": "sales@skylinerealty.com",
+    "support_phone": "+91 98765 43210",
+    "signature": "Skyline Realty — Building Dreams, Delivering Trust."
+  },
+
+  "features": {
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "track_order": false,
+    "returns": false,
+    "brochure_pdf": true,
+    "distributors": false,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "quote": true,
+    "callback": true,
+    "book_appointment": true,
+    "handoff": true,
+    "faq": true,
+    "kb": true,
+    "complaints": true,
+    "campaigns": true,
+    "human_handover": true
+  },
+
+  "vocabulary": {
+    "item_noun": "properties",
+    "item_noun_singular": "property",
+    "browse_label": "Featured Properties",
+    "catalog_label": "Project Brochure",
+    "catalog_noun": "project brochure",
+    "order_noun": "booking",
+    "order_noun_plural": "bookings",
+    "cart_noun": "shortlist",
+    "checkout_label": "Book Unit",
+    "brochure_label": "Project Brochure",
+    "brochure_noun": "project brochure",
+    "offer_noun": "offer",
+    "offer_noun_plural": "offers",
+    "lead_noun": "site visit",
+    "enquiry_label": "Schedule Site Visit",
+    "quote_label": "Price & Payment Plan",
+    "callback_label": "Request a Callback",
+    "support_label": "Customer Support",
+    "track_label": "Track Booking"
+  },
+
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "09:30",
+    "close": "19:00",
+    "open_days": [0, 1, 2, 3, 4, 5, 6]
+  },
+
+  "notifications": {
+    "sales_email": "sales@skylinerealty.com",
+    "support_email": "support@skylinerealty.com",
+    "brochure_url": "https://www.skylinerealty.com/brochures/skyline_master_deck.pdf",
+    "brochure_label": "Project Brochure",
+    "channels": [
+      { "type": "email", "to": "sales@skylinerealty.com", "label": "sales" },
+      { "type": "email", "to": "support@skylinerealty.com", "label": "support" }
+    ]
+  },
+
+  "guardrails": {
+    "never_state": [
+      "guaranteed price appreciation or speculative resale numbers",
+      "unapproved discounts or spot cash concessions without sales director confirmation",
+      "guaranteed rental returns before contract signing",
+      "non-RERA registered specifications or unverified possession dates"
+    ],
+    "never_state_notes": {
+      "guaranteed price appreciation": "Property value growth depends on market trends. Always share historical appreciation data rather than promising future numbers."
+    },
+    "escalate_keywords": [
+      "rera court", "legal notice", "cancel booking", "refund token", "delayed possession",
+      "fraud", "consumer court", "title dispute"
+    ],
+    "escalation_message": "This matter is being connected directly to our Senior Customer Relationship Director.",
+    "handoff_keywords": ["human", "agent", "sales manager", "director", "urgent", "complaint"]
+  },
+
+  "flows": [
+    {
+      "name": "book_callback",
+      "success_message": "Thank you! Your property consultation callback and site visit coordination have been booked with our senior advisor."
+    },
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Our property finance specialist will prepare a customized cost sheet and payment plan for you."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your query has been logged with our customer care team. A support ticket has been created."
+    }
+  ]
+}

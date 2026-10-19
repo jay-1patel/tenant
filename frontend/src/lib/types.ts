@@ -13,6 +13,7 @@ export const VERTICALS = [
   'banking',
   'finance',
   'healthcare',
+  'real_estate',
   'generic',
 ] as const
 

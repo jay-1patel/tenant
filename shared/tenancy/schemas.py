@@ -59,6 +59,7 @@ VERTICALS = (
     "banking",
     "finance",
     "healthcare",
+    "real_estate",
     "generic",
 )
 

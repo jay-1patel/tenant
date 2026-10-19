@@ -144,19 +144,21 @@ _ECOMMERCE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_products", "title": "View Products", "description": "Browse all products",
-             "section": "🛍️ Products", "icon": "🛍️", "sort_order": 0, "requires_feature": "products"},
+             "section": "🛍️ Products", "icon": "🛍️", "sort_order": 0, "requires_feature": "products",
+             "intent": "product_details"},
             {"id": "menu_catalogue", "title": "Brochure", "description": "Download the brochure PDF",
-             "section": "🛍️ Products", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf"},
+             "section": "🛍️ Products", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf",
+             "intent": "catalogue_request"},
             {"id": "menu_new_arrivals", "title": "New Releases", "description": "Fresh releases this month",
-             "section": "🛍️ Products", "icon": "✨", "sort_order": 2},
+             "section": "🛍️ Products", "icon": "✨", "sort_order": 2, "intent": "new_arrivals"},
             {"id": "menu_about", "title": "Company Policies", "description": "About us & company policies",
-             "section": "ℹ️ Info", "icon": "🏢", "sort_order": 3},
+             "section": "ℹ️ Info", "icon": "🏢", "sort_order": 3, "intent": "policy_query"},
             {"id": "menu_discounts", "title": "Discounts & Offers", "description": "Current deals & bulk discounts",
-             "section": "ℹ️ Info", "icon": "🎁", "sort_order": 4},
+             "section": "ℹ️ Info", "icon": "🎁", "sort_order": 4, "intent": "offer_discount"},
             {"id": "menu_gst", "title": "GST Info", "description": "GST number & tax invoice details",
-             "section": "ℹ️ Info", "icon": "🧾", "sort_order": 5},
+             "section": "ℹ️ Info", "icon": "🧾", "sort_order": 5, "intent": "policy_query"},
             {"id": "menu_credit_policy", "title": "Credit Policy", "description": "Credit period & payment terms",
-             "section": "ℹ️ Info", "icon": "💳", "sort_order": 6},
+             "section": "ℹ️ Info", "icon": "💳", "sort_order": 6, "intent": "policy_query"},
             {"id": "menu_complaint", "title": "Raise Complaint", "description": "Report a problem with your order",
              "section": "🆘 Support", "icon": "📝", "sort_order": 7, "requires_feature": "complaints",
              "flow": "raise_ticket"},
@@ -284,14 +286,16 @@ _IT_SOFTWARE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_services", "title": "Our Services", "description": "What we build and deliver",
-             "section": "🛠️ Services", "icon": "🛠️", "sort_order": 0, "requires_feature": "services"},
+             "section": "🛠️ Services", "icon": "🛠️", "sort_order": 0, "requires_feature": "services",
+             "intent": "service_enquiry"},
             {"id": "menu_technologies", "title": "Technologies", "description": "Our tech stack & expertise",
              "section": "🛠️ Services", "icon": "💻", "sort_order": 1, "requires_feature": "offering_details",
              "intent": "technologies"},
             {"id": "menu_projects", "title": "Projects", "description": "Work we have delivered",
              "section": "🏢 Company", "icon": "📁", "sort_order": 2, "intent": "projects"},
             {"id": "menu_brochure", "title": "Service Brochure", "description": "Download our brochure",
-             "section": "🏢 Company", "icon": "📄", "sort_order": 3, "requires_feature": "brochure_pdf"},
+             "section": "🏢 Company", "icon": "📄", "sort_order": 3, "requires_feature": "brochure_pdf",
+             "intent": "brochure_request"},
             {"id": "menu_careers", "title": "Careers", "description": "Open roles & hiring process",
              "section": "🏢 Company", "icon": "💼", "sort_order": 4, "intent": "careers"},
             {"id": "menu_benefits", "title": "Benefits", "description": "Why work with us",
@@ -312,7 +316,14 @@ _IT_SOFTWARE = {
         _GREETING,
         {"name": "service_enquiry", "examples": ["what services do you offer", "do you build mobile apps"],
          "keywords": ["service", "services", "what do you do", "capability", "capabilities",
-                      "offerings", "solution", "expertise"], "requires_feature": "offerings"},
+                      "offerings", "solution", "expertise"], "requires_feature": "offerings",
+         "answer": ("• Here are the core services we provide:\n"
+                    "• *Custom Web Development:* Scalable web apps, portals & SaaS platforms\n"
+                    "• *Mobile App Development:* High-performance iOS and Android apps\n"
+                    "• *Enterprise Software:* Cloud integrations, microservices & APIs\n"
+                    "• *UI/UX Design:* Modern, responsive interfaces & design systems\n"
+                    "• *DevOps & Cloud:* AWS, GCP, Azure infrastructure & CI/CD automation\n"
+                    "• Tap *Get a Quote* or *Book a Callback* to discuss your requirement!")},
         {"name": "technologies", "examples": ["what technologies do you work with", "what is your tech stack"],
          "keywords": ["technologies", "technology", "tech stack", "stack", "framework", "tools",
                       "programming languages"],
@@ -349,7 +360,10 @@ _IT_SOFTWARE = {
          "requires_feature": "callback", "flow": "book_callback"},
         {"name": "brochure_request", "examples": ["send me your brochure", "company profile pdf"],
          "keywords": ["brochure", "company profile", "pdf", "capability statement"],
-         "requires_feature": "brochure_pdf"},
+         "requires_feature": "brochure_pdf",
+         "answer": ("• 📄 *Company Brochure & Profile*\n"
+                    "• You can download our latest company profile and service capabilities deck at www.leewaysoftech.com\n"
+                    "• Or request a customized proposal and case study presentation by tapping *Get a Quote*.")},
         {"name": "careers", "examples": ["are you hiring", "job openings at your company"],
          "keywords": ["career", "careers", "job", "hiring", "vacancy", "internship", "open role"],
          "answer": ("• We're always glad to hear from good people:\n"
@@ -456,15 +470,18 @@ _TOURS_TRAVEL = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_destinations", "title": "Destinations", "description": "Places we take you to",
-             "section": "✈️ Travel", "icon": "🗺️", "sort_order": 0, "requires_feature": "offerings"},
+             "section": "✈️ Travel", "icon": "🗺️", "sort_order": 0, "requires_feature": "offerings",
+             "intent": "destination_details"},
             {"id": "menu_packages", "title": "Packages", "description": "Holidays & tour packages",
-             "section": "✈️ Travel", "icon": "🎒", "sort_order": 1, "requires_feature": "offerings"},
+             "section": "✈️ Travel", "icon": "🎒", "sort_order": 1, "requires_feature": "offerings",
+             "intent": "package_details"},
             {"id": "menu_brochure", "title": "Travel Brochure", "description": "Download our brochure",
-             "section": "✈️ Travel", "icon": "📄", "sort_order": 2, "requires_feature": "brochure_pdf"},
+             "section": "✈️ Travel", "icon": "📄", "sort_order": 2, "requires_feature": "brochure_pdf",
+             "intent": "brochure_request"},
             {"id": "menu_booking_policy", "title": "Booking Policy", "description": "Cancellations & payments",
-             "section": "ℹ️ Info", "icon": "📋", "sort_order": 3},
+             "section": "ℹ️ Info", "icon": "📋", "sort_order": 3, "intent": "booking_policy"},
             {"id": "menu_visa", "title": "Visa & Documents", "description": "What you need to travel",
-             "section": "ℹ️ Info", "icon": "🛂", "sort_order": 4},
+             "section": "ℹ️ Info", "icon": "🛂", "sort_order": 4, "intent": "visa_documents"},
             {"id": "menu_quote", "title": "Enquire", "description": "Plan a trip with us",
              "section": "📞 Talk To Us", "icon": "📝", "sort_order": 5, "requires_feature": "lead_capture",
              "flow": "enquire"},
@@ -568,11 +585,14 @@ _BANKING = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_products", "title": "Banking Products", "description": "Accounts, cards & loans",
-             "section": "🏦 Products", "icon": "🏦", "sort_order": 0, "requires_feature": "products_schemes"},
+             "section": "🏦 Products", "icon": "🏦", "sort_order": 0, "requires_feature": "products_schemes",
+             "intent": "product_details"},
             {"id": "menu_cards", "title": "Cards", "description": "Credit & debit card help",
-             "section": "🏦 Products", "icon": "💳", "sort_order": 1, "requires_feature": "offering_details"},
+             "section": "🏦 Products", "icon": "💳", "sort_order": 1, "requires_feature": "offering_details",
+             "intent": "product_details"},
             {"id": "menu_loans", "title": "Loans", "description": "Personal, home & business loans",
-             "section": "🏦 Products", "icon": "🏠", "sort_order": 2, "requires_feature": "offering_details"},
+             "section": "🏦 Products", "icon": "🏠", "sort_order": 2, "requires_feature": "offering_details",
+             "intent": "product_details"},
             {"id": "menu_eligibility", "title": "Check Eligibility", "description": "Get a quick check",
              "section": "📞 Talk To Us", "icon": "✅", "sort_order": 3, "requires_feature": "lead_capture",
              "flow": "enquire"},
@@ -583,7 +603,7 @@ _BANKING = {
              "section": "🆘 Support", "icon": "📝", "sort_order": 5, "requires_feature": "complaints",
              "flow": "raise_ticket"},
             {"id": "menu_branch", "title": "Branch & Support", "description": "Find us / contact support",
-             "section": "🆘 Support", "icon": "📍", "sort_order": 6},
+             "section": "🆘 Support", "icon": "📍", "sort_order": 6, "intent": "branch_locator"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
              "section": "🆘 Support", "icon": "🙋", "sort_order": 7, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
@@ -686,11 +706,14 @@ _FINANCE = {
         "button_text": "Show Options",
         "buttons": [
             {"id": "menu_services", "title": "Our Services", "description": "What we offer",
-             "section": "💼 Services", "icon": "💼", "sort_order": 0, "requires_feature": "services"},
+             "section": "💼 Services", "icon": "💼", "sort_order": 0, "requires_feature": "services",
+             "intent": "service_enquiry"},
             {"id": "menu_brochure", "title": "Services Brochure", "description": "Download our brochure",
-             "section": "💼 Services", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf"},
+             "section": "💼 Services", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf",
+             "intent": "brochure_request"},
             {"id": "menu_faq", "title": "FAQs", "description": "Common questions answered",
-             "section": "ℹ️ Info", "icon": "❓", "sort_order": 2, "requires_feature": "faq"},
+             "section": "ℹ️ Info", "icon": "❓", "sort_order": 2, "requires_feature": "faq",
+             "intent": "compliance_query"},
             {"id": "menu_proposal", "title": "Request a Proposal", "description": "Tell us about your goals",
              "section": "📞 Talk To Us", "icon": "📝", "sort_order": 3, "requires_feature": "quote",
              "flow": "get_quote"},
@@ -933,6 +956,139 @@ _GENERIC = {
 }
 
 
+# ── real estate ───────────────────────────────────────────────────────────
+
+_REAL_ESTATE = {
+    "vertical": "real_estate",
+    "display_name": "Skyline Realty",
+    "prompt": {
+        "name": "Real Estate Advisor",
+        "tone": "consultative, polished, and professional",
+        "industry": "real estate & property development",
+        "domain_specific_queries": "properties, floor plans, pricing, possession dates, amenities, or site visits",
+        "domain_specific_topics": "residential apartments, luxury villas, commercial offices, floor plans, possession, pricing, payment plans, site visits, RERA",
+        "support_trigger_topics": "booking issues, documentation disputes, refund requests, construction delays",
+        "complex_topics": "custom payment plans, loan approvals, stamp duty and registration, joint ownership, legal title verification",
+        "listing_type": "properties or projects",
+        "keywords": [
+            "property", "flat", "apartment", "villa", "bhk", "sqft", "possession",
+            "rera", "site visit", "amenities", "floor plan", "price", "emi",
+            "residential", "commercial", "luxury", "penthouse",
+        ],
+    },
+    "features": {
+        "cart": False, "buy_now": False, "orders": False, "track_order": False,
+        "returns": False, "brochure_pdf": True, "distributors": False,
+        "offerings": True, "offering_details": True,
+        "lead_capture": True, "quote": True, "callback": True, "book_appointment": True,
+        "handoff": True, "faq": True, "kb": True, "complaints": True, "campaigns": True,
+        "human_handover": True,
+    },
+    "vocabulary": {
+        "item_noun": "properties", "item_noun_singular": "property",
+        "browse_label": "Featured Properties", "catalog_label": "Project Brochure",
+        "catalog_noun": "project brochure",
+        "order_noun": "booking", "order_noun_plural": "bookings",
+        "cart_noun": "shortlist", "checkout_label": "Book Unit",
+        "brochure_label": "Project Brochure", "brochure_noun": "project brochure",
+        "offer_noun": "offer", "offer_noun_plural": "offers",
+        "lead_noun": "site visit", "enquiry_label": "Schedule Site Visit",
+        "quote_label": "Price & Payment Plan", "callback_label": "Request a Callback",
+        "support_label": "Customer Support", "track_label": "Track Booking",
+    },
+    "menu": {
+        "key": "kb_main",
+        "body": "Welcome to Skyline Realty! How can we assist with your dream property today?",
+        "footer": "Or type your question directly",
+        "button_text": "Explore Options",
+        "buttons": [
+            {"id": "menu_properties", "title": "Explore Properties", "description": "2, 3 & 4 BHK apartments & villas",
+             "section": "🏢 Properties", "icon": "🏙️", "sort_order": 0, "requires_feature": "offerings", "intent": "property_listings"},
+            {"id": "menu_projects", "title": "Ongoing Projects", "description": "Prime locations & specifications",
+             "section": "🏢 Properties", "icon": "🏗️", "sort_order": 1, "requires_feature": "offering_details", "intent": "project_details"},
+            {"id": "menu_brochure", "title": "Project Brochure", "description": "Download e-brochure & floor plans",
+             "section": "🏢 Properties", "icon": "📄", "sort_order": 2, "requires_feature": "brochure_pdf", "intent": "brochure_request"},
+            {"id": "menu_site_visit", "title": "Schedule Site Visit", "description": "Free cab pick-up & guided site tour",
+             "section": "📞 Bookings", "icon": "🚗", "sort_order": 3, "requires_feature": "book_appointment", "flow": "book_callback"},
+            {"id": "menu_pricing_plan", "title": "Pricing & Plans", "description": "Flexible payment schemes & home loans",
+             "section": "📞 Bookings", "icon": "💳", "sort_order": 4, "requires_feature": "quote", "intent": "pricing_plan"},
+            {"id": "menu_rera_legal", "title": "RERA & Legal", "description": "Approvals, titles & RERA registration",
+             "section": "ℹ️ Info", "icon": "📜", "sort_order": 5, "intent": "rera_approvals"},
+            {"id": "menu_callback", "title": "Request a Callback", "description": "Connect with property advisor",
+             "section": "📞 Bookings", "icon": "📞", "sort_order": 6, "requires_feature": "callback", "flow": "book_callback"},
+            {"id": "menu_support", "title": "Customer Support", "description": "Existing buyer queries & tickets",
+             "section": "🆘 Support", "icon": "🆘", "sort_order": 7, "requires_feature": "complaints", "flow": "raise_ticket"},
+            {"id": "menu_human", "title": "Talk to Advisor", "description": "Chat with our sales team",
+             "section": "🆘 Support", "icon": "🙋", "sort_order": 8, "requires_feature": "human_handover", "flow": "book_callback"},
+        ],
+    },
+    "intents": _intents(
+        _GREETING,
+        {"name": "property_listings", "examples": ["what apartments do you have", "show 3 bhk flats", "villa options"],
+         "keywords": ["property", "properties", "apartment", "apartments", "flat", "flats", "bhk", "villa", "villas", "residence", "penthouse"],
+         "requires_feature": "offerings",
+         "answer": ("• 🏙️ *Featured Properties & Residences:*\n"
+                    "• *Skyline Elegance:* 2 & 3 BHK Premium Apartments (1,150 – 1,680 sq.ft.) starting from ₹68 Lakhs.\n"
+                    "• *Skyline Grandeur:* 4 BHK Ultra-Luxury Residences & Penthouses (2,450 – 3,200 sq.ft.) starting from ₹1.45 Cr.\n"
+                    "• *Skyline Business Park:* Grade-A Commercial Office Suites & Retail Shops (500 – 4,500 sq.ft.) starting from ₹42 Lakhs.\n"
+                    "• *Skyline Orchard:* Exclusive Gated Villa Plots starting from ₹35 Lakhs.\n"
+                    "• Tap *Schedule Site Visit* or *Request a Callback* to view available units!")},
+        {"name": "project_details", "examples": ["where is the project located", "what amenities are provided", "possession date"],
+         "keywords": ["project", "location", "amenities", "clubhouse", "gym", "swimming pool", "possession", "specifications", "master plan"],
+         "requires_feature": "offering_details",
+         "answer": ("• 🏗️ *Project Highlights & World-Class Amenities:*\n"
+                    "• *Prime Connectivity:* Centrally situated on SG Highway, 5 mins from metro, 15 mins from airport.\n"
+                    "• *50,000 sq.ft. Luxury Clubhouse:* Temperature-controlled infinity pool, fully equipped gym & spa.\n"
+                    "• *Open Greenery:* 75% open landscaped spaces with jogging track & children's themed park.\n"
+                    "• *Eco-Friendly & Smart:* EV charging bays, solar rooftop power, rainwater harvesting, 3-tier smart security.\n"
+                    "• *Possession:* Tower A & B Ready-to-Move; Tower C & D possession by December 2026.\n"
+                    "• Tap *Project Brochure* to get full architectural drawings!")},
+        {"name": "pricing_plan", "examples": ["what are the payment plans", "is there a subvention scheme", "down payment required"],
+         "keywords": ["pricing", "price", "payment plan", "payment scheme", "down payment", "cost", "installment", "subvention"],
+         "requires_feature": "quote",
+         "answer": ("• 💳 *Flexible Payment Schemes & Financing:*\n"
+                    "• *Construction Linked Plan (CLP):* Pay in transparent milestones tied to floor slab casting.\n"
+                    "• *Special 10:90 Scheme:* Pay 10% now, nothing until possession for eligible units.\n"
+                    "• *Home Loan Approvals:* Pre-approved by SBI, HDFC Bank, ICICI Bank, and Meridian Bank with lowest interest rates.\n"
+                    "• *Transparent Pricing:* Zero hidden charges. All inclusive quotation provided upfront.\n"
+                    "• Tap *Request a Callback* to get a customized cost sheet and loan eligibility check!")},
+        {"name": "rera_approvals", "examples": ["is the project rera approved", "what is the rera number", "legal title clear"],
+         "keywords": ["rera", "rera approved", "rera number", "legal", "approval", "approvals", "title", "completion certificate", "oc"],
+         "answer": ("• 📜 *RERA & Legal Compliance:*\n"
+                    "• *RERA Registration:* PR/GJ/AHMEDABAD/RESIDENTIAL/RAA09876/2024.\n"
+                    "• *Clear Land Titles:* 100% freehold land with all municipal approvals and environmental clearance.\n"
+                    "• *All Nationalized Bank Approved:* Clear legal search report conducted by leading financial institutions.\n"
+                    "• *Full Transparency:* View all registered approvals, title deed and environmental certificates on site or in our sales gallery.")},
+        {"name": "brochure_request", "examples": ["send project brochure", "download floor plans"],
+         "keywords": ["brochure", "pdf", "floor plan", "catalog", "e-brochure"],
+         "requires_feature": "brochure_pdf",
+         "answer": ("• 📄 *Skyline Realty Digital Brochure & Floor Plans*\n"
+                    "• Download our comprehensive project brochure with 3D floor plans and master layout directly on WhatsApp.\n"
+                    "• Tap *Schedule Site Visit* to tour our actual furnished show flats!")},
+        {"name": "site_visit", "examples": ["schedule site visit", "book site tour", "visit project"],
+         "keywords": ["site visit", "visit", "see flats", "show flat", "sample flat", "pick up", "location visit"],
+         "requires_feature": "book_appointment",
+         "flow": "book_callback"},
+        _COMPLAINT,
+        _SUPPORT,
+        _CONTACT_HUMAN,
+    ),
+    "guardrails": {
+        "never_state": ["guaranteed price appreciation", "unconfirmed discounts", "guaranteed rental yield without contract", "non-RERA details"],
+        "never_state_notes": {
+            "guaranteed price appreciation": "Property appreciation depends on market conditions. Never state guaranteed numbers.",
+        },
+        "escalate_keywords": ["legal dispute", "refund advance", "court", "rera complaint", "builder delay", "police", "fraud"],
+        "escalation_message": "Let me connect you directly with our Senior Customer Care Director.",
+        "forbidden_terms": ["add to cart", "buy now", "checkout", "shipping charge", "delivery boy", "dispatch"],
+    },
+    "business_hours": {
+        "timezone": "Asia/Kolkata", "always_open": False,
+        "open": "09:30", "close": "19:00", "open_days": [0, 1, 2, 3, 4, 5, 6],
+    },
+}
+
+
 VERTICAL_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "ecommerce": _ECOMMERCE,
     "it_software": _IT_SOFTWARE,
@@ -940,6 +1096,7 @@ VERTICAL_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "banking": _BANKING,
     "finance": _FINANCE,
     "healthcare": _HEALTHCARE,
+    "real_estate": _REAL_ESTATE,
     "generic": _GENERIC,
 }
 
