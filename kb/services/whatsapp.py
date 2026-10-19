@@ -231,6 +231,11 @@ async def send_text_message(contact_no: str, text: str) -> bool:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(SESSION_MSG_URL, json=payload)
             logger.info(f"API_RESPONSE | status={response.status_code} | body={response.text[:300]}")
+            try:
+                from routing.hookdeck import tee_outbound
+                tee_outbound(SESSION_MSG_URL, payload, response.status_code, response.text, to=contact_no)
+            except Exception:
+                pass
 
             if response.status_code == 200:
                 try:

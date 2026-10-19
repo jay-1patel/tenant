@@ -14,17 +14,22 @@ import { TagInput } from '@/components/ui/tags'
 import { Alert, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
-import { useResolved } from '@/components/tenants/hooks'
+import { useTenantDetail } from '@/components/tenants/hooks'
 
 export function IntentsEditor({ tenantId }: { tenantId: string }) {
-  const { data, loading, error, reload } = useResolved(tenantId)
+  const { data, loading, error, reload } = useTenantDetail(tenantId)
   const action = useAction()
   const toast = useToast()
   const [draft, setDraft] = useState<IntentSpec | null>(null)
   const [editing, setEditing] = useState(false)
   const [validation, setValidation] = useState<string[]>([])
 
-  const all = data ? [...data.active_intents, ...data.inactive_intents] : []
+  // Draft-first: intents created from the menu editor land in the working
+  // copy, so the editor must list the pending profile — not just what is
+  // published — or a freshly added menu option has no editable intent here.
+  const profile = data?.pending ?? data?.effective ?? null
+  const publishedNames = new Set((data?.effective?.intents ?? []).map((i) => i.name))
+  const all = profile?.intents ?? []
 
   const save = async (thenPublish: boolean) => {
     if (!draft) return
@@ -145,6 +150,7 @@ export function IntentsEditor({ tenantId }: { tenantId: string }) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{i.name}</span>
+                  {!publishedNames.has(i.name) && <Badge tone="accent">draft</Badge>}
                   {i.enabled ? <Badge tone="success">enabled</Badge> : <Badge tone="muted">disabled</Badge>}
                   {i.flow && <Badge tone="accent">flow:{i.flow}</Badge>}
                   {i.requires_feature && <Badge tone="neutral">needs:{i.requires_feature}</Badge>}

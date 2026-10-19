@@ -21,8 +21,8 @@ import httpx
 logger = logging.getLogger("company_api")
 
 try:
-    from routing.config import SEND2_SESSION_MSG_URL, SEND2_USERNAME, SEND2_PASSWORD
-    _INCOMING_ENTRY_URL = SEND2_SESSION_MSG_URL
+    from routing.config import SEND2_INCOMING_ENTRY_URL, SEND2_USERNAME, SEND2_PASSWORD
+    _INCOMING_ENTRY_URL = SEND2_INCOMING_ENTRY_URL
     _USER = SEND2_USERNAME
     _PASS = SEND2_PASSWORD
 except Exception:

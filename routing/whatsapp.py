@@ -115,6 +115,8 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
                 timeout=timeout,
             )
             logger.info(f"Reply sent to {to} [{msg_type}], status={resp.status_code}, body={resp.text[:300]}")
+            from routing.hookdeck import tee_outbound
+            tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
             body = (resp.text or "").lower()
             # send2.digital replies 200 with "Your Message ID : ... , Message
             # Sent Successfully" for session-msg-send; other endpoints return
@@ -129,6 +131,8 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
         except Exception as e:
             last_err = e
             logger.warning(f"send2.digital send failed for {msg_type} (attempt {attempt}/{retries}): {e}")
+    from routing.hookdeck import tee_outbound
+    tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
     logger.error(f"send2.digital send failed for {msg_type} after {retries} attempts: {last_err}")
     return False
 
@@ -173,6 +177,8 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
         with httpx.Client(timeout=30) as client:
             resp = client.post(SEND2_LIST_MENU_URL, json=payload)
         logger.info(f"LIST_MENU_RESPONSE | to={to} | status={resp.status_code} | body={resp.text[:300]}")
+        from routing.hookdeck import tee_outbound
+        tee_outbound(SEND2_LIST_MENU_URL, payload, resp.status_code, resp.text, to=to)
         body = (resp.text or "").lower()
         return resp.status_code == 200 and (
             "message sent successfully" in body
@@ -270,6 +276,8 @@ def send_whatsapp_interactive(to, text, buttons, footer=None):
             timeout=30,
         )
         logger.info(f"Interactive reply sent to {to}, status={resp.status_code}, body={resp.text[:300]}")
+        from routing.hookdeck import tee_outbound
+        tee_outbound(SEND2_QUICK_BUTTON_URL, payload, resp.status_code, resp.text, to=to)
         body = (resp.text or "").lower()
         return resp.status_code == 200 and (
             '"success":true' in body

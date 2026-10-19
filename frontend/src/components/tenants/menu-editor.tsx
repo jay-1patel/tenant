@@ -274,6 +274,23 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
       setError(problem)
       return
     }
+    // A newly added option always gets a backing intent, so it shows up in
+    // the Intents editor alongside everything created through "+ New page".
+    // An existing intent with the matching name is linked, not duplicated.
+    if ((editingIndex === -1 || editingIndex === null) && !button.intent && !button.flow) {
+      const name = autoIntentName(button, [...intentNames, ...newIntents], intentMap)
+      if (name) {
+        button = { ...button, intent: name }
+        if (!intentNames.includes(name)) {
+          setNewIntents((current) => (current.includes(name) ? current : [...current, name]))
+          // Empty answer: a tap keeps falling through exactly as before; the
+          // operator writes the real answer in the Intents editor.
+          setIntentEdits((prev) =>
+            prev[name] ? prev : { ...prev, [name]: { answer: '', keywords: [] } },
+          )
+        }
+      }
+    }
     const next = [...buttons]
     if (editingIndex === -1 || editingIndex === null) next.push(button)
     else next[editingIndex] = button
@@ -716,6 +733,35 @@ function normaliseMenu(menu: NonNullable<ProfileSnapshot['menu']>): MenuSpec {
       ...button,
     })) as MenuButton[],
   }
+}
+
+/**
+ * Intent name for a brand-new option: reuse an existing *enabled* intent whose
+ * id matches the button id (with or without the `menu_` prefix — the runtime
+ * strips it), otherwise derive a valid intent id from the button id/title.
+ * Returns null when nothing usable can be derived.
+ */
+function autoIntentName(
+  button: ButtonDraft,
+  taken: string[],
+  intents: Map<string, IntentSpec>,
+): string | null {
+  const raw = button.id.trim().toLowerCase()
+  const stripped = raw.replace(/^menu_/, '')
+  const match = [raw, stripped].find((c) => {
+    const spec = c && intents.get(c)
+    return Boolean(spec && spec.enabled !== false)
+  })
+  if (match) return match
+  const base = (INTENT_ID_RE.test(raw) ? raw : '').replace(/^_+|_+$/g, '')
+    || slugify(button.title).replace(/-/g, '_')
+  if (!base || !INTENT_ID_RE.test(base)) return null
+  if (!taken.includes(base)) return base
+  for (let n = 2; n < 50; n += 1) {
+    const candidate = base.slice(0, 36) + `_${n}`
+    if (!taken.includes(candidate)) return candidate
+  }
+  return null
 }
 
 function validateButton(button: ButtonDraft, others: ButtonDraft[]): string | null {

@@ -36,6 +36,12 @@ SEND2_USERNAME = os.getenv("SEND2_USERNAME")
 SEND2_PASSWORD = os.getenv("SEND2_PASSWORD")
 SEND2_NUMBER = os.getenv("SEND2_NUMBER")
 SEND2_SESSION_MSG_URL = os.getenv("SEND2_SESSION_MSG_URL")
+# Inbound-logging endpoint (AI_chatbot_API_incomingentry): records an incoming
+# message on send2's side. Used by integrations/company_api.py — NOT for sends.
+SEND2_INCOMING_ENTRY_URL = os.getenv(
+    "SEND2_INCOMING_ENTRY_URL",
+    "https://api.send2.digital/devdesk/AI_chatbot_API_incomingentry",
+)
 SEND2_INCOMING_URL = os.getenv("SEND2_INCOMING_URL")
 SEND2_LIST_MENU_URL = os.getenv("SEND2_LIST_MENU_URL")
 SEND2_QUICK_BUTTON_URL = os.getenv("SEND2_QUICK_BUTTON_URL")
