@@ -614,12 +614,6 @@ _BANKING = {
         _PRICING,
         _SUPPORT,
         _CONTACT_HUMAN,
-        # Informational last — owns the product nouns but NOT the words the
-        # operational intents above need (interest rate / fees / charges belong
-        # to pricing, eligibility to eligibility_check).
-        {"name": "product_details", "examples": ["what are the fees on a savings account", "tell me about home loans"],
-         "keywords": ["account", "savings", "current account", "fd", "card", "loan", "emi", "documents"],
-         "requires_feature": "offering_details"},
     ),
     "guardrails": {
         "never_state": ["interest rate offers", "account balances", "loan approvals", "OTP or PIN values",

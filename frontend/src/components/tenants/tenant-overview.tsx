@@ -42,7 +42,7 @@ export function TenantOverview({ tenantId }: { tenantId: string }) {
     { label: 'Live version', value: data.version ? `v${data.version}` : 'none', tone: data.version ? 'success' : 'warning' },
     { label: 'Menu buttons', value: String(data.menu?.buttons?.length ?? 0), tone: 'accent' },
     { label: 'Active intents', value: String(data.active_intents?.length ?? 0), tone: 'accent' },
-    { label: 'Active flows', value: String(data.flows?.length ?? 0), tone: 'accent' },
+
   ] as const
 
   return (

@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import difflib
 import subprocess
 import requests
 from routing.config import OLLAMA_API_URL, OLLAMA_MODEL, BRAND_NAME, BRAND_TAGLINE
@@ -425,6 +426,53 @@ def _collapse_repeats(text: str) -> str:
     return re.sub(r"(.)\1{2,}", r"\1", text)
 
 
+_GREETING_SINGLE_NORM = None
+
+
+def _norm_greeting_word(word: str) -> str:
+    """Collapse every run of repeated letters: hellooo -> helo."""
+    return re.sub(r"(.)\1+", r"\1", word or "")
+
+
+def _greeting_single_norms():
+    global _GREETING_SINGLE_NORM
+    if _GREETING_SINGLE_NORM is None:
+        _GREETING_SINGLE_NORM = {
+            _norm_greeting_word(t) for t in GREETING_TOKENS if " " not in t
+        }
+    return _GREETING_SINGLE_NORM
+
+
+def is_greeting(text) -> bool:
+    """Typo/letter-spam tolerant greeting check.
+
+    Recognises misspelled and padded greetings such as ``Helooyyy``,
+    ``heyyy`` or ``helo`` (normalised to ``heloy``/``hey``/``helo`` and
+    fuzzy-matched to the greeting tokens) so they open the menu instead of
+    being thrown at the RAG index as an unrelated query.
+    """
+    if not text:
+        return False
+    lower = " ".join(re.sub(r"[^a-z\s]", " ", text.strip().lower()).split())
+    if not lower:
+        return False
+    if lower in GREETING_TOKENS:
+        return True
+
+    norms = _greeting_single_norms()
+    for w in lower.split():
+        norm = _norm_greeting_word(w)
+        if len(norm) < 2:
+            continue
+        if norm in norms:
+            return True
+        # Fuzzy only for longer words: short tokens ("ok", "yo", "gm") otherwise
+        # match unrelated words (book -> bok ~ ok).
+        if len(norm) >= 4 and difflib.get_close_matches(norm, norms, n=1, cutoff=0.8):
+            return True
+    return False
+
+
 def is_meaningless_or_greeting(text) -> bool:
     """True when a message carries no answerable query and should show the menu.
 
@@ -437,6 +485,9 @@ def is_meaningless_or_greeting(text) -> bool:
         return True
     lower = text.strip().lower()
     if not lower:
+        return True
+
+    if is_greeting(text):
         return True
 
     cleaned = _collapse_repeats(re.sub(r"[^a-z\s]", "", lower)).strip()

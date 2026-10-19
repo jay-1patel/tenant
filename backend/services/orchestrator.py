@@ -82,6 +82,14 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
     except Exception as exc:
         logger.debug(f"Could not touch customer {wa_id}: {exc}")
 
+    # A new inbound message reopens a conversation that was previously resolved,
+    # so it reappears in the live inbox instead of staying hidden forever.
+    try:
+        from database import reopen_conversation_on_inbound
+        reopen_conversation_on_inbound(wa_id)
+    except Exception as exc:
+        logger.debug(f"Could not reopen conversation for {wa_id}: {exc}")
+
     with get_db_context() as db:
         # 1. Check Human Handover first (Global rule)
         user_state = db.execute(
@@ -315,8 +323,12 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                 outcome = flow_runner.handle_reply(wa_id, message, tenant_id=tenant_id)
                 if outcome and outcome.get("handled"):
                     if outcome.get("messages"):
+                        from services.whatsapp_sender import send_button_message
                         for msg in outcome["messages"]:
-                            await send_text_message(wa_id, msg)
+                            if isinstance(msg, dict) and msg.get("type") == "buttons":
+                                await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                            else:
+                                await send_text_message(wa_id, msg)
                     return {
                         "status": "processed",
                         "messages": drain_captured(),
@@ -343,8 +355,12 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             if flow_name:
                 outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
                 if outcome.get("handled") and outcome.get("messages"):
+                    from services.whatsapp_sender import send_button_message
                     for msg in outcome["messages"]:
-                        await send_text_message(wa_id, msg)
+                        if isinstance(msg, dict) and msg.get("type") == "buttons":
+                            await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                        else:
+                            await send_text_message(wa_id, msg)
                     return {
                         "status": "processed",
                         "messages": drain_captured(),

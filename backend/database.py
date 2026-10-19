@@ -3074,6 +3074,29 @@ def set_human_handover(wa_id: str, active: bool) -> bool:
         return False
 
 
+def reopen_conversation_on_inbound(wa_id: str) -> bool:
+    """Clear a stale ``handover_resolved_at`` so a new inbound message puts the
+    conversation back in the live inbox.
+
+    ``resolve_handoff``/``set_human_handover(False)`` stamp ``handover_resolved_at``
+    so the inbox stops showing a conversation. Without this, that stamp was
+    permanent: the customer could write again and the thread stayed hidden
+    (the default inbox query filters on ``handover_resolved_at IS NULL``). A new
+    inbound message from the customer reopens it.
+    """
+    try:
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE user_states SET handover_resolved_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE wa_id = ? AND handover_resolved_at IS NOT NULL",
+                (wa_id,),
+            )
+        return True
+    except Exception as e:
+        logger.error(f"reopen_conversation_on_inbound failed for {wa_id}: {e}")
+        return False
+
+
 # ── WhatsApp Template helpers ────────────────────────────────────────────
 
 def save_template(name: str, data: dict) -> int:

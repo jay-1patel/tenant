@@ -25,6 +25,24 @@ def _cfg():
     return config
 
 
+def _is_meaningless(message: str) -> bool:
+    """True for keyboard-mash / no-query noise (jsdbkop, hyyyy, emoji-only...)."""
+    try:
+        from routing.classifier import is_meaningless_or_greeting
+        return bool(is_meaningless_or_greeting(message))
+    except Exception:
+        return False
+
+
+def _is_greeting(message: str) -> bool:
+    """True for greeting-ish input, including typos/letter-spam (Helooyyy)."""
+    try:
+        from routing.classifier import is_greeting
+        return bool(is_greeting(message))
+    except Exception:
+        return False
+
+
 async def _llm_synthesize(raw: str, label: str, query: str, tenant_id: str | None = None) -> str:
     """Run a raw stored answer through the LLM (Ollama) before sending.
 
@@ -82,6 +100,15 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
                     sections=menu_data.get("sections", []),
                 )
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
+        # Greeting-ish input (typos / letter-spam like "Helooyyy"): show the menu.
+        if _is_greeting(message):
+            await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+            return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
+        # Meaningless / keyboard-mash input: nudge to the menu instead of
+        # throwing the noise at the RAG index (which returns unrelated answers).
+        if _is_meaningless(message):
+            await send_text_message(wa_id, "Sorry, I didn't catch that. Type *hi* for the menu.")
+            return {"status": "meaningless", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
         return await _handle_main_selection(wa_id, message, context, cfg)
 
@@ -309,6 +336,17 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
         tenant_answer = answer_for_menu_title(wa_id, message)
         if not tenant_answer:
             tenant_answer = answer_for_text(wa_id, message)
+            try:
+                from services import service_answers as _svc_ans
+            except Exception:
+                try:
+                    from backend.services import service_answers as _svc_ans
+                except Exception:
+                    _svc_ans = None
+            if _svc_ans and _svc_ans.is_service_query(message):
+                svc_full = _svc_ans.answer_for_text(wa_id, message)
+                if svc_full:
+                    tenant_answer = svc_full
         if tenant_answer:
             tid = None
             try:
@@ -316,13 +354,13 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 tid = resolve_tenant_for_user(wa_id)
             except Exception:
                 pass
-            synthesized = await _llm_synthesize(tenant_answer, message, message, tenant_id=tid)
             from routing.button_actions import get_contextual_buttons
+            from services.whatsapp_sender import send_button_message, send_text_message
             buttons = get_contextual_buttons(message, tenant_id=tid, wa_id=wa_id, limit=3)
             if buttons:
-                await send_button_message(wa_id, synthesized, buttons)
+                await send_button_message(wa_id, tenant_answer, buttons)
             else:
-                await send_text_message(wa_id, synthesized)
+                await send_text_message(wa_id, tenant_answer)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Tenant intent resolution failed: {e}")
@@ -339,14 +377,13 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 from backend.services import service_answers
             svc = service_answers.answer_for_text(wa_id, message)
             if svc:
-                synthesized = await _llm_synthesize(svc, "Services", message)
-                from routing.button_actions import get_contextual_buttons
-                from services.whatsapp_sender import send_button_message
-                buttons = get_contextual_buttons("services", wa_id=wa_id, limit=3)
+                                from routing.button_actions import get_contextual_buttons
+                from services.whatsapp_sender import send_button_message, send_text_message
+                buttons = get_contextual_buttons(services, wa_id=wa_id, limit=3)
                 if buttons:
-                    await send_button_message(wa_id, synthesized, buttons)
+                    await send_button_message(wa_id, svc, buttons)
                 else:
-                    await send_text_message(wa_id, synthesized)
+                    await send_text_message(wa_id, svc)
                 return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")

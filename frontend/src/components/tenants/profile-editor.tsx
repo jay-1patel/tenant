@@ -293,7 +293,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         </Card>
 
         <Card>
-          <CardHeader title="Working hours" description="Outside these hours, flows swap to their out-of-hours variant." />
+          <CardHeader title="Working hours" description="Working hours configuration." />
           <CardBody className="space-y-4">
             <Switch
               checked={form.businessHours.alwaysOpen}

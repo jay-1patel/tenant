@@ -59,7 +59,16 @@ export const tenantsApi = {
   saveIntent: (
     id: string,
     intent: string,
-    body: { answer?: string | null; keywords?: string[]; enabled?: boolean },
+    body: {
+      answer?: string | null
+      keywords?: string[]
+      examples?: string[]
+      enabled?: boolean
+      flow?: string | null
+      requires_feature?: string | null
+      __remove__?: boolean
+      remove?: boolean
+    },
   ) =>
     api.put<{ ok: boolean; validation: string[] }>(
       `/api/admin/tenants/${encodeURIComponent(id)}/intents/${encodeURIComponent(intent)}`,

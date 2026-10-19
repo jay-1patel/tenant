@@ -695,13 +695,61 @@ def _retry(wa_id, flow, step, collected, message):
     return _outcome(flow.name, [message])
 
 
+_CHOICE_FILLER = frozenset((
+    "a", "an", "the", "for", "of", "to", "my", "me", "i", "want", "need",
+    "would", "like", "please", "open", "opening", "new", "get", "have", "do",
+    "is", "are", "am", "can", "you",
+))
+
+
+def _choice_tokens(text: str) -> set:
+    """Comparable token set for a free-text answer or an option label.
+
+    Lowercases, drops filler words, ignores single letters, and folds a trailing
+    plural ``s`` (savings -> saving) so everyday phrasings such as
+    "Saving account opening" still line up with the option "Savings Account".
+    """
+    out = set()
+    for w in re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split():
+        if len(w) < 2 or w in _CHOICE_FILLER:
+            continue
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.add(w)
+    return out
+
+
+def _choice_button_id(option, index: int) -> str:
+    """Stable, WhatsApp-safe id for a choice option row/button."""
+    slug = re.sub(r"[^a-z0-9]+", "_", str(option or "").lower()).strip("_")
+    return f"flowopt_{index}_{slug or 'opt'}"[:256]
+
+
+def message_to_text(msg) -> str:
+    """Flatten a flow outcome message (str or interactive dict) to plain text."""
+    if isinstance(msg, str):
+        return msg
+    if isinstance(msg, dict):
+        return msg.get("text") or ""
+    return ""
+
+
+def messages_text(messages) -> str:
+    """Flatten a flow outcome message list to a single newline-joined string."""
+    return "\n".join(message_to_text(m) for m in (messages or []))
+
+
 def _match_choice(answer: str, options: list):
     a = (answer or "").strip().lower()
     if not a:
         return None
+    a_tokens = _choice_tokens(a)
     for opt in options:
         o = (opt or "").strip().lower()
         if a == o or (len(a) >= 3 and a in o) or (len(o) >= 3 and o in a):
+            return opt
+        o_tokens = _choice_tokens(o)
+        if a_tokens and o_tokens and (o_tokens <= a_tokens or a_tokens <= o_tokens):
             return opt
     return None
 
@@ -744,7 +792,15 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
 
         if step.type in ("ask", "choice", "confirm"):
             prompt = step.prompt or step.message
-            if prompt:
+            if step.type == "choice" and prompt and step.options:
+                # Emit a tappable options message (the sender renders buttons as a
+                # WhatsApp list menu) so the customer picks instead of typing.
+                buttons = [
+                    {"id": _choice_button_id(opt, i), "title": str(opt)[:24]}
+                    for i, opt in enumerate(step.options)
+                ]
+                messages.append({"type": "buttons", "text": prompt, "buttons": buttons})
+            elif prompt:
                 messages.append(prompt)
             sm.set_step(wa_id, step.id)
             return _outcome(flow.name, messages, lead_id=lead_id,
@@ -804,7 +860,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         meet_confirmation = "\n".join(meet_lines)
 
         # Replace any generic "Done!" or "say" message or append
-        if messages and any(kw in messages[-1].lower() for kw in ("done", "callback", "office", "soon", "team")):
+        if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("done", "callback", "office", "soon", "team")):
             messages[-1] = meet_confirmation
         else:
             messages.append(meet_confirmation)
@@ -824,7 +880,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         if cal_url:
             cb_lines.append(f"\n📅 *Add to Calendar:*\n{cal_url}")
         cb_confirmation = "\n".join(cb_lines)
-        if messages and any(kw in messages[-1].lower() for kw in ("done", "callback", "office", "soon", "team")):
+        if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("done", "callback", "office", "soon", "team")):
             messages[-1] = cb_confirmation
         else:
             messages.append(cb_confirmation)
@@ -845,7 +901,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             "\nOur support team has logged your complaint and will review and address it shortly. Please keep this Ticket ID for your reference. 🙏",
         ]
         cmp_confirmation = "\n".join(cmp_lines)
-        if messages and any(kw in messages[-1].lower() for kw in ("ticket", "shortly", "done", "team", "complaint")):
+        if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("ticket", "shortly", "done", "team", "complaint")):
             messages[-1] = cmp_confirmation
         else:
             messages.append(cmp_confirmation)

@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from . import cache, store
 from .defaults import DEFAULT_FLOWS, DEFAULT_TENANT_ID, get_vertical_defaults
 from .merge import collect_strings, merge_layers
-from .paths import client_config_path
+from .paths import client_config_path, client_dir
 from .schemas import TenantProfile
 
 logger = logging.getLogger("tenancy.loader")
@@ -50,6 +51,33 @@ def _strip_wrapper(data: Dict[str, Any]) -> Dict[str, Any]:
     """Allow {"tenant_profile": {...}} as a wrapper for admin exports."""
     inner = data.get("tenant_profile")
     return inner if isinstance(inner, dict) else data
+
+
+def write_client_config_file(tenant_id: str, layer: Dict[str, Any]) -> Optional[str]:
+    """Mirror a published override layer back into clients/<id>/config.json.
+
+    The admin console saves edits to the draft/published DB layer only, so the
+    on-disk client pack drifts from what was just published. This writes the
+    published layer merged over the file's current contents (keyed by name for
+    flows / intents / menu buttons), so untouched file content is preserved and
+    only the published keys are updated. Vertical defaults are never written -
+    the file stays a thin override layer.
+
+    Returns the path written, or None when the tenant has no client pack (we
+    never invent one). Raises on I/O errors so the caller can log and continue.
+    """
+    d = client_dir(tenant_id)
+    if not d.exists():
+        return None
+    path = client_config_path(tenant_id)
+    existing = _strip_wrapper(load_file_layer(tenant_id))
+    merged = merge_layers(existing, layer or {})
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(merged, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return str(path)
 
 
 # ── build ─────────────────────────────────────────────────────────────────

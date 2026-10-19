@@ -81,10 +81,19 @@ class ProfileDraft(BaseModel):
 
 
 class IntentOverride(BaseModel):
-    """One informational intent's editable fields. Omitted keys are not touched."""
+    """One intent's editable fields. Omitted keys are not touched."""
     answer: Optional[str] = None
     keywords: Optional[List[str]] = None
+    examples: Optional[List[str]] = None
     enabled: Optional[bool] = None
+    flow: Optional[str] = None
+    requires_feature: Optional[str] = None
+    remove: Optional[bool] = Field(default=None, alias="__remove__")
+    __remove__: Optional[bool] = None
+
+    class Config:
+        extra = "allow"
+        populate_by_name = True
 
 
 class RollbackRequest(BaseModel):
@@ -453,19 +462,14 @@ def save_intent_draft(
                 status_code=404,
                 detail=f"intent '{intent_name}' is not part of this tenant's profile",
             )
-    elif intent_name in existing:
-        # Operational intents (place_order, service_enquiry...) have flows and
-        # services behind them; this endpoint only edits answered info pages.
-        raise HTTPException(
-            status_code=404,
-            detail=f"intent '{intent_name}' exists but is not an editable info page",
-        )
-    else:
+    elif intent_name not in existing:
         if not INTENT_NAME_RE.match(intent_name):
             raise HTTPException(
                 status_code=422,
                 detail="Intent names are lowercase letters, digits and underscores, starting with a letter.",
             )
+        permission = "manage_operations"
+    else:
         permission = "manage_operations"
 
     # Tenant tokens are scoped to their own tenant above; admins need the
@@ -483,8 +487,16 @@ def save_intent_draft(
         override["answer"] = body.answer
     if body.keywords is not None:
         override["keywords"] = [k for k in (s.strip() for s in body.keywords) if k]
+    if body.examples is not None:
+        override["examples"] = [k for k in (s.strip() for s in body.examples) if k]
     if body.enabled is not None:
         override["enabled"] = body.enabled
+    if body.flow is not None:
+        override["flow"] = body.flow or None
+    if body.requires_feature is not None:
+        override["requires_feature"] = body.requires_feature or None
+    if body.remove or body.__remove__:
+        override["__remove__"] = True
 
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
@@ -502,10 +514,12 @@ def save_intent_draft(
                 details={
                     "intent_name": intent_name,
                     "enabled": body.enabled,
-                    "changed_fields": sorted(k for k in override if k != "name"),
-                    "keywords": [str(k)[:50] for k in (body.keywords or [])][:20] if body.keywords is not None else None,
-                    "has_answer": bool(body.answer),
-                },
+        "changed_fields": sorted(k for k in override if k != "name"),
+        "keywords": [str(k)[:50] for k in (body.keywords or [])][:20] if body.keywords is not None else None,
+        "examples": [str(k)[:50] for k in (body.examples or [])][:20] if body.examples is not None else None,
+        "has_answer": bool(body.answer),
+        "removed": bool(body.remove or body.__remove__),
+    },
             )
 
     warnings: list = []
@@ -609,6 +623,17 @@ def publish_profile(
             )
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_PROFILE_PUBLISHED | tenant=%s | version=%s | by=%s", tenant_id, version, by)
+
+    # Keep the on-disk client pack in sync with what was just published so an
+    # edit made in the console (intents editor, menu editor, ...) also lands in
+    # clients/<tenant>/config.json. A missing pack or I/O error is non-fatal:
+    # the DB version is already live.
+    try:
+        written = tenancy_loader.write_client_config_file(tenant_id, draft)
+        if written:
+            logger.info("CLIENT_CONFIG_SYNCED | tenant=%s | path=%s", tenant_id, written)
+    except Exception as exc:
+        logger.warning("Could not sync client config file for %s: %s", tenant_id, exc)
     return {
         "ok": True,
         "tenant_id": tenant_id,

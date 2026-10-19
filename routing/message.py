@@ -581,7 +581,7 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
         if wa_id and flow_runner.is_running(wa_id):
             outcome = flow_runner.handle_reply(wa_id, user_text, tenant_id=tenant_id)
             if outcome and outcome.get("handled") and outcome.get("messages"):
-                result["answer"] = "\n".join(outcome["messages"])
+                result["answer"] = flow_runner.messages_text(outcome["messages"])
                 result["query_type"] = "flow"
                 return result
 
@@ -592,7 +592,7 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
         if flow_name:
             outcome = flow_runner.start_flow(wa_id or "", flow_name, tenant_id=tenant_id)
             if outcome.get("handled") and outcome.get("messages"):
-                result["answer"] = "\n".join(outcome["messages"])
+                result["answer"] = flow_runner.messages_text(outcome["messages"])
                 result["query_type"] = "flow"
                 logger.info("FLOW_STARTED_VIA_MESSAGE | wa_id=%s | flow=%s", wa_id, flow_name)
                 return result

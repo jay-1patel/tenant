@@ -55,12 +55,7 @@ describe('menu editor page', () => {
   })
 })
 
-describe('intents and flows page', () => {
-  it('shows flows', async () => {
-    await renderView(`#/tenants/${T}/flows`)
-    expect((await screen.findAllByText(/flow|intent/i)).length).toBeGreaterThan(0)
-  })
-})
+
 
 describe('records page', () => {
   it('shows records (products for ecommerce)', async () => {

@@ -2,17 +2,15 @@
   "tenant_id": "leewaysoftech",
   "vertical": "it_software",
   "display_name": "Leewaysoftech",
-
   "brand": {
     "name": "Leewaysoftech",
     "bot_name": "Leewaysoftech Assistant",
     "tagline": "a software development company building web, mobile, and enterprise solutions",
     "website": "www.leewaysoftech.com",
-    "support_email": "info@leewaysoftech.com",
+    "support_email": "customercare@leewaysoftech.com",
     "support_phone": "+91 98765 43210",
     "signature": "Leewaysoftech — Building software that moves business forward."
   },
-
   "features": {
     "cart": false,
     "buy_now": false,
@@ -34,7 +32,6 @@
     "campaigns": false,
     "human_handover": true
   },
-
   "vocabulary": {
     "item_noun": "services",
     "item_noun_singular": "service",
@@ -51,15 +48,19 @@
     "callback_label": "Request a Callback",
     "support_label": "Raise Ticket"
   },
-
   "business_hours": {
     "timezone": "Asia/Kolkata",
     "always_open": false,
     "open": "09:30",
     "close": "18:30",
-    "open_days": [0, 1, 2, 3, 4]
+    "open_days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
   },
-
   "intents": [
     {
       "name": "technologies",
@@ -76,9 +77,27 @@
     {
       "name": "benefits",
       "answer": "• Why teams choose to work with us:\n• *Dedicated project manager* as your single point of contact\n• *Agile delivery* in two-week sprints with regular demos\n• *Transparent reporting* — you always know where things stand\n• *Post-launch support and maintenance* packages\n• *Your IP stays yours* — full code and documentation handover\n• *Fixed-price or dedicated-team* engagement models, NDA on request"
+    },
+    {
+      "name": "service_enquiry",
+      "examples": [
+        "what services do you offer",
+        "do you build mobile apps"
+      ],
+      "keywords": [
+        "service",
+        "services",
+        "what do you do",
+        "capability",
+        "capabilities",
+        "offerings",
+        "solution",
+        "expertise"
+      ],
+      "requires_feature": "offerings",
+      "answer": "Leewaysoftech — Innovative Technology, Creative Work\n\n**Our Services:**\n• **SMS Gateway** – Send OTPs, payment updates, reminders with API support\n• **Virtual Number / Missed Call** – Capture leads via virtual numbers\n• **WhatsApp Business API** – Engage customers via WhatsApp\n• **Voice & IVR** – Omnichannel customer engagement\n• **Bulk Email** – Centralized email communication\n• **AI & Automation** – Custom AI chatbots, ML & automation\n• **Cloud & DevOps** – Cloud migration, AWS/Azure/GCP, DevOps, CI/CD\n• **IT Services** – Web/mobile app development, SEO, UI/UX, e-commerce solutions\n\nReady to discuss your project? Just ask!"
     }
   ],
-
   "guardrails": {
     "never_state": [
       "prices, budgets, or rates before the team confirms a quote",
@@ -86,23 +105,35 @@
       "client names without their written permission"
     ],
     "escalate_keywords": [
-      "production down", "urgent bug", "security breach", "data loss",
-      "legal", "contract dispute"
+      "production down",
+      "urgent bug",
+      "security breach",
+      "data loss",
+      "legal",
+      "contract dispute"
     ],
     "escalation_message": "That needs a person from our team — connecting you now.",
-    "handoff_keywords": ["human", "agent", "manager", "urgent", "complaint"]
+    "handoff_keywords": [
+      "human",
+      "agent",
+      "manager",
+      "urgent",
+      "complaint"
+    ]
   },
-
   "notifications": {
     "sales_email": "sales@leewaysoftech.com",
-    "support_email": "info@leewaysoftech.com",
+    "support_email": "customercare@leewaysoftech.com",
     "brochure_url": "",
     "brochure_label": "Company Profile",
     "channels": [
-      { "type": "email", "to": "sales@leewaysoftech.com", "label": "sales" }
+      {
+        "type": "email",
+        "to": "sales@leewaysoftech.com",
+        "label": "sales"
+      }
     ]
   },
-
   "flows": [
     {
       "name": "get_quote",
