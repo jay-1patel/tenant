@@ -1257,11 +1257,32 @@ async def handle_kb_query(
             cart_service.clear_cart(wa_id)
             reset_to_main_menu(wa_id)
 
+            payment_note = "Our team will contact you shortly to confirm delivery details."
+            try:
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                from backend.services.payment_checkout import create_payment_link
+                _tid = resolve_tenant_for_user(wa_id) or ""
+                if _tid and total:
+                    pay = await create_payment_link(
+                        _tid,
+                        order_number,
+                        float(total),
+                        customer_phone=wa_id,
+                        description=f"Order {order_number}",
+                    )
+                    if pay.get("ok") and pay.get("payment_url"):
+                        payment_note = (
+                            f"💳 Pay online to confirm:\n{pay['payment_url']}\n\n"
+                            "Or reply if you prefer cash on delivery — our team will confirm."
+                        )
+            except Exception as pay_exc:
+                logger.warning(f"Payment link skipped for {order_number}: {pay_exc}")
+
             response_text = (
                 f"🎉 Order placed! Your order ID is *{order_number}*.\n\n"
                 f"{chr(10).join(order_lines)}\n\n"
                 f"*Total: ₹{total}*\n\n"
-                "Our team will contact you shortly to confirm delivery details."
+                f"{payment_note}"
             )
         else:
             # Fallback: legacy non-transactional path if order_service unavailable.

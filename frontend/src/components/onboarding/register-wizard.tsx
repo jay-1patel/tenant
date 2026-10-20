@@ -33,7 +33,7 @@ import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { uploadImage } from '@/lib/uploads'
 import { navigate } from '@/lib/router'
 import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
-import type { ResolvedProfile, Tenant } from '@/lib/types'
+import type { FeatureFlag, ResolvedProfile, Tenant } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
@@ -721,66 +721,35 @@ function DomainStep({ draft, patch }: StepProps) {
           description="Switch on only what this company will use — anything off stays hidden from their console."
         />
         <CardBody className="space-y-4">
-          <Switch
-            checked={draft.features.includes('campaigns')}
-            onChange={(on) =>
-              patch({
-                features: on
-                  ? [...draft.features, 'campaigns']
-                  : draft.features.filter((f) => f !== 'campaigns'),
-              })
-            }
-            label="Campaigns"
-            description="Broadcast messages to customer segments from the console."
-          />
-          <Switch
-            checked={draft.features.includes('distributors')}
-            onChange={(on) =>
-              patch({
-                features: on
-                  ? [...draft.features, 'distributors']
-                  : draft.features.filter((f) => f !== 'distributors'),
-              })
-            }
-            label="Distributors"
-            description="Manage the reseller/distributor network and their pricing tiers."
-          />
-          <Switch
-            checked={draft.features.includes('services')}
-            onChange={(on) =>
-              patch({
-                features: on
-                  ? [...draft.features, 'services']
-                  : draft.features.filter((f) => f !== 'services'),
-              })
-            }
-            label="Services"
-            description="Show the Services menu entry and answer questions about what you deliver."
-          />
-          <Switch
-            checked={draft.features.includes('products')}
-            onChange={(on) =>
-              patch({
-                features: on
-                  ? [...draft.features, 'products']
-                  : draft.features.filter((f) => f !== 'products'),
-              })
-            }
-            label="Products"
-            description="Show the Products menu entry and answer questions about what you sell."
-          />
-          <Switch
-            checked={draft.features.includes('products_schemes')}
-            onChange={(on) =>
-              patch({
-                features: on
-                  ? [...draft.features, 'products_schemes']
-                  : draft.features.filter((f) => f !== 'products_schemes'),
-              })
-            }
-            label="Products & Schemes"
-            description="Show a combined Products & Schemes menu entry."
-          />
+          {([
+            { flag: 'payments', label: 'Online Payments', desc: 'Generate Razorpay or Stripe checkout links for WhatsApp orders.' },
+            { flag: 'orders', label: 'Orders Management', desc: 'Accept and process customer orders through WhatsApp.' },
+            { flag: 'cart', label: 'Cart', desc: 'Allow customers to add multiple items to a cart before checkout.' },
+            { flag: 'track_order', label: 'Order Tracking', desc: 'Allow customers to look up order status and shipment AWB on WhatsApp.' },
+            { flag: 'quote', label: 'Request a Quote', desc: 'Collect custom requirements and generate quote requests.' },
+            { flag: 'callback', label: 'Request a Callback', desc: 'Allow users to request a phone callback from sales or support.' },
+            { flag: 'book_appointment', label: 'Book Appointments', desc: 'Allow booking appointments and scheduled meetings.' },
+            { flag: 'brochure_pdf', label: 'Brochure PDF', desc: 'Offer downloadable brochure or catalog PDFs in chat.' },
+            { flag: 'complaints', label: 'Complaints & Support', desc: 'Register customer grievances and track complaint tickets.' },
+            { flag: 'campaigns', label: 'Campaigns', desc: 'Broadcast messages to customer segments from the console.' },
+            { flag: 'distributors', label: 'Distributors', desc: 'Manage reseller/distributor network and wholesale pricing tiers.' },
+            { flag: 'services', label: 'Services Menu', desc: 'Show the Services menu entry and answer questions about what you deliver.' },
+            { flag: 'products', label: 'Products Menu', desc: 'Show the Products menu entry and answer questions about what you sell.' },
+          ] as const).map(({ flag, label, desc }) => (
+            <Switch
+              key={flag}
+              checked={draft.features.includes(flag as FeatureFlag)}
+              onChange={(on) =>
+                patch({
+                  features: on
+                    ? [...draft.features.filter((f) => f !== flag), flag as FeatureFlag]
+                    : draft.features.filter((f) => f !== flag),
+                })
+              }
+              label={label}
+              description={desc}
+            />
+          ))}
         </CardBody>
       </Card>
 

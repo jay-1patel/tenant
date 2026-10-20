@@ -583,13 +583,39 @@ async def _place_order(wa_id: str, context: dict, tier: str) -> dict:
     context.pop(CHECKOUT_KEY, None)
 
     name = checkout.get("name", "")
+    payment_note = (
+        "Our team will reach out shortly to complete payment and confirm delivery."
+    )
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        from backend.services.payment_checkout import create_payment_link
+        tid = resolve_tenant_for_user(wa_id) or ""
+        if tid and summary.get("subtotal"):
+            pay = await create_payment_link(
+                tid,
+                order_number,
+                float(summary["subtotal"]),
+                customer_name=name,
+                customer_phone=checkout.get("mobile") or wa_id,
+                description=f"B2B Order {order_number}",
+            )
+            if pay.get("ok") and pay.get("payment_url"):
+                payment_note = (
+                    f"💳 Pay online to confirm:\n{pay['payment_url']}\n\n"
+                    "You can also share a UTR / payment proof from Finance in the menu."
+                )
+    except Exception as exc:
+        import logging
+        logging.getLogger("b2b_order_flow").warning(
+            "Payment link skipped for %s: %s", order_number, exc
+        )
+
     await send_text_message(
         wa_id,
         f"🎉 Order confirmed! Thanks, {name}!\n\n"
         f"📦 Order number: *{order_number}*\n"
         f"📍 Delivering to: {checkout.get('address', '')}\n"
         f"💰 Total: Rs {summary['subtotal']:.2f}\n\n"
-        "💳 Payment options are coming soon — our team will reach out shortly "
-        "to complete payment and confirm delivery. Stay tuned! 😊",
+        f"{payment_note}",
     )
     return {"new_state": cfg.B2B_MAIN_MENU_STATE, "context": context}

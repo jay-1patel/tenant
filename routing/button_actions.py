@@ -124,6 +124,34 @@ BUTTONS: dict[str, str] = {
     "distributor_info": "🤝 Distributorship",
 }
 
+BUTTON_FEATURE_REQUIREMENTS: dict[str, str] = {
+    "menu_view_cart": "cart",
+    "track_order": "track_order",
+    "menu_catalogue": "brochure_pdf",
+    "menu_brochure": "brochure_pdf",
+    "return_policy": "returns",
+    "get_quote": "quote",
+    "menu_quote": "quote",
+    "menu_proposal": "quote",
+    "book_callback": "callback",
+    "menu_callback": "callback",
+    "menu_appointment": "book_appointment",
+    "raise_ticket": "complaints",
+    "menu_complaint": "complaints",
+    "menu_grievance": "complaints",
+    "menu_support": "complaints",
+    "contact_support": "complaints",
+    "menu_human": "human_handover",
+    "menu_services": "services",
+    "menu_products": "products",
+    "menu_treatments": "services",
+    "menu_specialities": "services",
+    "menu_packages": "offerings",
+    "menu_destinations": "offerings",
+    "menu_offerings": "offerings",
+    "distributor_info": "distributors",
+}
+
 # ---------------------------------------------------------------------------
 # 2. Topic groups — ORDER IS LOAD-BEARING. Specific -> generic.
 #    Evaluated top-down; every matching group contributes its actions
@@ -745,6 +773,9 @@ def get_contextual_buttons(
     seen = set()
     for bid in picked_ids:
         if bid not in seen and bid in BUTTONS:
+            req_feat = BUTTON_FEATURE_REQUIREMENTS.get(bid)
+            if profile and req_feat and not profile.features.is_on(req_feat):
+                continue
             seen.add(bid)
             title = BUTTONS[bid]
             result.append({"id": bid[:50], "title": title[:20]})

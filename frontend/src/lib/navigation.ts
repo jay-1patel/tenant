@@ -32,6 +32,7 @@ import {
   Upload,
   Users,
   Phone,
+  Plug,
   type LucideIcon,
 } from 'lucide-react'
 import type { FeatureFlag, Features } from './types'
@@ -153,6 +154,12 @@ export function buildTenantNav(opts: {
       permissions: ['manage_operations'],
       feature: 'callback',
       showsCount: true,
+    },
+    {
+      id: 'api-access',
+      label: 'Integrations & APIs',
+      icon: Plug,
+      permissions: ['manage_operations'],
     },
     { id: 'tokens', label: 'API tokens', icon: KeyRound, permissions: ['manage_operations'] },
   ]

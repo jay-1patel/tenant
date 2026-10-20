@@ -3,11 +3,12 @@ import logging
 import os
 import re
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -1300,8 +1301,12 @@ def _blast_campaign(row, tenant_id: str, wa_ids: list) -> tuple:
             continue
         try:
             ok = send_whatsapp_message(
-                wa_id, _render_campaign_message(d, fallbacks, {"name": names.get(wa_id, "")})
+                wa_id,
+                _render_campaign_message(d, fallbacks, {"name": names.get(wa_id, "")}),
+                tenant_id=tenant_id,
             )
+            # Pacing throttle (25 msgs/sec) to avoid carrier/WABA rate limiting
+            time.sleep(0.04)
         except Exception as exc:
             logger.warning(f"campaign send to {wa_id} failed: {exc}")
             ok = False
@@ -1387,17 +1392,34 @@ def _audience_wa_ids(conn, tenant_id: str, audience_type: str, criteria: dict | 
     return [r["wa_id"] for r in rows]
 
 
+def _async_campaign_blast(row, tenant_id: str, wa_ids: list, campaign_id: int):
+    """Background worker for large broadcast batches."""
+    sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
+    with get_db_context() as conn:
+        conn.execute(
+            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+            "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+            (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+        )
+    logger.info(
+        f"ASYNC_CAMPAIGN_FINISHED | tenant={tenant_id} | campaign={campaign_id} "
+        f"| sent={sent} failed={failed} skipped={skipped}"
+    )
+
+
 @router.post("/{campaign_id}/send")
 def send_campaign_to_audience(
     tenant_id: str,
     campaign_id: int,
+    background_tasks: BackgroundTasks,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    """Send one campaign to its ENTIRE selected audience, right now.
+    """Send one campaign to its ENTIRE selected audience.
 
     distributors -> every distributor of the tenant; customers -> everyone
     in the customer directory; segments -> the members the segment's
     criteria select. Opted-out contacts are always skipped.
+    Batches > 10 are queued in the background to prevent HTTP timeouts.
     """
     with get_db_context() as conn:
         row = _get_campaign(conn, campaign_id, tenant_id)
@@ -1418,7 +1440,27 @@ def send_campaign_to_audience(
         wa_ids = _audience_wa_ids(conn, tenant_id, audience, criteria)
 
     if not wa_ids:
-        raise HTTPException(422, f"the '{audience}' audience is empty \u2014 nothing to send")
+        raise HTTPException(422, f"the '{audience}' audience is empty — nothing to send")
+
+    if len(wa_ids) > 10:
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE campaigns SET target_count = ?, status = 'sending', updated_at = ? WHERE id = ? AND tenant_id = ?",
+                (len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+            )
+        background_tasks.add_task(_async_campaign_blast, row, tenant_id, wa_ids, campaign_id)
+        logger.info(
+            f"CAMPAIGN_QUEUED_ASYNC | tenant={tenant_id} | campaign={campaign_id} "
+            f"| audience={audience} | targeted={len(wa_ids)}"
+        )
+        return {
+            "ok": True,
+            "status": "sending",
+            "mode": "async",
+            "audience": audience,
+            "targeted": len(wa_ids),
+            "message": "Broadcast is being sent asynchronously in the background.",
+        }
 
     sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
 
@@ -1435,6 +1477,8 @@ def send_campaign_to_audience(
     )
     return {
         "ok": True,
+        "status": "completed",
+        "mode": "sync",
         "audience": audience,
         "targeted": len(wa_ids),
         "sent": sent,

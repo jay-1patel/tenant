@@ -21,10 +21,8 @@ from routing.config import DB_PATH, logger
 
 _kb_build_lock = Lock()
 _kb_faiss_index = None
-# Each entry is (doc_id, chunk_idx, tenant_id). The tenant tag rides the index
-# so a rebuild stays global (one index, all tenants) while every search is
-# scoped to exactly one tenant.
 _kb_faiss_ids = []
+_kb_tenant_indexes: Dict[str, tuple] = {}
 
 
 def _resolve_tenant_id(tenant_id=None) -> str:
@@ -270,8 +268,8 @@ def add_document_to_kb(filename: str, text: str, category: str = "", media_url: 
 
 
 def rebuild_faiss_index():
-    """Rebuild the FAISS index from all KB documents, generating missing embeddings first."""
-    global _kb_faiss_index, _kb_faiss_ids
+    """Rebuild the FAISS index from all KB documents, partitioning by tenant."""
+    global _kb_faiss_index, _kb_faiss_ids, _kb_tenant_indexes
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -288,31 +286,58 @@ def rebuild_faiss_index():
         rows_with_emb = [r for r in rows if r["embedding_blob"] is not None]
         if not rows_with_emb:
             logger.info("rebuild_faiss_index: no documents with embeddings found")
+            _kb_faiss_index = None
+            _kb_faiss_ids = []
+            _kb_tenant_indexes = {}
             return
 
         dim = get_embedding_dim()
         all_embeddings = []
         all_ids = []
+        tenant_data = {}
+
         for row in rows_with_emb:
             chunks = _safe_json_loads(row["chunks_json"], [])
             if not chunks:
                 continue
             emb = np.frombuffer(row["embedding_blob"], dtype="float32").reshape(len(chunks), dim)
             all_embeddings.append(emb)
-            all_ids.extend([(row["id"], i, row["tenant_id"] or "default") for i in range(len(chunks))])
+            tid = row["tenant_id"] or "default"
+            chunk_records = [(row["id"], i, tid) for i in range(len(chunks))]
+            all_ids.extend(chunk_records)
+
+            if tid not in tenant_data:
+                tenant_data[tid] = {"embs": [], "ids": []}
+            tenant_data[tid]["embs"].append(emb)
+            tenant_data[tid]["ids"].extend(chunk_records)
 
         if not all_embeddings:
             logger.info("rebuild_faiss_index: no chunks with embeddings found")
             return
 
-        all_embeddings = np.vstack(all_embeddings).astype("float32")
+        # Build global index
+        all_embeddings_matrix = np.vstack(all_embeddings).astype("float32")
         index = faiss.IndexFlatIP(dim)
-        faiss.normalize_L2(all_embeddings)
-        index.add(all_embeddings)
-
+        faiss.normalize_L2(all_embeddings_matrix)
+        index.add(all_embeddings_matrix)
         _kb_faiss_index = index
         _kb_faiss_ids = all_ids
-        logger.info("rebuild_faiss_index: %d chunks indexed from %d docs", len(all_ids), len(rows_with_emb))
+
+        # Build per-tenant indexes
+        new_tenant_indexes = {}
+        for tid, t_dict in tenant_data.items():
+            if t_dict["embs"]:
+                t_matrix = np.vstack(t_dict["embs"]).astype("float32")
+                t_idx = faiss.IndexFlatIP(dim)
+                faiss.normalize_L2(t_matrix)
+                t_idx.add(t_matrix)
+                new_tenant_indexes[tid] = (t_idx, t_dict["ids"])
+        _kb_tenant_indexes = new_tenant_indexes
+
+        logger.info(
+            "rebuild_faiss_index: %d chunks indexed across %d tenants from %d docs",
+            len(all_ids), len(_kb_tenant_indexes), len(rows_with_emb)
+        )
     except Exception as e:
         logger.error(f"rebuild_faiss_index failed: {e}")
 
@@ -351,17 +376,35 @@ def generate_missing_embeddings():
 
 
 def search_kb_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[Dict]:
-    """Search KB using FAISS vector similarity, scoped to one tenant."""
-    global _kb_faiss_index, _kb_faiss_ids
-    if _kb_faiss_index is None or not _kb_faiss_ids:
-        return []
-
+    """Search KB using FAISS vector similarity, scoped strictly to one tenant."""
+    global _kb_faiss_index, _kb_faiss_ids, _kb_tenant_indexes
     tid = _resolve_tenant_id(tenant_id)
     model = get_embedding_model()
     query_emb = model.encode([query], normalize_embeddings=True).astype("float32")
     faiss.normalize_L2(query_emb)
 
-    # Over-fetch so filtering out other tenants' chunks doesn't starve results.
+    # 1. Prefer dedicated per-tenant index (guarantees zero cross-tenant starvation)
+    if _kb_tenant_indexes and tid in _kb_tenant_indexes:
+        t_index, t_ids = _kb_tenant_indexes[tid]
+        if t_index.ntotal > 0:
+            fetch_k = min(limit, t_index.ntotal)
+            scores, indices = t_index.search(query_emb, fetch_k)
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx < 0 or idx >= len(t_ids):
+                    continue
+                doc_id, chunk_idx, _ = t_ids[idx]
+                results.append({
+                    "doc_id": doc_id,
+                    "chunk_index": chunk_idx,
+                    "score": float(score),
+                })
+            return results
+
+    # 2. Fall back to global index with tenant filter
+    if _kb_faiss_index is None or not _kb_faiss_ids:
+        return []
+
     fetch_k = min(limit * 4, _kb_faiss_index.ntotal)
     scores, indices = _kb_faiss_index.search(query_emb, fetch_k)
     results = []
@@ -384,9 +427,8 @@ def search_kb_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[D
 # ── Product FAISS index ─────────────────────────────────────────────────
 
 _product_faiss_index = None
-# Each entry is (product_id, tenant_id) — same tenant-scoped contract as the
-# KB index above.
 _product_faiss_ids = []
+_product_tenant_indexes: Dict[str, tuple] = {}
 
 
 def _product_searchable_text(row) -> str:
@@ -444,8 +486,8 @@ def generate_product_embeddings():
 
 
 def rebuild_product_faiss_index():
-    """Rebuild the in-memory FAISS index for products from the DB."""
-    global _product_faiss_index, _product_faiss_ids
+    """Rebuild the in-memory FAISS index for products, partitioned per tenant."""
+    global _product_faiss_index, _product_faiss_ids, _product_tenant_indexes
     try:
         generate_product_embeddings()
 
@@ -460,39 +502,79 @@ def rebuild_product_faiss_index():
             logger.info("rebuild_product_faiss_index: no products with embeddings")
             _product_faiss_index = None
             _product_faiss_ids = []
+            _product_tenant_indexes = {}
             return
 
         dim = get_embedding_dim()
         all_embeddings = []
         all_ids = []
+        tenant_data = {}
+
         for row in rows:
             emb = np.frombuffer(row["embedding"], dtype="float32").reshape(1, dim)
             all_embeddings.append(emb)
-            all_ids.append((row["id"], row["tenant_id"] or "default"))
+            tid = row["tenant_id"] or "default"
+            rec = (row["id"], tid)
+            all_ids.append(rec)
+            if tid not in tenant_data:
+                tenant_data[tid] = {"embs": [], "ids": []}
+            tenant_data[tid]["embs"].append(emb)
+            tenant_data[tid]["ids"].append(rec)
 
-        all_embeddings = np.vstack(all_embeddings).astype("float32")
+        all_embeddings_matrix = np.vstack(all_embeddings).astype("float32")
         index = faiss.IndexFlatIP(dim)
-        faiss.normalize_L2(all_embeddings)
-        index.add(all_embeddings)
+        faiss.normalize_L2(all_embeddings_matrix)
+        index.add(all_embeddings_matrix)
 
         _product_faiss_index = index
         _product_faiss_ids = all_ids
-        logger.info("rebuild_product_faiss_index: %d products indexed", len(all_ids))
+
+        new_tenant_indexes = {}
+        for tid, t_dict in tenant_data.items():
+            if t_dict["embs"]:
+                t_matrix = np.vstack(t_dict["embs"]).astype("float32")
+                t_idx = faiss.IndexFlatIP(dim)
+                faiss.normalize_L2(t_matrix)
+                t_idx.add(t_matrix)
+                new_tenant_indexes[tid] = (t_idx, t_dict["ids"])
+        _product_tenant_indexes = new_tenant_indexes
+
+        logger.info(
+            "rebuild_product_faiss_index: %d products indexed across %d tenants",
+            len(all_ids), len(_product_tenant_indexes)
+        )
     except Exception as e:
         logger.error(f"rebuild_product_faiss_index failed: {e}")
 
 
 def search_products_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[Dict]:
-    """Search products using FAISS vector similarity, scoped to one tenant.
-    Returns list of dicts with product id and score."""
-    global _product_faiss_index, _product_faiss_ids
-    if _product_faiss_index is None or not _product_faiss_ids:
-        return []
-
+    """Search products using FAISS vector similarity, scoped strictly to one tenant."""
+    global _product_faiss_index, _product_faiss_ids, _product_tenant_indexes
     tid = _resolve_tenant_id(tenant_id)
     model = get_embedding_model()
     query_emb = model.encode([query], normalize_embeddings=True).astype("float32")
     faiss.normalize_L2(query_emb)
+
+    # 1. Prefer dedicated per-tenant index
+    if _product_tenant_indexes and tid in _product_tenant_indexes:
+        t_index, t_ids = _product_tenant_indexes[tid]
+        if t_index.ntotal > 0:
+            fetch_k = min(limit, t_index.ntotal)
+            scores, indices = t_index.search(query_emb, fetch_k)
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx < 0 or idx >= len(t_ids):
+                    continue
+                product_id, _ = t_ids[idx]
+                results.append({
+                    "product_id": product_id,
+                    "score": float(score),
+                })
+            return results
+
+    # 2. Fall back to global index with tenant filter
+    if _product_faiss_index is None or not _product_faiss_ids:
+        return []
 
     scores, indices = _product_faiss_index.search(query_emb, min(limit * 4, _product_faiss_index.ntotal))
     results = []

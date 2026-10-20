@@ -102,7 +102,21 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Greeting-ish input (typos / letter-spam like "Helooyyy"): show the menu.
         if _is_greeting(message):
-            await send_list_menu(wa_id, **menus.get_main_menu(wa_id))
+            menu_data = menus.get_main_menu(wa_id)
+            if menu_data.get("type") == "buttons":
+                await send_button_message(
+                    wa_id,
+                    body=menu_data.get("text", "Options"),
+                    buttons=menu_data.get("buttons", []),
+                )
+            else:
+                await send_list_menu(
+                    wa_id,
+                    header=menu_data.get("header", ""),
+                    body=menu_data.get("body", "What would you like to explore today?"),
+                    button_text=menu_data.get("button_text", "Show Options"),
+                    sections=menu_data.get("sections", []),
+                )
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Meaningless / keyboard-mash input: nudge to the menu instead of
         # throwing the noise at the RAG index (which returns unrelated answers).
@@ -199,7 +213,18 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
 
     # ── Order tracking ────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_ORDER_ID:
-        await send_text_message(wa_id, "I'm checking that order now. (Order lookup coming soon.)")
+        try:
+            from backend.services.order_service import lookup_order_status
+            query_ref = "" if message.strip().lower() in ("recent", "latest", "all", "orders") else message
+            status_text = lookup_order_status(wa_id, query_ref)
+        except Exception as exc:
+            logger = __import__("logging").getLogger("b2c_workflows")
+            logger.error("Order lookup failed for %s: %s", wa_id, exc)
+            status_text = (
+                "Sorry, I couldn't look that order up right now. "
+                "Please try again with your Order ID."
+            )
+        await send_text_message(wa_id, status_text)
         return {"new_state": cfg.B2C_MAIN_MENU_STATE}
 
     # ── Shipping help ─────────────────────────────────────────────────────────
@@ -266,8 +291,11 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
         return {"new_state": cfg.B2C_MAIN_MENU_STATE}
 
     # My Order: Track / Complaint
-    if sel in ("track order", "b2c_track_order", "track"):
-        await send_text_message(wa_id, "Please share your Order ID.")
+    if sel in ("track order", "b2c_track_order", "track", "track_order", "menu_track_order", "orders", "my orders", "order status"):
+        await send_text_message(
+            wa_id,
+            "Please share your *Order ID* (e.g. ORD-1234), or reply *recent* to view your latest orders."
+        )
         return {"new_state": cfg.B2C_AWAITING_ORDER_ID}
 
     if sel in ("raise complaint", "b2c_complaint", "complaint", "menu_complaint"):

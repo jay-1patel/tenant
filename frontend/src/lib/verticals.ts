@@ -124,6 +124,7 @@ export const FEATURE_LABELS: Record<FeatureFlag, { label: string; help: string }
   cart: { label: 'Cart', help: 'Customers collect items before checking out.' },
   buy_now: { label: 'Buy now', help: 'One-tap purchase from a product page.' },
   orders: { label: 'Orders', help: 'Order records and order status.' },
+  payments: { label: 'Payments', help: 'Collect online payments via Razorpay or Stripe checkout links.' },
   track_order: { label: 'Track order', help: 'Customers look up an order with a number.' },
   returns: { label: 'Returns', help: 'Return / refund requests and policy.' },
   brochure_pdf: { label: 'Brochure PDF', help: 'Send a downloadable brochure.' },

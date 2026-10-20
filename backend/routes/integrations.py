@@ -552,5 +552,60 @@ async def payment_webhook(tenant_id: str, provider: str, request: Request):
             if secret and not RazorpayService.verify_webhook_signature(payload, sig, secret):
                 raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
 
-    logger.info(f"Payment webhook received for tenant={tenant_id}, provider={prov}")
-    return {"status": "received", "tenant_id": tenant_id, "provider": prov}
+    order_id = ""
+    payment_id = ""
+    paid = False
+    try:
+        event = json.loads(payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload)
+    except Exception:
+        event = {}
+
+    if "stripe" in prov:
+        etype = event.get("type") or ""
+        obj = (event.get("data") or {}).get("object") or {}
+        if etype in ("checkout.session.completed", "payment_intent.succeeded"):
+            paid = True
+            order_id = (
+                (obj.get("metadata") or {}).get("order_id")
+                or obj.get("client_reference_id")
+                or ""
+            )
+            payment_id = obj.get("id") or ""
+    elif "razorpay" in prov:
+        etype = event.get("event") or ""
+        payload_block = event.get("payload") or {}
+        entity = (
+            (payload_block.get("payment_link") or {}).get("entity")
+            or (payload_block.get("payment") or {}).get("entity")
+            or {}
+        )
+        if etype in (
+            "payment_link.paid",
+            "payment.captured",
+            "order.paid",
+        ):
+            paid = True
+            notes = entity.get("notes") or {}
+            order_id = notes.get("order_id") or entity.get("reference_id") or ""
+            payment_id = entity.get("id") or ""
+
+    updated = False
+    if paid and order_id:
+        try:
+            from services.payment_checkout import mark_order_paid
+            updated = mark_order_paid(tenant_id, str(order_id), str(payment_id or ""))
+        except Exception as exc:
+            logger.error("Payment webhook mark-paid failed: %s", exc)
+
+    logger.info(
+        "Payment webhook tenant=%s provider=%s paid=%s order=%s updated=%s",
+        tenant_id, prov, paid, order_id, updated,
+    )
+    return {
+        "status": "received",
+        "tenant_id": tenant_id,
+        "provider": prov,
+        "paid": paid,
+        "order_id": order_id,
+        "updated": updated,
+    }

@@ -6,7 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -88,9 +88,14 @@ class AuditExtendedTests(unittest.TestCase):
         conn.close()
         
         # Setup test client
+        self.audit_db_patch = patch.object(audit, "get_db", side_effect=self._connect)
+        self.audit_db_patch.start()
+        app.dependency_overrides[auth.get_current_admin] = MockCurrentAdmin()
         self.client = TestClient(app)
         
     def tearDown(self):
+        self.audit_db_patch.stop()
+        app.dependency_overrides.clear()
         database.DB_PATH = self.original_db_path
         self.temp.cleanup()
         
@@ -103,12 +108,17 @@ class AuditExtendedTests(unittest.TestCase):
         """Insert test audit events with various data."""
         conn = self._connect()
         try:
+            now_dt = datetime.now(timezone.utc)
+            d1_date = (now_dt - timedelta(days=5)).strftime("%Y-%m-%d")
+            d2_date = (now_dt - timedelta(days=3)).strftime("%Y-%m-%d")
+            d3_date = (now_dt - timedelta(days=2)).strftime("%Y-%m-%d")
+            d4_date = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
             events = [
-                ("login", "success", "2024-01-01T10:00:00", 1, "super_admin", "super_admin", "authentication", "192.168.1.1", "Chrome/100.0"),
-                ("login", "failure", "2024-01-01T11:00:00", 2, "sub_admin", "sub_admin", "authentication", "192.168.1.2", "Firefox/100.0"),
-                ("tenant_created", "success", "2024-01-02T12:00:00", 1, "super_admin", "super_admin", "tenant_setup", "192.168.1.3", "Safari/15.0"),
-                ("admin_created", "success", "2024-01-02T13:00:00", 1, "super_admin", "super_admin", "accounts", "192.168.1.4", "Edge/100.0"),
-                ("tenant_updated", "success", "2024-01-03T14:00:00", 2, "sub_admin", "sub_admin", "tenant_setup", "192.168.1.5", "Chrome/99.0"),
+                ("login", "success", f"{d1_date}T10:00:00", 1, "super_admin", "super_admin", "authentication", "192.168.1.1", "Chrome/100.0"),
+                ("login", "failure", f"{d1_date}T11:00:00", 2, "sub_admin", "sub_admin", "authentication", "192.168.1.2", "Firefox/100.0"),
+                ("tenant_created", "success", f"{d2_date}T12:00:00", 1, "super_admin", "super_admin", "tenant_setup", "192.168.1.3", "Safari/15.0"),
+                ("admin_created", "success", f"{d3_date}T13:00:00", 1, "super_admin", "super_admin", "accounts", "192.168.1.4", "Edge/100.0"),
+                ("tenant_updated", "success", f"{d4_date}T14:00:00", 2, "sub_admin", "sub_admin", "tenant_setup", "192.168.1.5", "Chrome/99.0"),
             ]
             
             for action, outcome, created_at, actor_id, actor_username, actor_role, category, ip, ua in events:
@@ -133,7 +143,7 @@ class AuditExtendedTests(unittest.TestCase):
         """Test audit history listing with sorting parameters."""
         self._insert_test_audit_events(5)
         
-        response = self.client.get("//api/admin/audit-history?sort_by=action&sort_order=asc")
+        response = self.client.get("/api/admin/audit-history?sort_by=action&sort_order=asc")
         self.assertEqual(response.status_code, 200)
         
         data = response.json()
@@ -149,7 +159,7 @@ class AuditExtendedTests(unittest.TestCase):
         """Test audit history with category filtering."""
         self._insert_test_audit_events(5)
         
-        response = self.client.get("//api/admin/audit-history?category=authentication")
+        response = self.client.get("/api/admin/audit-history?category=authentication")
         self.assertEqual(response.status_code, 200)
         
         data = response.json()
@@ -164,7 +174,7 @@ class AuditExtendedTests(unittest.TestCase):
         """Test audit statistics endpoint."""
         self._insert_test_audit_events(5)
         
-        response = self.client.get("//api/admin/audit-statistics")
+        response = self.client.get("/api/admin/audit-statistics")
         self.assertEqual(response.status_code, 200)
         
         data = response.json()
@@ -184,7 +194,7 @@ class AuditExtendedTests(unittest.TestCase):
         """Test audit export as CSV."""
         self._insert_test_audit_events(3)
         
-        response = self.client.get("//api/admin/audit-export?format=csv&limit=100")
+        response = self.client.get("/api/admin/audit-export?format=csv&limit=100")
         self.assertEqual(response.status_code, 200)
         
         # Check content type
@@ -195,11 +205,11 @@ class AuditExtendedTests(unittest.TestCase):
         
         # Check content has CSV structure
         content = response.text
-        lines = content.strip().split("\n")
+        lines = content.strip().splitlines()
         self.assertGreater(len(lines), 1)  # Header + data rows
         
         # First line should be headers
-        headers = lines[0].split(",")
+        headers = [h.strip() for h in lines[0].split(",")]
         self.assertIn("Date/Time", headers)
         self.assertIn("Action", headers)
 
@@ -207,7 +217,7 @@ class AuditExtendedTests(unittest.TestCase):
         """Test audit export as JSON."""
         self._insert_test_audit_events(3)
         
-        response = self.client.get("//api/admin/audit-export?format=json&limit=100")
+        response = self.client.get("/api/admin/audit-export?format=json&limit=100")
         self.assertEqual(response.status_code, 200)
         
         # Check content type
@@ -226,12 +236,12 @@ class AuditExtendedTests(unittest.TestCase):
         """Test export with specific columns."""
         self._insert_test_audit_events(3)
         
-        response = self.client.get("//api/admin/audit-export?format=csv&columns=id,action,outcome&limit=100")
+        response = self.client.get("/api/admin/audit-export?format=csv&columns=id,action,outcome&limit=100")
         self.assertEqual(response.status_code, 200)
         
-        lines = response.text.strip().split("\n")
+        lines = response.text.strip().splitlines()
         if len(lines) > 0:
-            headers = lines[0].split(",")
+            headers = [h.strip() for h in lines[0].split(",")]
             # Headers should include the requested columns
             self.assertIn("ID", headers)
             self.assertIn("Action", headers)
@@ -247,7 +257,7 @@ class AuditExtendedTests(unittest.TestCase):
             cursor = conn.execute("SELECT id FROM admin_audit_events LIMIT 1")
             event_id = cursor.fetchone()[0]
             
-            response = self.client.get(f"//api/admin/audit-history/{event_id}")
+            response = self.client.get(f"/api/admin/audit-history/{event_id}")
             self.assertEqual(response.status_code, 200)
             
             event = response.json()
@@ -261,24 +271,24 @@ class AuditExtendedTests(unittest.TestCase):
 
     def test_get_nonexistent_event(self):
         """Test getting a non-existent event."""
-        response = self.client.get("//api/admin/audit-history/99999")
+        response = self.client.get("/api/admin/audit-history/99999")
         self.assertEqual(response.status_code, 404)
 
     def test_invalid_sort_column(self):
         """Test invalid sort column."""
-        response = self.client.get("//api/admin/audit-history?sort_by=invalid_column")
+        response = self.client.get("/api/admin/audit-history?sort_by=invalid_column")
         self.assertEqual(response.status_code, 422)
 
     def test_invalid_sort_order(self):
         """Test invalid sort order."""
-        response = self.client.get("//api/admin/audit-history?sort_order=invalid")
+        response = self.client.get("/api/admin/audit-history?sort_order=invalid")
         self.assertEqual(response.status_code, 422)
 
     def test_superadmin_access_required(self):
         """Test that superadmin access is required."""
         # This would require setting up authentication, which is complex
         # For now, we'll just verify the endpoint exists
-        response = self.client.get("//api/admin/audit-history")
+        response = self.client.get("/api/admin/audit-history")
         # The actual behavior depends on the auth implementation
         # We just verify it doesn't crash
         self.assertIn(response.status_code, [200, 401, 403, 404])
@@ -288,18 +298,20 @@ class AuditExtendedTests(unittest.TestCase):
         self._insert_test_audit_events(5)
         
         # Filter for specific date
-        response = self.client.get("//api/admin/audit-history?start_date=2024-01-01&end_date=2024-01-01")
+        target_date = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+        response = self.client.get(f"/api/admin/audit-history?start_date={target_date}&end_date={target_date}")
         self.assertEqual(response.status_code, 200)
         
         data = response.json()
         # Should only return events from that date
+        self.assertGreater(len(data["events"]), 0)
         for event in data["events"]:
             event_date = event["created_at"].split("T")[0]
-            self.assertEqual(event_date, "2024-01-01")
+            self.assertEqual(event_date, target_date)
 
     def test_invalid_date_range(self):
         """Test invalid date range (start_date after end_date)."""
-        response = self.client.get("//api/admin/audit-history?start_date=2024-12-31&end_date=2024-01-01")
+        response = self.client.get("/api/admin/audit-history?start_date=2024-12-31&end_date=2024-01-01")
         self.assertEqual(response.status_code, 422)
 
 

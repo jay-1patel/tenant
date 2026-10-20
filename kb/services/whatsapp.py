@@ -273,11 +273,13 @@ async def send_media_message(contact_no: str, media_type: str, media_url: str, c
     if media_type not in ("image", "video", "document"):
         raise ValueError(f"Invalid media_type: {media_type}. Must be 'image', 'video', or 'document'")
 
-    # Direct media (image/video/document) sends are disabled for the bot.
-    # Only text and interactive button/list messages are sent; messages with
-    # an image header are delivered through send_interactive_buttons instead.
-    logger.info(f"MEDIA_SEND_DISABLED | to={contact_no} | type={media_type} | url={str(media_url)[:120]}")
-    return False
+    # Image/video stay disabled. Documents are allowed only when the tenant
+    # has brochure_pdf enabled (catalogues and PDFs).
+    if media_type != "document" or not _brochure_pdf_allowed(contact_no):
+        logger.info(f"MEDIA_SEND_DISABLED | to={contact_no} | type={media_type} | url={str(media_url)[:120]}")
+        return False
+
+    return await _send_document_media(contact_no, media_url, caption=None)
 
 
 async def send_button_message(

@@ -3,7 +3,8 @@ import { Check, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-reac
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
 import { editorContactErrors, editorFromProfile, editorToSnapshot, isValidPhone, timezoneOptions, type EditorForm } from '@/lib/profile'
-import { getVertical } from '@/lib/verticals'
+import { FEATURE_LABELS, getVertical } from '@/lib/verticals'
+import type { FeatureFlag } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader, SectionTitle } from '@/components/ui/card'
 import { Input, Textarea } from '@/components/ui/input'
@@ -15,6 +16,29 @@ import { PageHeader } from '@/components/layout/page-header'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/components/ui/toast'
 import { useTenantDetail } from '@/components/tenants/hooks'
+
+const FEATURE_GROUPS: { title: string; flags: FeatureFlag[] }[] = [
+  {
+    title: 'Selling & Orders',
+    flags: ['cart', 'buy_now', 'orders', 'payments', 'track_order', 'returns', 'distributors'],
+  },
+  {
+    title: 'Offerings & Catalogue',
+    flags: ['offerings', 'offering_details', 'services', 'products', 'products_schemes', 'brochure_pdf'],
+  },
+  {
+    title: 'Enquiries & Lead Gen',
+    flags: ['lead_capture', 'quote', 'callback', 'book_appointment'],
+  },
+  {
+    title: 'Knowledge Base & Support',
+    flags: ['faq', 'kb', 'complaints', 'campaigns'],
+  },
+  {
+    title: 'Human Handover',
+    flags: ['handoff', 'human_handover'],
+  },
+]
 
 export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
@@ -360,6 +384,48 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
           </CardBody>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <CardHeader
+          title="Features & Capabilities"
+          description="Enable or disable capabilities for this tenant. Enabled features activate WhatsApp menus, intents, and console panels."
+        />
+        <CardBody className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {FEATURE_GROUPS.map((group) => (
+              <div key={group.title} className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-600">
+                  {group.title}
+                </h4>
+                <div className="space-y-3">
+                  {group.flags.map((flag) => {
+                    const meta = FEATURE_LABELS[flag]
+                    const checked = form.features.includes(flag)
+                    return (
+                      <div key={flag} className="flex items-start justify-between gap-2 pt-1">
+                        <div className="min-w-0 pr-2">
+                          <p className="text-sm font-medium text-slate-800">{meta?.label ?? flag}</p>
+                          <p className="text-xs text-slate-500">{meta?.help ?? ''}</p>
+                        </div>
+                        <Switch
+                          disabled={!editing}
+                          checked={checked}
+                          onChange={(on) => {
+                            const next = on
+                              ? [...form.features.filter((f) => f !== flag), flag]
+                              : form.features.filter((f) => f !== flag)
+                            patch({ features: next })
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
 
       <Card className="mt-4">
         <CardHeader title="Guardrails" description="What the bot must never claim, and when it must stop and call a human." />

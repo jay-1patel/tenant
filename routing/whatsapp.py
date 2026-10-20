@@ -88,24 +88,65 @@ def normalize_whatsapp_formatting(text: str) -> str:
     return text
 
 
-def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
-    if msg_type != "text":
-        # Media (image/video/audio/document) sends are disabled across the
-        # project — only text messages are sent to customers anymore.
-        logger.info(f"MEDIA_SEND_DISABLED | to={to} | type={msg_type} | url={str(text)[:120]}")
-        return False
+def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
+    """Retrieve Send2 username/password for the given tenant, or fall back to default env."""
+    tid = tenant_id
+    if not tid:
+        try:
+            from routing.database import get_request_tenant
+            tid = get_request_tenant()
+        except Exception:
+            pass
 
-    text = normalize_whatsapp_formatting(text)
+    if tid:
+        try:
+            from routing.database import get_db_context
+            import json
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT credentials_json FROM tenant_integrations WHERE tenant_id = ? AND LOWER(provider) IN ('send2', 'whatsapp')",
+                    (tid,),
+                ).fetchone()
+                if row and row["credentials_json"]:
+                    creds = json.loads(row["credentials_json"])
+                    u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
+                    p = creds.get("password") or creds.get("send2_password")
+                    if u and p:
+                        return str(u), str(p)
+        except Exception as e:
+            logger.debug(f"Could not load custom credentials for tenant {tid}: {e}")
 
+    return SEND2_USERNAME, SEND2_PASSWORD
+
+
+def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tenant_id=None):
+    norm_type = _normalize_msg_type(msg_type)
+    username, password = get_tenant_send2_credentials(tenant_id)
     clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
-    payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
-        "contact_no": clean_to,
-        "message_type": "text",
-        "message": text,
-        "messaging_product": "whatsapp",
-    }
+
+    if norm_type == "text":
+        formatted_text = normalize_whatsapp_formatting(text)
+        payload = {
+            "user_name": username,
+            "password": password,
+            "contact_no": clean_to,
+            "message_type": "text",
+            "message": formatted_text,
+            "messaging_product": "whatsapp",
+        }
+    else:
+        media_url = _resolve_media_url(str(text or "").strip())
+        logger.info(f"MEDIA_SEND | to={to} | type={norm_type} | url={media_url[:120]}")
+        payload = {
+            "user_name": username,
+            "password": password,
+            "contact_no": clean_to,
+            "message_type": norm_type,
+            "media_url": media_url,
+            "message": media_url,
+            "messaging_product": "whatsapp",
+        }
+
     last_err = None
     for attempt in range(1, retries + 1):
         try:
@@ -114,14 +155,10 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
                 json=payload,
                 timeout=timeout,
             )
-            logger.info(f"Reply sent to {to} [{msg_type}], status={resp.status_code}, body={resp.text[:300]}")
+            logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
             from routing.hookdeck import tee_outbound
             tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
             body = (resp.text or "").lower()
-            # send2.digital replies 200 with "Your Message ID : ... , Message
-            # Sent Successfully" for session-msg-send; other endpoints return
-            # JSON {"success": true}. Anything else (INVALID PARAMETER, the
-            # OPT OUT notice, ...) is a failure even with status 200.
             return resp.status_code == 200 and (
                 '"success":true' in body
                 or '"success": 1' in body
@@ -130,14 +167,15 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2):
             )
         except Exception as e:
             last_err = e
-            logger.warning(f"send2.digital send failed for {msg_type} (attempt {attempt}/{retries}): {e}")
+            logger.warning(f"send2.digital send failed for {norm_type} (attempt {attempt}/{retries}): {e}")
     from routing.hookdeck import tee_outbound
     tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
-    logger.error(f"send2.digital send failed for {msg_type} after {retries} attempts: {last_err}")
+    logger.error(f"send2.digital send failed for {norm_type} after {retries} attempts: {last_err}")
     return False
 
 
-def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, footer_text=None):
+def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, footer_text=None, tenant_id=None):
+    username, password = get_tenant_send2_credentials(tenant_id)
     # Enforce WhatsApp / Send2 character limits:
     # row title <= 24, row desc <= 72, section title <= 24, button <= 20
     api_sections = []
@@ -161,8 +199,8 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
     norm_body = _truncate_body(normalize_whatsapp_formatting(body_text or " "))
 
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        "username": username,
+        "password": password,
         "number": to,
         "headertext": str(header_text or " ")[:60],
         "bodytext": norm_body or " ",
@@ -228,12 +266,13 @@ def normalize_reply_buttons(buttons):
     return out
 
 
-def send_whatsapp_interactive(to, text, buttons, footer=None):
+def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
     """Send an interactive button message via send2.digital Quick Button API.
 
     `buttons` is a list of button objects in the send2.digital format, e.g.:
         [{"type": "reply", "reply": {"id": "check_moq", "title": "Check MOQ by product"}}]
     """
+    username, password = get_tenant_send2_credentials(tenant_id)
     buttons = normalize_reply_buttons(buttons)
     if not buttons:
         logger.warning("No usable buttons for interactive message (missing id/title)")
@@ -259,8 +298,8 @@ def send_whatsapp_interactive(to, text, buttons, footer=None):
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        "username": username,
+        "password": password,
         "number": to,
         "headertype": "text",
         "headertext": " ",

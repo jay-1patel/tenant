@@ -123,7 +123,7 @@ function Router() {
 
   const writeViews = new Set(['profile', 'menu-edit', 'versions', 'tokens'])
   if (route.view === 'api-access') {
-    if (isSuperAdmin || !identity?.tenant_id || route.tenantId !== identity.tenant_id || !can('manage_operations')) {
+    if (!isSuperAdmin && (!identity?.tenant_id || route.tenantId !== identity.tenant_id || !can('manage_operations'))) {
       return <AppShell route={route}><NotPermitted what="request API access for this tenant" /></AppShell>
     }
     return (

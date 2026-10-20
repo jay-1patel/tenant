@@ -13,7 +13,7 @@ import { VerticalGlyph } from '@/components/vertical-icon'
 import { useResolved } from './hooks'
 
 const GROUPS: { label: string; flags: FeatureFlag[] }[] = [
-  { label: 'Selling online', flags: ['cart', 'buy_now', 'orders', 'track_order', 'returns', 'distributors'] },
+  { label: 'Selling online', flags: ['cart', 'buy_now', 'orders', 'payments', 'track_order', 'returns', 'distributors'] },
   { label: 'Offerings & brochure', flags: ['offerings', 'offering_details', 'services', 'products', 'products_schemes', 'brochure_pdf'] },
   { label: 'Enquiries', flags: ['lead_capture', 'quote', 'callback', 'book_appointment'] },
   { label: 'Support', flags: ['faq', 'kb', 'complaints', 'campaigns'] },

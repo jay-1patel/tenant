@@ -1,8 +1,10 @@
 """
-Multi-Tenant Database Layer for WhatsApp Chatbot SaaS Platform
+[DEPRECATED / LEGACY PROTOTYPE]
+Multi-Tenant Database Layer (Integer Tenant IDs)
 
-This module extends the existing database.py with multi-tenant support.
-Every operation is now tenant-aware with strict data isolation.
+NOTE: The canonical, active multi-tenant layer is in `backend/database.py` and
+`shared/tenancy/`, which uses string slug tenant_ids (e.g. 'troogood', 'meridianbank').
+This file is preserved solely for backward compatibility with unmounted legacy prototypes.
 """
 
 import os

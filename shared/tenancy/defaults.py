@@ -97,6 +97,7 @@ _ECOMMERCE = {
         "cart": True,
         "buy_now": True,
         "orders": True,
+        "payments": True,
         "track_order": True,
         "returns": True,
         "brochure_pdf": True,

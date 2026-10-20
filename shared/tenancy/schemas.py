@@ -27,6 +27,7 @@ FEATURE_FLAGS = (
     "cart",
     "buy_now",
     "orders",
+    "payments",
     "track_order",
     "returns",
     "brochure_pdf",
@@ -233,6 +234,7 @@ class Features(_Base):
     cart: bool = False
     buy_now: bool = False
     orders: bool = False
+    payments: bool = False
     track_order: bool = False
     returns: bool = False
     brochure_pdf: bool = False

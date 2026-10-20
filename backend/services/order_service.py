@@ -255,3 +255,69 @@ def format_orders_text(wa_id: str, limit: int = 5) -> str:
             f"• {o['order_number']} — {o['status']} — ₹{o['total_amount']:.2f}\n  {summary}"
         )
     return "\n".join(lines)
+
+
+def lookup_order_status(wa_id: str, order_ref: str) -> str:
+    """Look up one order by number (scoped to this WhatsApp user) + shipment info."""
+    blocked = _gate(wa_id)
+    if blocked:
+        return blocked["message"]
+    ref = (order_ref or "").strip()
+    if not ref:
+        return format_orders_text(wa_id)
+
+    db = _db()
+    try:
+        with db.get_db_context() as conn:
+            row = conn.execute(
+                """SELECT id, order_number, items, total_amount, status, payment_status,
+                          created_at, tenant_id
+                   FROM orders
+                   WHERE wa_id = ? AND (order_number = ? OR CAST(id AS TEXT) = ?)
+                   LIMIT 1""",
+                (wa_id, ref, ref),
+            ).fetchone()
+            if not row:
+                recent = format_orders_text(wa_id, limit=3)
+                return (
+                    f"I couldn't find order *{ref}* on this number.\n\n{recent}"
+                )
+
+            try:
+                item_list = json.loads(row["items"] or "[]")
+                summary = ", ".join(
+                    f"{i.get('name', 'Item')} ×{i.get('qty', 1)}" for i in item_list[:5]
+                ) or "items"
+            except Exception:
+                summary = "items"
+
+            lines = [
+                f"📦 *Order {row['order_number']}*",
+                f"Status: *{row['status']}*",
+                f"Payment: *{row['payment_status'] or 'pending'}*",
+                f"Total: ₹{float(row['total_amount'] or 0):.2f}",
+                f"Items: {summary}",
+                f"Placed: {row['created_at']}",
+            ]
+
+            ship = conn.execute(
+                """SELECT awb_number, tracking_url, status, provider
+                   FROM tenant_shipments
+                   WHERE order_id = ? OR order_id = ?
+                   ORDER BY id DESC LIMIT 1""",
+                (row["order_number"], str(row["id"])),
+            ).fetchone()
+            if ship:
+                lines.append("")
+                lines.append(
+                    f"🚚 Shipment ({ship['provider'] or 'carrier'}): "
+                    f"*{ship['status'] or 'booked'}*"
+                )
+                if ship["awb_number"]:
+                    lines.append(f"AWB: {ship['awb_number']}")
+                if ship["tracking_url"]:
+                    lines.append(f"Track: {ship['tracking_url']}")
+            return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"ORDER_LOOKUP_FAIL | wa_id={wa_id} | ref={ref} | {e}")
+        return "Sorry, I couldn't look that order up right now. Please try again shortly."

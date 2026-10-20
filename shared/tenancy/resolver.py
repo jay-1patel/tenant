@@ -55,11 +55,7 @@ def _active_test_override() -> Optional[str]:
 
 
 def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
-    """Tenant for an inbound webhook body. Falls back to the default tenant."""
-    override = _active_test_override()
-    if override:
-        return override
-
+    """Tenant for an inbound webhook body. Falls back to active test tenant or default tenant."""
     from . import store  # local import: store needs the backend on sys.path
 
     fallback = os.getenv("DEFAULT_TENANT_ID", DEFAULT_TENANT_ID)
@@ -74,6 +70,10 @@ def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
     for candidate in _extract_phone_ids(payload or {}):
         if store.get_tenant(candidate):
             return candidate
+
+    override = _active_test_override()
+    if override:
+        return override
 
     if _extract_phone_ids(payload or {}):
         logger.warning(
@@ -146,16 +146,11 @@ def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
     is keyed by ``wa_id`` and already carries ``tenant_id`` (D3), so the owner of
     a conversation is a single indexed read.
 
-    Falls back to :func:`resolve_default_tenant` when the user has no state row
-    yet - the pre-tenant single-tenant stack, where every user belongs to one
-    shop.
+    Falls back to active test tenant or :func:`resolve_default_tenant` when the user
+    has no state row yet.
     """
-    override = _active_test_override()
-    if override:
-        return override
-
     if not wa_id:
-        return default or resolve_default_tenant()
+        return default or _active_test_override() or resolve_default_tenant()
 
     from . import store
 
@@ -171,4 +166,9 @@ def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
             "user %s is stamped with unregistered tenant %r; falling back to default",
             wa_id, tid,
         )
+
+    override = _active_test_override()
+    if override:
+        return override
+
     return default or resolve_default_tenant()

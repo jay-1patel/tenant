@@ -23,6 +23,7 @@ export const FEATURE_FLAGS = [
   'cart',
   'buy_now',
   'orders',
+  'payments',
   'track_order',
   'returns',
   'brochure_pdf',

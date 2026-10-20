@@ -38,8 +38,9 @@ try:
     import sys as _sys
     _IS_TESTING = (
         "pytest" in _sys.modules
-        or any("pytest" in str(arg) for arg in _sys.argv)
-        or _os.environ.get("TESTING") == "true"
+        or "unittest" in _sys.modules
+        or any("pytest" in str(arg) or "unittest" in str(arg) for arg in _sys.argv)
+        or _os.environ.get("TESTING", "").lower() in ("true", "1", "yes")
         or "PYTEST_CURRENT_TEST" in _os.environ
     )
     RATE_LIMIT_ENABLED = not _IS_TESTING

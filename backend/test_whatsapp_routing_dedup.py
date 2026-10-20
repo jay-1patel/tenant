@@ -207,7 +207,7 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             patch("kb.services.whatsapp.send_whatsapp_message") as live_send,
         ):
             result = await orchestrator.process_incoming_message(
-                "919512777899", "hello", capture_only=True
+                "919512777899", "distributor order inquiry", capture_only=True
             )
 
         self.assertEqual(result["messages"], [{"type": "text", "text": "one reply", "sent_live": False}])
