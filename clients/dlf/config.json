@@ -68,8 +68,8 @@
   "notifications": {
     "sales_email": "homes@dlf.in",
     "support_email": "customercare@dlf.in",
-    "brochure_url": "https://www.dlf.in/homes",
-    "brochure_label": "DLF Project Deck",
+    "brochure_url": "https://www.dlf.in/uploaded_files/kb/DLF_Master_Residential_Portfolio.pdf",
+    "brochure_label": "DLF Master Residential Deck (PDF)",
     "channels": [
       { "type": "email", "to": "homes@dlf.in", "label": "sales" },
       { "type": "email", "to": "customercare@dlf.in", "label": "support" }
@@ -183,29 +183,30 @@
         "explore properties",
         "show 2, 3 and 4 bhk apartments",
         "luxury villas and floors in gurugram",
-        "dlf homes catalog"
+        "dlf homes catalog",
+        "bifurcate properties by city or budget"
       ],
       "keywords": [
         "property", "properties", "apartment", "apartments", "flat", "flats",
-        "bhk", "villa", "villas", "residence", "penthouse", "explore properties", "floors"
+        "bhk", "villa", "villas", "residence", "penthouse", "explore properties", "floors", "bifurcation"
       ],
       "requires_feature": "offerings",
-      "answer": "🏙️ *DLF Featured Residential Properties & Typologies:*\n\n🌟 *1. Super Luxury Residences (Ultra-Luxury)*\n• *The Dahlias:* Ultra-luxury flagship on Golf Course Road, Sector 54, Gurugram. (Price on Request)\n• *The Camellias:* Acclaimed luxury penthouses & residences facing Gary Player Golf Course, DLF 5.\n• *King's Court:* Ultra-luxe residences with private elevator access in Greater Kailash-II, New Delhi.\n\n🏢 *2. Luxury High-Rise Condominiums*\n• *The Arbour:* 4 BHK biophilic luxury towers on Golf Course Extension Road, Sector 63, Gurugram.\n• *DLF Privana South / West:* 4 BHK + Staff & Penthouses in Sector 76-77, Gurugram near Aravalli hills.\n• *One Midtown:* 2, 3 & 4 BHK luxury residences neighboring 128 acres of greenery in Moti Nagar, New Delhi.\n• *The Crest & The Ultima:* Ready-to-move luxury high-rises in DLF 5 & Sector 81, Gurugram.\n\n🏡 *3. Low-Rise Independent Floors & Plotted Estates*\n• *DLF City Phases I, II & III Floors:* Stilt + 4 floors with private elevators, dedicated terrace & basement.\n• *Alameda Floors (Sector 73, Gurugram):* 3 & 4 BHK boutique floors starting ₹2.8 Cr.\n• *The Valley Gardens & Orchard (Panchkula):* Low-rise homes with Shivalik foothill views.\n• *Hyde Park (New Chandigarh):* Gated plotted estates & 3 BHK residences.\n\n👉 *Tap 'Schedule Site Visit' for a free chauffeur tour, or 'Pricing & Plans' for custom cost sheets!*"
+      "answer": "🏙️ *DLF Property Portfolio — Clear Segment Bifurcation:*\n\n🌟 *Tier 1: Super Luxury Sky Mansions (Golf Course Rd & Delhi)*\n• *The Dahlias (Sector 54, Gurugram):* 9,500–16,000+ sq.ft. palatial sky mansions & penthouses with artificial lake frontage. (Price on Request)\n• *The Camellias (DLF 5, Gurugram):* Ultra-luxury residences facing Gary Player Golf Course with 7-star club.\n• *King's Court (GK-II, New Delhi):* Super-luxury apartments with private elevators in South Delhi.\n\n🏢 *Tier 2: Luxury High-Rise Condominiums (Gurugram & Delhi)*\n• *The Arbour (Sector 63, Gurugram):* 4 BHK biophilic residences (3,950 sq.ft.) on Golf Course Extn Rd. Starting ₹7.5 Cr.\n• *DLF Privana South / West (Sector 76–77):* 4 BHK + Staff (3,577 sq.ft.) & Penthouses in 116-acre township. Starting ₹6.5 Cr.\n• *One Midtown (Moti Nagar, West Delhi):* 2, 3 & 4 BHK luxury residences set in 128 acres of greenery. Starting ₹3.8 Cr.\n• *The Crest & The Ultima:* Ready-to-move luxury high-rises in DLF 5 & Sector 81. Starting ₹3.2 Cr.\n\n🏡 *Tier 3: Independent Luxury Floors (Low-Rise Living)*\n• *DLF City Phases I, II & III (Gurugram):* Stilt + 4 floors, 1 home per floor with private elevator, terrace & basement. Starting ₹3.2 Cr.\n• *Alameda Floors (Sector 73, Gurugram):* 3 & 4 BHK boutique floors in gated township. Starting ₹2.8 Cr.\n• *Garden City Enclave (Sector 91/92):* Low-rise 3 BHK floors with club access. Starting ₹1.65 Cr.\n\n🌳 *Tier 4: Regional Plotted Estates & Hill Living*\n• *The Valley Gardens & Orchard (Panchkula):* Low-rise homes facing Shivalik mountain foothills. Starting ₹1.8 Cr.\n• *Hyde Park (New Chandigarh):* Gated plotted estates & 3 BHK residences.\n• *Parc Estate (Chennai):* Plotted development in OMR IT corridor.\n\n🏬 *Tier 5: Commercial Tech Parks & Retail Leasing*\n• *DLF Cybercity (Gurugram/Chennai/Hyderabad)* & *Horizon Center*: Grade-A commercial office leasing.\n• *DLF Mall of India (Noida)* & *DLF Emporio (Vasant Kunj)*: Retail leasing.\n\n👉 *Tap 'Project Brochure' to download official PDFs, or 'Schedule Site Visit' for a free chauffeur cab tour!*"
     },
     {
       "name": "project_details",
       "examples": [
         "ongoing projects",
         "what are your ongoing developments",
-        "tell me about dlf projects",
+        "ready to move vs under construction",
         "project specifications and locations"
       ],
       "keywords": [
         "ongoing", "projects", "developments", "specifications", "locations", "amenities",
-        "under construction", "new launch", "privana", "arbour", "dahlias", "camellias", "midtown"
+        "under construction", "ready to move", "privana", "arbour", "dahlias", "camellias", "midtown", "oc"
       ],
       "requires_feature": "offering_details",
-      "answer": "🏗️ *DLF Ongoing & Flagship Landmark Projects:*\n\n📍 *1. DLF Privana South & West (Sector 76/77, Gurugram)*\n• *Status:* Ongoing / New Launch\n• *Typology:* 4 BHK + Utility + Staff (3,500+ sq.ft.) & Penthouses\n• *Highlights:* 116-acre integrated township, panoramic Aravalli views, grand clubhouse, zero vehicle movement on ground level.\n\n📍 *2. The Arbour (Sector 63, Golf Course Extn Road, Gurugram)*\n• *Status:* Ongoing Construction\n• *Typology:* 4 BHK Luxury Residences (3,950 sq.ft.)\n• *Highlights:* 85% green open spaces, low density (only 2 apartments per core), MERV-14 treated air filtration.\n\n📍 *3. The Dahlias (Sector 54, Golf Course Road, Gurugram)*\n• *Status:* Flagship Super Luxury Ongoing Launch\n• *Typology:* Grand Palatial Residences & Sky Mansions\n• *Highlights:* Artificial lake front, multi-tier lifestyle club, bespoke interior finishes, RERA approved.\n\n📍 *4. One Midtown (Moti Nagar, West Delhi)*\n• *Status:* Advanced Construction / Phased Handover\n• *Typology:* 2, 3 & 4 BHK Luxury Apartments\n• *Highlights:* 45,000 sq.ft. luxury clubhouse, infinity pool, 128 acres of surrounding greens, 4 nearby metro stations.\n\n📍 *5. Independent Floors at DLF City & Alameda*\n• *Status:* Ready & Under-Construction Phases\n• *Typology:* 3 & 4 BHK Independent Low-Rise Floors\n• *Highlights:* Complete floor ownership, private basement storage, stilt parking, private terrace rights."
+      "answer": "🏗️ *DLF Projects — Bifurcation by Construction Status:*\n\n🚧 *A. Ongoing Developments & New Launches (Possession 2026–2028)*\n1. *DLF Privana South & West (Sector 76/77, Gurugram):* 116-acre township with 4 BHK + Staff (3,577 sq.ft.), Aravalli views, 100% vehicle-free ground boulevard. RERA registered.\n2. *The Arbour (Sector 63, Golf Course Extn Road, Gurugram):* 4 BHK (3,950 sq.ft.), 85% open greens, low density (only 2 units/core), MERV-14 air filtration. HARERA: `RC/REP/HARERA/GGM/671/403/2023/15`.\n3. *The Dahlias (Sector 54, Golf Course Road, Gurugram):* Flagship super-luxury sky mansions, 200,000 sq.ft. clubhouse, lake front. HARERA: `RC/REP/HARERA/GGM/872/604/2024/99`.\n4. *One Midtown (Moti Nagar, West Delhi):* 2, 3 & 4 BHK luxury residences, 45,000 sq.ft. club, 128 acres of surrounding greenery. Delhi RERA: `DLRERA2021P0007`.\n\n🔑 *B. Ready-to-Move-In Residences (100% OC Received • 0% GST)*\n1. *The Crest (Park Drive, DLF 5, Gurugram):* 3 & 4 BHK ready luxury apartments with world-class club.\n2. *The Ultima (Sector 81, Gurugram):* Ready 3 & 4 BHK + Servant condominiums neighboring 405 hectares of reserved greenery.\n3. *The Skycourt & Regal Gardens (Sector 86/90, Gurugram):* Fully occupied gated Mediterranean complexes.\n4. *DLF City Completed Floors (Phases 1, 2, 3):* Immediate possession independent floors with private terrace & basement.\n\n👉 *Tap 'Project Brochure' to download floor plans, or 'Schedule Site Visit' to inspect ready model homes!*"
     },
     {
       "name": "brochure_request",
@@ -214,14 +215,15 @@
         "download e-brochure",
         "send me floor plans",
         "download brochure",
-        "project deck"
+        "project deck",
+        "pdf brochure"
       ],
       "keywords": [
         "brochure", "ebrochure", "e-brochure", "floor plan", "floor plans",
-        "layout", "master plan", "pdf", "deck", "download brochure"
+        "layout", "master plan", "pdf", "deck", "download brochure", "broucher", "send brochure"
       ],
       "requires_feature": "brochure_pdf",
-      "answer": "📄 *Official DLF E-Brochures & Floor Plans:* \n\nYou can view and download high-resolution digital brochures, floor plans, and layout decks directly from our verified portals:\n\n📖 *Master Residential Portfolio:* \n👉 https://www.dlf.in/homes\n\n🏡 *Flagship Project Decks:*\n• *The Dahlias Deck:* https://www.dlf.in/homes/superluxury/thedahlias/\n• *The Camellias Presentation:* https://thecamellias.dlf.in/\n• *The Arbour Brochure:* https://www.dlf.in/homes/luxury/thearbour/\n• *DLF Privana South Specifications:* https://www.dlf.in/homes/luxury/privana/\n• *One Midtown Delhi Floor Plans:* https://www.dlf.in/homes/luxury/onemidtown/\n• *Independent Floors Layout Plans:* https://dlfcityphase-1-3-floors.dlf.in/\n\n💡 *Would you like a specialized floor plan or cost sheet sent directly on WhatsApp? Tap 'Request a Callback' or 'Schedule Site Visit'!*"
+      "answer": "📄 *Official DLF Project Brochures & Floor Plans (Instant PDF Downloads):*\n\nHere are the verified, downloadable PDF project decks ready to view and save:\n\n📥 *1. Master Residential Portfolio Deck (Complete Guide)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_Master_Residential_Portfolio.pdf\n*(Covers all Super Luxury, High-Rise & Independent Floors across India)*\n\n📥 *2. The Dahlias — Super Luxury Sky Mansions (Sector 54, Gurugram)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_The_Dahlias_Super_Luxury_Deck.pdf\n\n📥 *3. The Arbour — 4 BHK Luxury Residences (Sector 63, Gurugram)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_The_Arbour_Luxury_Residences.pdf\n\n📥 *4. DLF Privana South & West — 116-Acre Township (Sector 76/77)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_Privana_South_Project_Brochure.pdf\n\n📥 *5. DLF One Midtown — Luxury Residences (Moti Nagar, West Delhi)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_One_Midtown_Delhi_Brochure.pdf\n\n📥 *6. DLF Independent Luxury Floors — DLF City & Alameda*\n👉 http://localhost:9000/uploaded_files/kb/DLF_Independent_Floors_Brochure.pdf\n\n📥 *7. DLF NRI Property Investment & Legal Handbook (FEMA & RBI)*\n👉 http://localhost:9000/uploaded_files/kb/DLF_NRI_Investment_Legal_Handbook.pdf\n\n💡 *Would you like an advisor to bring physical printed master decks and floor plans during your site visit? Tap 'Schedule Site Visit'!*"
     },
     {
       "name": "pricing_plan",
@@ -231,14 +233,15 @@
         "payment schemes",
         "home loan options",
         "cost sheet",
-        "booking amount"
+        "booking amount",
+        "bifurcate pricing"
       ],
       "keywords": [
         "price", "pricing", "cost", "payment plan", "payment scheme",
-        "home loan", "emi", "booking token", "token", "clp", "plp", "down payment"
+        "home loan", "emi", "booking token", "token", "clp", "plp", "down payment", "bifurcation"
       ],
       "requires_feature": "quote",
-      "answer": "💳 *DLF Pricing Overview, Payment Schemes & Bank Tie-ups:*\n\n💰 *Price Guidance by Category:*\n• *Independent Floors (DLF City / Alameda / Gardencity):* Starting ₹1.50 Cr – ₹6.50 Cr\n• *Luxury High-Rise (Privana / Arbour / Midtown / Crest):* Starting ₹3.50 Cr – ₹18.00 Cr\n• *Super Luxury (The Dahlias / The Camellias / King's Court):* ₹25.00 Cr – ₹100.00+ Cr\n\n📝 *Standard Booking Token Amounts:*\n• Independent Floors: ₹5 Lakhs – ₹10 Lakhs\n• Luxury Apartments: ₹10 Lakhs – ₹25 Lakhs\n• Super Luxury Residences: ₹50 Lakhs – ₹1.00 Crore\n\n📑 *Flexible Payment Structures:*\n1. *Construction Linked Plan (CLP):* Linked to structural milestone completion.\n2. *Possession Linked Plan (PLP):* Staged initial installment with balance on offer of possession.\n3. *Down Payment Plan (DPP):* Attractive upfront incentive scheme.\n\n🏦 *Approved Home Loan Partners:*\nPre-approved for instant preferential interest-rate loans with:\n• *State Bank of India (SBI)* • *HDFC Bank* • *ICICI Bank* • *Axis Bank* • *Kotak Mahindra Bank*\n\n👉 *Tap 'Request a Callback' to receive an exact unit-specific cost sheet & EMI calculation!*"
+      "answer": "💳 *DLF Pricing & Payment Schemes — Comprehensive Bifurcation:*\n\n💰 *1. Price Guidance by Property Segment:*\n• *Independent Luxury Floors (DLF City / Alameda):* ₹2.80 Cr – ₹6.50 Cr (Avg. ₹12,000 – ₹18,000 / sq.ft.)\n• *Luxury High-Rise (Privana / Arbour / One Midtown):* ₹3.80 Cr – ₹12.50 Cr (Avg. ₹18,000 – ₹25,000 / sq.ft.)\n• *Super Luxury Flagships (The Dahlias / The Camellias):* ₹25.00 Cr – ₹100.00+ Cr (Avg. ₹50,000 – ₹85,000+ / sq.ft.)\n\n📝 *2. Official Booking Token Amounts:*\n• *Independent Floors:* ₹5 Lakhs – ₹10 Lakhs\n• *Luxury Apartments (Arbour / Privana / Midtown):* ₹10 Lakhs – ₹25 Lakhs\n• *Super Luxury Residences (Dahlias / Camellias):* ₹50 Lakhs – ₹1.00 Crore\n\n📑 *3. Structured Payment Plans:*\n1. *Construction-Linked Plan (CLP):* Staged 10% milestone disbursements tied to foundation, floor casting, MEP, and finishing.\n2. *Possession-Linked Plan (PLP / 25:75):* Pay 25% upfront, balance 75% on offer of possession.\n3. *Down Payment Plan (DPP):* Upfront settlement with attractive developer rebate.\n\n🏦 *4. Pre-Approved Banking Partners:*\nInstant loan sanction and preferential interest rates from:\n• *State Bank of India (SBI)* • *HDFC Bank* • *ICICI Bank* • *Axis Bank* • *Kotak Mahindra Bank*\n\n👉 *Tap 'Request a Callback' to receive an exact unit-level cost sheet with tax & stamp duty breakdown!*"
     },
     {
       "name": "rera_approvals",
@@ -253,7 +256,7 @@
         "rera", "legal", "approval", "approvals", "title", "harera", "dlrera",
         "registration number", "encumbrance", "license", "government approval"
       ],
-      "answer": "📜 *DLF RERA Compliance, Clear Titles & Regulatory Approvals:*\n\nEvery DLF development is developed with 100% legal compliance, clear freehold titles, and state RERA registrations.\n\n🏛️ *Key Project RERA Registrations:*\n• *The Dahlias (Gurugram):* Registered under HARERA No. `RC/REP/HARERA/GGM/872/604/2024/99` dated 04.10.2024 (haryanarera.gov.in)\n• *The Arbour (Gurugram):* Registered under HARERA No. `RC/REP/HARERA/GGM/671/403/2023/15` dated 23.02.2023\n• *DLF Privana South (Gurugram):* RERA Registered with HARERA Gurugram\n• *One Midtown (New Delhi):* Registered under Delhi RERA ID: `DLRERA2021P0007`\n• *The Ultima & The Crest:* Fully completed, certified with Occupancy Certificates (OC)\n\n⚖️ *Buyer Protections & Disclosures:*\n1. *Escrow Account:* 70% of collections deposited in project-specific RERA escrow accounts.\n2. *Zero GST:* Ready-to-move properties with Occupancy Certificate attract 0% GST.\n3. *Transparent BBA:* Standardized Builder-Buyer Agreements signed within 30-45 days of booking.\n\n👉 *Need an official RERA certificate or sanction plan? Our legal desk can share it upon request.*"
+      "answer": "📜 *DLF RERA Approvals & Legal Transparency:*\n\nEvery DLF residential and commercial project is developed with 100% legal compliance, clear freehold ownership, and statutory state RERA registrations.\n\n🏛️ *Official RERA Registration Numbers:*\n• *The Dahlias (Gurugram):* HARERA No. `RC/REP/HARERA/GGM/872/604/2024/99` dated 04.10.2024\n• *The Arbour (Gurugram):* HARERA No. `RC/REP/HARERA/GGM/671/403/2023/15` dated 23.02.2023\n• *DLF Privana South (Gurugram):* RERA Registered under HARERA Gurugram (haryanarera.gov.in)\n• *One Midtown (New Delhi):* Delhi RERA ID: `DLRERA2021P0007`\n• *The Ultima & The Crest:* Fully completed, awarded Occupancy Certificate (OC) • 0% GST applicable\n\n⚖️ *Statutory Buyer Guarantees:*\n1. *RERA Escrow Account:* 70% of buyer payments deposited in dedicated project escrow accounts for construction only.\n2. *Builder-Buyer Agreement (BBA):* Standardized RERA BBA signed within 30–45 days of booking.\n3. *Clear Freehold Title:* DLF projects are built on outright purchased, unencumbered freehold land parcels."
     }
   ],
 
@@ -268,7 +271,7 @@
     },
     {
       "name": "raise_ticket",
-      "success_message": "🆘 *Your request has been logged with DLF Customer Relationship Secretariat.*\n\nYour Service Ticket ID has been generated. A dedicated relationship executive will assist you with your existing unit documentation, possession schedule, or query."
+      "success_message": "🆘 *Your request has been logged with DLF Customer Relationship Secretariat.*\n\nYour Service Ticket ID has been generated. A dedicated relationship executive will assist you with your existing unit documentation, possession schedule, or query.\n• Helpline: +91 124 4334200 / 1800 103 3534\n• Email: customercare@dlf.in"
     }
   ],
 

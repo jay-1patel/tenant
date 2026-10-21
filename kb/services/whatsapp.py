@@ -1965,8 +1965,8 @@ def send_document_with_caption(to: str, document_url: str, filename: str,
     button = build_button(id="main_menu", title="Main Menu")
     return send_interactive_buttons(
         to=to,
-        body_text=caption,
+        body_text=caption or "Please find the requested brochure attached.",
         buttons=[button],
         header_media=header_media,
-        footer_text="",
+        footer_text=" ",
     )
