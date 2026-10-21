@@ -24,6 +24,28 @@ export interface AdminFile {
   created_at: string
 }
 
+export interface BifurcationResult {
+  tenant_id: string
+  vertical: string
+  brand: {
+    name: string
+    bot_name: string
+    tagline: string
+    website: string
+    support_email: string
+    support_phone: string
+    signature: string
+  }
+  menu_buttons_count: number
+  intents_count: number
+  offerings_created: number
+  offerings_sample: string[]
+  kb_chunks_indexed: number
+  version: number
+  status: string
+  files_processed: string[]
+}
+
 export const FILE_MODULES = [
   { value: 'faq', label: 'FAQ', permission: 'upload_faq' },
   { value: 'kb', label: 'Knowledge base', permission: 'upload_kb' },
@@ -77,6 +99,26 @@ export const uploadsApi = {
     api.del<{ status: string; deleted_faq: number; deleted_kb: number }>(
       `${base(tenantId)}/files/${encodeURIComponent(filename)}`,
     ),
+
+  autoBifurcate: async (tenantId: string, files: File[], autoPublish = true) => {
+    const payload = await Promise.all(
+      files.map(async (file) => ({
+        filename: file.name,
+        content: await readAsBase64(file),
+        media_type: file.type || undefined,
+      }))
+    )
+    return api.post<BifurcationResult>(
+      `${base(tenantId)}/files/auto-bifurcate?auto_publish=${autoPublish ? 'true' : 'false'}`,
+      { files: payload, auto_publish: autoPublish }
+    )
+  },
+
+  bifurcateExisting: (tenantId: string, filenames?: string[]) =>
+    api.post<BifurcationResult>(`${base(tenantId)}/files/bifurcate-existing`, {
+      filenames,
+      auto_publish: true,
+    }),
 
   /** Fetch the raw file with the bearer token; caller revokes the object URL. */
   blob: async (tenantId: string, filename: string, download = false): Promise<Blob> => {

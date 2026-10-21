@@ -128,6 +128,122 @@ async def upload_tenant_file(
     return await run_upload(request, module, url, media_type, uploader, tenant_id=tenant_id)
 
 
+@router.post("/files/auto-bifurcate")
+async def auto_bifurcate_tenant_files(
+    request: Request,
+    tenant_id: str,
+    auto_publish: bool = Query(True),
+    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Auto-bifurcate and configure uploaded client documents into their proper places.
+
+    Accepts multi-file payloads (JSON base64 or multipart) of PDFs, Word files,
+    spreadsheets, and text. Extracted data is automatically parsed, classified,
+    and configured into:
+      1. Brand Profile & Hours -> clients/{tenant_id}/config.json & TenantProfile
+      2. WhatsApp Interactive Menu -> MenuButtons (<=24 title, <=72 desc)
+      3. Conversational Intents & Flows -> IntentSpec
+      4. Products & Catalog -> SQLite products table
+      5. Knowledge Base & FAQs -> Markdown files, Chunks, Vector RAG Index
+    """
+    import base64
+    uploader = _resolve_uploader(request, principal, credentials)
+    content_type = request.headers.get("content-type", "")
+    files_payload = []
+
+    if "application/json" in content_type:
+        body = await request.json()
+        if "files" in body and isinstance(body["files"], list):
+            files_payload = body["files"]
+        elif "filename" in body and "content" in body:
+            files_payload = [body]
+        auto_publish = body.get("auto_publish", auto_publish)
+    elif "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_files = form.getlist("files") or ([form.get("file")] if form.get("file") else [])
+        for uf in uploaded_files:
+            if uf and hasattr(uf, "read"):
+                fname = uf.filename or "uploaded_doc"
+                raw = await uf.read()
+                files_payload.append({
+                    "filename": fname,
+                    "content": base64.b64encode(raw).decode("ascii"),
+                    "media_type": getattr(uf, "content_type", None),
+                })
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported content type")
+
+    if not files_payload:
+        raise HTTPException(status_code=400, detail="No files provided for auto-bifurcation")
+
+    try:
+        from services.auto_bifurcator import AutoBifurcator
+    except ImportError:
+        from backend.services.auto_bifurcator import AutoBifurcator
+
+    bifurcator = AutoBifurcator(tenant_id=tenant_id, actor=uploader)
+    try:
+        result = bifurcator.process_files(files_payload, auto_publish=auto_publish)
+        return result
+    except Exception as exc:
+        logger.error("Auto-bifurcation failed for tenant %s: %s", tenant_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Auto-bifurcation failed: {exc}")
+
+
+@router.post("/files/bifurcate-existing")
+async def auto_bifurcate_existing_files(
+    request: Request,
+    tenant_id: str,
+    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Run auto-bifurcation on files already uploaded to this tenant's library."""
+    import base64
+    uploader = _resolve_uploader(request, principal, credentials)
+    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
+    target_filenames = body.get("filenames")  # None means all files for tenant
+    auto_publish = body.get("auto_publish", True)
+
+    tenant_files = list_admin_files(tenant_id=tenant_id)
+    if target_filenames:
+        target_set = set(target_filenames)
+        tenant_files = [f for f in tenant_files if f.get("name") in target_set]
+
+    if not tenant_files:
+        raise HTTPException(status_code=404, detail="No matching uploaded files found to bifurcate")
+
+    files_payload = []
+    for tf in tenant_files:
+        fname = tf.get("name")
+        fpath = _find_uploaded_file(fname)
+        if fpath and os.path.exists(fpath):
+            with open(fpath, "rb") as disk_f:
+                raw_bytes = disk_f.read()
+                files_payload.append({
+                    "filename": fname,
+                    "content": base64.b64encode(raw_bytes).decode("ascii"),
+                    "media_type": _guess_media_type(fname),
+                })
+
+    if not files_payload:
+        raise HTTPException(status_code=400, detail="Could not read content from existing files on disk")
+
+    try:
+        from services.auto_bifurcator import AutoBifurcator
+    except ImportError:
+        from backend.services.auto_bifurcator import AutoBifurcator
+
+    bifurcator = AutoBifurcator(tenant_id=tenant_id, actor=uploader)
+    try:
+        result = bifurcator.process_files(files_payload, auto_publish=auto_publish)
+        return result
+    except Exception as exc:
+        logger.error("Auto-bifurcation on existing files failed for tenant %s: %s", tenant_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Auto-bifurcation failed: {exc}")
+
+
+
 @router.get("/files/{filename}/preview")
 def preview_tenant_file(
     tenant_id: str,

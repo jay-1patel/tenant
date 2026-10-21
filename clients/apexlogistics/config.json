@@ -1,0 +1,193 @@
+{
+  "tenant_id": "apexlogistics",
+  "vertical": "generic",
+  "display_name": "Apex Global Logistics & Freight Services",
+  "brand": {
+    "name": "Apex Global Logistics & Freight Services",
+    "bot_name": "Apex Assistant",
+    "tagline": "Your trusted partner for seamless global logistics.",
+    "website": "https://www.apexlogistics.com",
+    "support_email": "care@apexlogistics.com",
+    "support_phone": "+91 98765 43210",
+    "signature": "Best regards, Apex Logistics Team"
+  },
+  "menu": {
+    "key": "kb_main",
+    "header": "Apex Global Logistics & Freight Services",
+    "body": "Welcome! How can we assist you today?",
+    "footer": "Select an option or type your query directly",
+    "button_text": "Select Option",
+    "buttons": [
+      {
+        "id": "explore-services",
+        "title": "Explore Services",
+        "description": "Browse our logistics solutions and service catalog",
+        "section": "Explore",
+        "sort_order": 1,
+        "enabled": true,
+        "intent": "offerings"
+      },
+      {
+        "id": "request-quote",
+        "title": "Request Quote",
+        "description": "Get a quick price estimate for your shipment",
+        "section": "Sales",
+        "sort_order": 2,
+        "enabled": true,
+        "flow": "get_quote"
+      },
+      {
+        "id": "track-shipment",
+        "title": "Track Shipment",
+        "description": "Check real‑time status of your cargo via AWB",
+        "section": "Support",
+        "sort_order": 3,
+        "enabled": true,
+        "intent": "offerings"
+      },
+      {
+        "id": "file-claim",
+        "title": "File Claim",
+        "description": "Report damage or loss and start a claim process",
+        "section": "Support",
+        "sort_order": 4,
+        "enabled": true,
+        "flow": "raise_ticket"
+      },
+      {
+        "id": "faqs",
+        "title": "FAQs",
+        "description": "Common questions about our services and policies",
+        "section": "Help",
+        "sort_order": 5,
+        "enabled": true,
+        "intent": "faqs"
+      }
+    ]
+  },
+  "intents": [
+    {
+      "name": "track-shipment",
+      "examples": [
+        "Can I track my shipment?",
+        "What is the status of AWB 123456789012?",
+        "Where is my cargo right now?"
+      ],
+      "keywords": [
+        "track",
+        "status",
+        "AWB",
+        "where is my cargo"
+      ],
+      "flow": null,
+      "enabled": true
+    },
+    {
+      "name": "request-quote",
+      "examples": [
+        "Give me a quote for shipping 10kg to Dubai",
+        "How much does ocean freight cost?",
+        "What is the rate for a 20ft container?"
+      ],
+      "keywords": [
+        "quote",
+        "price",
+        "cost",
+        "rate"
+      ],
+      "flow": "get_quote",
+      "enabled": true
+    },
+    {
+      "name": "customs-inquiry",
+      "examples": [
+        "What documents are needed for customs?",
+        "Do you handle duty calculations?",
+        "How do I clear my shipment through customs?"
+      ],
+      "keywords": [
+        "customs",
+        "documents",
+        "clearance",
+        "duty"
+      ],
+      "flow": null,
+      "enabled": true
+    },
+    {
+      "name": "warehouse-info",
+      "examples": [
+        "Tell me about your warehousing rates",
+        "Do you offer pick‑and‑pack services?",
+        "How much is storage per pallet?"
+      ],
+      "keywords": [
+        "warehouse",
+        "3PL",
+        "storage",
+        "fulfillment"
+      ],
+      "flow": null,
+      "enabled": true
+    },
+    {
+      "name": "support-claim",
+      "examples": [
+        "My shipment arrived damaged, how do I claim?",
+        "I need a refund for a lost consignment",
+        "What is the claim process?"
+      ],
+      "keywords": [
+        "claim",
+        "damage",
+        "refund",
+        "insurance"
+      ],
+      "flow": "raise_ticket",
+      "enabled": true
+    },
+    {
+      "name": "file-claim",
+      "examples": [
+        "My cargo arrived damaged, how to claim?",
+        "What is the claim process?",
+        "I need a refund for a damaged consignment."
+      ],
+      "keywords": [
+        "claim",
+        "damage",
+        "refund",
+        "insurance"
+      ],
+      "flow": "raise_ticket",
+      "enabled": true
+    }
+  ],
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "open": "09:00",
+    "close": "19:00",
+    "open_days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  },
+  "flows": [
+    {
+      "name": "book_callback",
+      "success_message": "Thank you! Your consultation request has been scheduled with Apex Assistant."
+    },
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Our specialist will prepare a customized quote and follow up promptly."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your request has been logged. A support ticket has been created and an executive will assist you."
+    }
+  ]
+}

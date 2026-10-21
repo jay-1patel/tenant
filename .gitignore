@@ -58,3 +58,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+# Added by cleanup script
+uploads/tmp/
+chroma_db_temp/
+
+*.db-shm
+*.db-wal

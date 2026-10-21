@@ -1,0 +1,111 @@
+{
+  "tenant_id": "dlf",
+  "vertical": "real_estate",
+  "display_name": "DLF Limited | Luxury Residences & Commercial",
+
+  "brand": {
+    "name": "DLF Limited",
+    "bot_name": "DLF Property Advisor",
+    "tagline": "75+ Years of Real Estate Excellence — Luxury Residences, Offices & Retail Malls",
+    "website": "www.dlf.in",
+    "support_email": "customercare@dlf.in",
+    "support_phone": "+91 124 4334200",
+    "signature": "DLF Limited — Building India's Future with Pride."
+  },
+
+  "features": {
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "track_order": false,
+    "returns": false,
+    "brochure_pdf": true,
+    "distributors": false,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "quote": true,
+    "callback": true,
+    "book_appointment": true,
+    "handoff": true,
+    "faq": true,
+    "kb": true,
+    "complaints": true,
+    "campaigns": true,
+    "human_handover": true
+  },
+
+  "vocabulary": {
+    "item_noun": "properties",
+    "item_noun_singular": "property",
+    "browse_label": "Featured Properties",
+    "catalog_label": "Project Deck",
+    "catalog_noun": "project deck",
+    "order_noun": "booking",
+    "order_noun_plural": "bookings",
+    "cart_noun": "shortlist",
+    "checkout_label": "Book Unit",
+    "brochure_label": "Project Brochure",
+    "brochure_noun": "project brochure",
+    "offer_noun": "offer",
+    "offer_noun_plural": "offers",
+    "lead_noun": "site visit",
+    "enquiry_label": "Schedule Site Visit",
+    "quote_label": "Price & Payment Plan",
+    "callback_label": "Request Callback",
+    "support_label": "Customer Care",
+    "track_label": "Track Application"
+  },
+
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "09:30",
+    "close": "19:00",
+    "open_days": [0, 1, 2, 3, 4, 5, 6]
+  },
+
+  "notifications": {
+    "sales_email": "homes@dlf.in",
+    "support_email": "customercare@dlf.in",
+    "brochure_url": "https://www.dlf.in/homes",
+    "brochure_label": "DLF Portfolio Deck",
+    "channels": [
+      { "type": "email", "to": "homes@dlf.in", "label": "sales" },
+      { "type": "email", "to": "customercare@dlf.in", "label": "support" }
+    ]
+  },
+
+  "guardrails": {
+    "never_state": [
+      "guaranteed speculative appreciation or unverified resale numbers",
+      "non-RERA registered specifications or unapproved possession dates",
+      "unauthorized spot cash discounts without VP confirmation",
+      "informal booking transfers outside official DLF escrow accounts"
+    ],
+    "never_state_notes": {
+      "guaranteed speculative appreciation": "Property valuations reflect prevailing market trends and historical performance. We provide official historical capital appreciation rates rather than speculative projections."
+    },
+    "escalate_keywords": [
+      "rera court", "legal notice", "cancel booking", "refund token", "delayed possession",
+      "consumer court", "title dispute", "arbitration"
+    ],
+    "escalation_message": "This inquiry is being connected directly to our Senior Customer Relationship Director.",
+    "handoff_keywords": ["human", "agent", "sales manager", "director", "urgent", "complaint", "talk to advisor"]
+  },
+
+  "flows": [
+    {
+      "name": "book_callback",
+      "success_message": "Thank you! Your private property consultation and site visit coordination have been registered with a Senior DLF Property Advisor."
+    },
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Our property finance specialist will prepare a customized cost sheet, payment plan, and banking loan details for your shortlisted DLF property."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your request has been logged with DLF Customer Relationship. A support ticket has been created and an executive will follow up."
+    }
+  ]
+}

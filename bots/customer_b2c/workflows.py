@@ -382,13 +382,14 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 tid = resolve_tenant_for_user(wa_id)
             except Exception:
                 pass
+            synthesized = await _llm_synthesize(tenant_answer, message, message, tenant_id=tid)
             from routing.button_actions import get_contextual_buttons
             from services.whatsapp_sender import send_button_message, send_text_message
             buttons = get_contextual_buttons(message, tenant_id=tid, wa_id=wa_id, limit=3)
             if buttons:
-                await send_button_message(wa_id, tenant_answer, buttons)
+                await send_button_message(wa_id, synthesized, buttons)
             else:
-                await send_text_message(wa_id, tenant_answer)
+                await send_text_message(wa_id, synthesized)
             return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Tenant intent resolution failed: {e}")
@@ -405,13 +406,20 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 from backend.services import service_answers
             svc = service_answers.answer_for_text(wa_id, message)
             if svc:
+                tid = None
+                try:
+                    from shared.tenancy.resolver import resolve_tenant_for_user
+                    tid = resolve_tenant_for_user(wa_id)
+                except Exception:
+                    pass
+                synthesized = await _llm_synthesize(svc, "Our Services", message, tenant_id=tid)
                 from routing.button_actions import get_contextual_buttons
                 from services.whatsapp_sender import send_button_message, send_text_message
                 buttons = get_contextual_buttons("services", wa_id=wa_id, limit=3)
                 if buttons:
-                    await send_button_message(wa_id, svc, buttons)
+                    await send_button_message(wa_id, synthesized, buttons)
                 else:
-                    await send_text_message(wa_id, svc)
+                    await send_text_message(wa_id, synthesized)
                 return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
     except Exception as e:
         logger.debug(f"Service listing resolution failed: {e}")

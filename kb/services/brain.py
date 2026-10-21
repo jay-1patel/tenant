@@ -15,6 +15,7 @@ from routing.config import (
     BUSINESS_NAME, logger, OLLAMA_API_URL, OLLAMA_MODEL,
     GROQ_API_URL, GROQ_API_KEY, GROQ_MODEL,
     MISTRAL_API_URL, MISTRAL_API_KEY, MISTRAL_MODEL,
+    API_PROVIDER,
 )
 from .rate_limiter import groq_rate_limiter
 
@@ -1160,11 +1161,18 @@ Context to use for your answer:
 
 Remember: You must output ONLY valid JSON. No markdown, no code blocks, no explanations outside the JSON structure."""
 
-    providers = [
-        ("ollama", OLLAMA_API_URL, OLLAMA_MODEL, "no-key-needed", "ollama"),
-        ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai"),
-        ("mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"),
-    ]
+    all_providers = {
+        "groq": ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai"),
+        "mistral": ("mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"),
+        "ollama": ("ollama", OLLAMA_API_URL, OLLAMA_MODEL, "no-key-needed", "ollama"),
+    }
+    preferred = (os.getenv("API_PROVIDER") or API_PROVIDER or "groq").lower()
+    providers = []
+    if preferred in all_providers:
+        providers.append(all_providers[preferred])
+    for p_name, p_cfg in all_providers.items():
+        if p_name != preferred:
+            providers.append(p_cfg)
 
     for name, url, model, api_key, api_type in providers:
         if not api_key:
@@ -1215,7 +1223,8 @@ def _log_gpu_stats():
 
 
 async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt, user_query) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
+    client_timeout = httpx.Timeout(connect=3.0, read=30.0, write=10.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=client_timeout) as client:
         if api_type == "ollama":
             _log_gpu_stats()
             payload = {

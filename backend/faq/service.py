@@ -424,7 +424,8 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str = "", tenant_id: 
 
     # Strategy 1: raw load; Strategy 2: markdown fences stripped;
     # Strategy 3: substring from first '{' to last '}'
-    cleaned = re.sub(r"```(?:json)?", "", raw_response).strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", raw_response.strip(), flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
     start, end = cleaned.find("{"), cleaned.rfind("}")
     candidates = [raw_response.strip(), cleaned]
     if start != -1 and end > start:
@@ -432,7 +433,7 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str = "", tenant_id: 
 
     for cand in candidates:
         try:
-            parsed = json.loads(cand)
+            parsed = json.loads(cand, strict=False)
             if isinstance(parsed, dict) and "answer" in parsed:
                 return _validate_faq_dynamic_result(parsed, user_query, tenant_id=tenant_id)
         except (json.JSONDecodeError, TypeError):
@@ -449,16 +450,15 @@ def _parse_faq_dynamic_json(raw_response: str, user_query: str = "", tenant_id: 
         if match:
             try:
                 json_str = match.group(1) if match.groups() else match.group(0)
-                parsed = json.loads(json_str)
+                parsed = json.loads(json_str, strict=False)
                 if isinstance(parsed, dict) and "answer" in parsed:
                     return _validate_faq_dynamic_result(parsed, user_query, tenant_id=tenant_id)
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
 
     # Strategy 5: If LLM returned direct conversational text without JSON wrapper, preserve it
-    cleaned_text = raw_response.strip()
-    if cleaned_text and not cleaned_text.startswith("{") and len(cleaned_text) > 10:
-        return _validate_faq_dynamic_result({"answer": cleaned_text, "next_actions": []}, user_query, tenant_id=tenant_id)
+    if cleaned and not cleaned.startswith("{") and len(cleaned) > 10:
+        return _validate_faq_dynamic_result({"answer": cleaned, "next_actions": []}, user_query, tenant_id=tenant_id)
 
     return None
 
@@ -672,6 +672,8 @@ class FAQIndex:
         if not candidates:
             return []
 
+        # Cap candidates to rerank to top 25 for fast, real-time evaluation
+        candidates = candidates[:25]
         texts = [self.chunks[idx] for idx, _ in candidates]
         pairs = [[query, t] for t in texts]
         scores = cross_encoder.predict(pairs)
