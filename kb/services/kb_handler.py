@@ -587,6 +587,7 @@ async def handle_kb_query(
     sender_name: str = "",
     update_session: bool = True,
     raw_message: dict = None,
+    tenant_id: str = None,
 ) -> dict:
     """
     Central message handler with menu state machine.
@@ -598,6 +599,12 @@ async def handle_kb_query(
     4. Fall back to brain/RAG pipeline
     5. Always attach Main Menu button to responses
     """
+    if tenant_id:
+        try:
+            from backend.services import state_manager as sm
+            sm.set_tenant(wa_id, tenant_id)
+        except Exception:
+            pass
     can_send_whatsapp = _is_valid_phone_number(wa_id)
     
     # Parse the incoming message (handles text, button_reply, list_reply)

@@ -37,7 +37,7 @@ logger = logging.getLogger("flow_runner")
 CANCEL_WORDS = {
     "cancel", "stop", "quit", "exit", "menu", "main menu", "nevermind", "never mind",
     "cancel it", "cancel form", "back", "home", "restart", "start over", "leave",
-    "abort", "close", "end", "done", "clear"
+    "abort", "close", "end", "done", "clear", "break", "no", "forget it", "opt out",
 }
 SKIP_WORDS = {"skip", "-", "na", "n/a", "none", "no email"}
 
@@ -89,6 +89,10 @@ def is_likely_question_or_intent(text: str, tenant_id=None) -> bool:
     if "?" in t:
         return True
     if any(t.startswith(w + " ") or t == w for w in _QUESTION_STARTERS):
+        return True
+    if t in CANCEL_WORDS:
+        return True
+    if _is_explicit_topic_switch(t, tenant_id=tenant_id):
         return True
     try:
         try:
@@ -879,9 +883,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         step_id = _next_after(step)
 
     # Flow finished.
-    sm.clear_flow(wa_id, reset_status=not paused)
-    if paused:
-        sm.set_status(wa_id, _STATUS_PAUSED)
+    sm.clear_flow(wa_id, reset_status=True)
 
     if (flow.name in ("book_callback", "callback_request") or collected.get("meet_link")) and collected.get("meet_link"):
         meet_link = collected.get("meet_link")

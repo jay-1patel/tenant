@@ -123,14 +123,28 @@ def get_tenant(tenant_id: str) -> Optional[dict]:
     with _db().get_db_context() as conn:
         try:
             tid_str = str(tenant_id or "").strip()
-            norm = tid_str.replace("-", "").replace("_", "").lower()
+            norm = tid_str.replace("-", "").replace("_", "").replace(" ", "").lower()
+            cols = {c[1] for c in conn.execute("PRAGMA table_info(tenants)").fetchall()}
+            where_clauses = [
+                "id = ?",
+                "slug = ?",
+                "LOWER(slug) = LOWER(?)",
+                "LOWER(REPLACE(REPLACE(REPLACE(slug, '-', ''), '_', ''), ' ', '')) = ?",
+                "LOWER(slug) LIKE ?",
+            ]
+            params = [tid_str, tid_str, tid_str, norm, norm + "%"]
+            if "company_name" in cols:
+                where_clauses.append("LOWER(REPLACE(REPLACE(company_name, ' ', ''), '-', '')) = ?")
+                where_clauses.append("LOWER(company_name) LIKE ?")
+                params.extend([norm, norm + "%"])
+            if "display_name" in cols:
+                where_clauses.append("LOWER(REPLACE(REPLACE(display_name, ' ', ''), '-', '')) = ?")
+                where_clauses.append("LOWER(display_name) LIKE ?")
+                params.extend([norm, norm + "%"])
+
             row = conn.execute(
-                """SELECT * FROM tenants 
-                   WHERE id = ? 
-                      OR slug = ? 
-                      OR LOWER(slug) = LOWER(?)
-                      OR LOWER(REPLACE(REPLACE(slug, '-', ''), '_', '')) = ?""",
-                (tid_str, tid_str, tid_str, norm),
+                f"SELECT * FROM tenants WHERE {' OR '.join(where_clauses)}",
+                tuple(params),
             ).fetchone()
         except Exception as exc:
             # Tolerate a database that has not been migrated yet — the loader

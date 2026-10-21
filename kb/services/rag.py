@@ -27,16 +27,23 @@ _kb_tenant_indexes: Dict[str, tuple] = {}
 
 def _resolve_tenant_id(tenant_id=None) -> str:
     """The tenant a search/write is scoped to. Falls back to the registered
-    default tenant so legacy callers (kb stack, bots/) keep serving the
-    pre-tenancy data instead of leaking across tenants."""
+    default tenant or active test tenant so legacy callers keep serving the
+    intended data instead of leaking across tenants."""
     tid = str(tenant_id or "").strip()
-    if tid:
-        return tid
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            tid = str(resolve_default_tenant())
+        except Exception:
+            tid = "default"
     try:
-        from shared.tenancy.resolver import resolve_default_tenant
-        return resolve_default_tenant()
+        from shared.tenancy import store
+        rec = store.get_tenant(tid)
+        if rec:
+            return str(rec.get("slug") or rec.get("id"))
     except Exception:
-        return "default"
+        pass
+    return tid
 
 
 def _safe_json_loads(value: str, default=None):
@@ -384,22 +391,39 @@ def search_kb_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[D
     faiss.normalize_L2(query_emb)
 
     # 1. Prefer dedicated per-tenant index (guarantees zero cross-tenant starvation)
-    if _kb_tenant_indexes and tid in _kb_tenant_indexes:
-        t_index, t_ids = _kb_tenant_indexes[tid]
-        if t_index.ntotal > 0:
-            fetch_k = min(limit, t_index.ntotal)
-            scores, indices = t_index.search(query_emb, fetch_k)
-            results = []
-            for score, idx in zip(scores[0], indices[0]):
-                if idx < 0 or idx >= len(t_ids):
-                    continue
-                doc_id, chunk_idx, _ = t_ids[idx]
-                results.append({
-                    "doc_id": doc_id,
-                    "chunk_index": chunk_idx,
-                    "score": float(score),
-                })
-            return results
+    t_index = None
+    t_ids = None
+    if _kb_tenant_indexes:
+        for candidate_key in (tid, str(tid), int(tid) if str(tid).isdigit() else None):
+            if candidate_key is not None and candidate_key in _kb_tenant_indexes:
+                t_index, t_ids = _kb_tenant_indexes[candidate_key]
+                break
+        if not t_index:
+            try:
+                from shared.tenancy import store
+                rec = store.get_tenant(tid)
+                if rec:
+                    for alt_key in (rec.get("id"), str(rec.get("id")), rec.get("slug")):
+                        if alt_key in _kb_tenant_indexes:
+                            t_index, t_ids = _kb_tenant_indexes[alt_key]
+                            break
+            except Exception:
+                pass
+
+    if t_index is not None and t_index.ntotal > 0:
+        fetch_k = min(limit, t_index.ntotal)
+        scores, indices = t_index.search(query_emb, fetch_k)
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= len(t_ids):
+                continue
+            doc_id, chunk_idx, _ = t_ids[idx]
+            results.append({
+                "doc_id": doc_id,
+                "chunk_index": chunk_idx,
+                "score": float(score),
+            })
+        return results
 
     # 2. Fall back to global index with tenant filter
     if _kb_faiss_index is None or not _kb_faiss_ids:
@@ -408,11 +432,22 @@ def search_kb_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[D
     fetch_k = min(limit * 4, _kb_faiss_index.ntotal)
     scores, indices = _kb_faiss_index.search(query_emb, fetch_k)
     results = []
+    allowed_tids = {str(tid), int(tid) if str(tid).isdigit() else tid}
+    try:
+        from shared.tenancy import store
+        rec = store.get_tenant(tid)
+        if rec:
+            allowed_tids.add(rec.get("id"))
+            allowed_tids.add(str(rec.get("id")))
+            allowed_tids.add(rec.get("slug"))
+    except Exception:
+        pass
+
     for score, idx in zip(scores[0], indices[0]):
         if idx < 0 or idx >= len(_kb_faiss_ids):
             continue
         doc_id, chunk_idx, doc_tenant = _kb_faiss_ids[idx]
-        if doc_tenant != tid:
+        if doc_tenant not in allowed_tids and str(doc_tenant) not in allowed_tids:
             continue
         results.append({
             "doc_id": doc_id,

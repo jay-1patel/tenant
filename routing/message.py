@@ -508,6 +508,7 @@ async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None, te
             sender_name="",
             update_session=True,
             raw_message=raw_message,
+            tenant_id=tenant_id,
         )
     logger.info(f"{query_type} bot response keys: {list(data.keys())}, media_url={data.get('media_url')}, media_type={data.get('media_type')}, whatsapp_sent={data.get('whatsapp_sent')}")
     return data

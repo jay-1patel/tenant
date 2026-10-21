@@ -67,6 +67,13 @@ def _resolve_tenant_id(tenant_id=None) -> str:
     if tid.isdigit():
         return tid
     try:
+        from shared.tenancy import store
+        rec = store.get_tenant(tid)
+        if rec and rec.get("id"):
+            return str(rec["id"])
+    except Exception:
+        pass
+    try:
         from database import get_db_context
         with get_db_context() as conn:
             clean_tid = tid.replace("-", "").replace("_", "")
@@ -98,8 +105,8 @@ def _tenant_matches(meta_tid, target_tid) -> bool:
     t_res = _resolve_tenant_id(t_str)
     if m_res and t_res and m_res == t_res:
         return True
-    # Single tenant fallback: if DB has only tenant 1 / default
-    if m_str in ("1", "default", "") and t_str in ("1", "default", "leewaysoftech", "leeway-softech"):
+    # Leeway variants
+    if m_str in ("1", "default", "") and t_str in ("1", "default", "leewaysoftech", "leeway-softech", "leeway", "l"):
         return True
     return False
 
