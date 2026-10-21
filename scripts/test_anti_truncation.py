@@ -3,8 +3,6 @@ Verification script for WhatsApp message delivery and anti-truncation mechanisms
 """
 import os
 import sys
-import logging
-logging.basicConfig(level=logging.DEBUG)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -146,10 +144,25 @@ def test_service_answers_no_truncation():
     assert fitted == desc
 
 
+def test_llm_prompts_length_limit():
+    from backend.faq.service import SYSTEM_PROMPT_TEMPLATE, STRICT_SYSTEM_PROMPT_TEMPLATE
+    from kb.services.brain import _build_system_prompt
+
+    assert "MANDATORY LENGTH LIMIT" in SYSTEM_PROMPT_TEMPLATE
+    assert "2,500 characters" in SYSTEM_PROMPT_TEMPLATE
+    assert "MANDATORY LENGTH LIMIT" in STRICT_SYSTEM_PROMPT_TEMPLATE
+    assert "2,500 characters" in STRICT_SYSTEM_PROMPT_TEMPLATE
+
+    brain_prompt = _build_system_prompt()
+    assert "MANDATORY LENGTH LIMIT" in brain_prompt
+    assert "2,500 characters" in brain_prompt
+
+
 if __name__ == "__main__":
     test_chunk_text()
     test_interactive_split_delivery()
     test_list_menu_split_delivery()
     test_package_card_no_truncation()
     test_service_answers_no_truncation()
-    print("ALL ANTI-TRUNCATION TESTS PASSED SUCCESSFULLY!")
+    test_llm_prompts_length_limit()
+    print("ALL ANTI-TRUNCATION & LENGTH LIMIT TESTS PASSED SUCCESSFULLY!")

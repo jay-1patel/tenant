@@ -38,9 +38,9 @@
   "vocabulary": {
     "item_noun": "properties",
     "item_noun_singular": "property",
-    "browse_label": "Featured Properties",
-    "catalog_label": "Project Deck",
-    "catalog_noun": "project deck",
+    "browse_label": "Explore Properties",
+    "catalog_label": "Project Brochure",
+    "catalog_noun": "project brochure",
     "order_noun": "booking",
     "order_noun_plural": "bookings",
     "cart_noun": "shortlist",
@@ -51,9 +51,9 @@
     "offer_noun_plural": "offers",
     "lead_noun": "site visit",
     "enquiry_label": "Schedule Site Visit",
-    "quote_label": "Price & Payment Plan",
-    "callback_label": "Request Callback",
-    "support_label": "Customer Care",
+    "quote_label": "Pricing & Plans",
+    "callback_label": "Request a Callback",
+    "support_label": "Customer Support",
     "track_label": "Track Application"
   },
 
@@ -69,12 +69,208 @@
     "sales_email": "homes@dlf.in",
     "support_email": "customercare@dlf.in",
     "brochure_url": "https://www.dlf.in/homes",
-    "brochure_label": "DLF Portfolio Deck",
+    "brochure_label": "DLF Project Deck",
     "channels": [
       { "type": "email", "to": "homes@dlf.in", "label": "sales" },
       { "type": "email", "to": "customercare@dlf.in", "label": "support" }
     ]
   },
+
+  "menu": {
+    "key": "kb_main",
+    "header": "DLF Limited",
+    "body": "Welcome to DLF Limited! Explore India's most prestigious residences, iconic commercial offices, and luxury retail destinations. How may we assist you today?",
+    "footer": "Or type your question directly below",
+    "button_text": "Explore Options",
+    "buttons": [
+      {
+        "id": "menu_properties",
+        "title": "Explore Properties",
+        "description": "2, 3 & 4 BHK apartments & villas",
+        "section": "Properties",
+        "icon": "🏙️",
+        "sort_order": 0,
+        "requires_feature": "offerings",
+        "intent": "property_listings"
+      },
+      {
+        "id": "menu_projects",
+        "title": "Ongoing Projects",
+        "description": "Prime locations & specifications",
+        "section": "Properties",
+        "icon": "🏗️",
+        "sort_order": 1,
+        "requires_feature": "offering_details",
+        "intent": "project_details"
+      },
+      {
+        "id": "menu_brochure",
+        "title": "Project Brochure",
+        "description": "Download e-brochure & floor plans",
+        "section": "Properties",
+        "icon": "📄",
+        "sort_order": 2,
+        "requires_feature": "brochure_pdf",
+        "intent": "brochure_request"
+      },
+      {
+        "id": "menu_site_visit",
+        "title": "Schedule Site Visit",
+        "description": "Free cab pick-up & guided site tour",
+        "section": "Bookings",
+        "icon": "🚗",
+        "sort_order": 3,
+        "requires_feature": "book_appointment",
+        "flow": "book_callback"
+      },
+      {
+        "id": "menu_pricing_plan",
+        "title": "Pricing & Plans",
+        "description": "Flexible payment schemes & home loans",
+        "section": "Bookings",
+        "icon": "💳",
+        "sort_order": 4,
+        "requires_feature": "quote",
+        "intent": "pricing_plan"
+      },
+      {
+        "id": "menu_callback",
+        "title": "Request a Callback",
+        "description": "Connect with property advisor",
+        "section": "Bookings",
+        "icon": "📞",
+        "sort_order": 5,
+        "requires_feature": "callback",
+        "flow": "book_callback"
+      },
+      {
+        "id": "menu_rera_legal",
+        "title": "RERA & Legal",
+        "description": "Approvals, titles & RERA registration",
+        "section": "Info",
+        "icon": "📜",
+        "sort_order": 6,
+        "intent": "rera_approvals"
+      },
+      {
+        "id": "menu_support",
+        "title": "Customer Support",
+        "description": "Existing buyer queries & tickets",
+        "section": "Support",
+        "icon": "🆘",
+        "sort_order": 7,
+        "requires_feature": "complaints",
+        "flow": "raise_ticket"
+      },
+      {
+        "id": "menu_human",
+        "title": "Talk to Advisor",
+        "description": "Chat with our sales team",
+        "section": "Support",
+        "icon": "🙋",
+        "sort_order": 8,
+        "requires_feature": "human_handover",
+        "flow": "book_callback"
+      }
+    ]
+  },
+
+  "intents": [
+    {
+      "name": "property_listings",
+      "examples": [
+        "what properties do you have",
+        "explore properties",
+        "show 2, 3 and 4 bhk apartments",
+        "luxury villas and floors in gurugram",
+        "dlf homes catalog"
+      ],
+      "keywords": [
+        "property", "properties", "apartment", "apartments", "flat", "flats",
+        "bhk", "villa", "villas", "residence", "penthouse", "explore properties", "floors"
+      ],
+      "requires_feature": "offerings",
+      "answer": "🏙️ *DLF Featured Residential Properties & Typologies:*\n\n🌟 *1. Super Luxury Residences (Ultra-Luxury)*\n• *The Dahlias:* Ultra-luxury flagship on Golf Course Road, Sector 54, Gurugram. (Price on Request)\n• *The Camellias:* Acclaimed luxury penthouses & residences facing Gary Player Golf Course, DLF 5.\n• *King's Court:* Ultra-luxe residences with private elevator access in Greater Kailash-II, New Delhi.\n\n🏢 *2. Luxury High-Rise Condominiums*\n• *The Arbour:* 4 BHK biophilic luxury towers on Golf Course Extension Road, Sector 63, Gurugram.\n• *DLF Privana South / West:* 4 BHK + Staff & Penthouses in Sector 76-77, Gurugram near Aravalli hills.\n• *One Midtown:* 2, 3 & 4 BHK luxury residences neighboring 128 acres of greenery in Moti Nagar, New Delhi.\n• *The Crest & The Ultima:* Ready-to-move luxury high-rises in DLF 5 & Sector 81, Gurugram.\n\n🏡 *3. Low-Rise Independent Floors & Plotted Estates*\n• *DLF City Phases I, II & III Floors:* Stilt + 4 floors with private elevators, dedicated terrace & basement.\n• *Alameda Floors (Sector 73, Gurugram):* 3 & 4 BHK boutique floors starting ₹2.8 Cr.\n• *The Valley Gardens & Orchard (Panchkula):* Low-rise homes with Shivalik foothill views.\n• *Hyde Park (New Chandigarh):* Gated plotted estates & 3 BHK residences.\n\n👉 *Tap 'Schedule Site Visit' for a free chauffeur tour, or 'Pricing & Plans' for custom cost sheets!*"
+    },
+    {
+      "name": "project_details",
+      "examples": [
+        "ongoing projects",
+        "what are your ongoing developments",
+        "tell me about dlf projects",
+        "project specifications and locations"
+      ],
+      "keywords": [
+        "ongoing", "projects", "developments", "specifications", "locations", "amenities",
+        "under construction", "new launch", "privana", "arbour", "dahlias", "camellias", "midtown"
+      ],
+      "requires_feature": "offering_details",
+      "answer": "🏗️ *DLF Ongoing & Flagship Landmark Projects:*\n\n📍 *1. DLF Privana South & West (Sector 76/77, Gurugram)*\n• *Status:* Ongoing / New Launch\n• *Typology:* 4 BHK + Utility + Staff (3,500+ sq.ft.) & Penthouses\n• *Highlights:* 116-acre integrated township, panoramic Aravalli views, grand clubhouse, zero vehicle movement on ground level.\n\n📍 *2. The Arbour (Sector 63, Golf Course Extn Road, Gurugram)*\n• *Status:* Ongoing Construction\n• *Typology:* 4 BHK Luxury Residences (3,950 sq.ft.)\n• *Highlights:* 85% green open spaces, low density (only 2 apartments per core), MERV-14 treated air filtration.\n\n📍 *3. The Dahlias (Sector 54, Golf Course Road, Gurugram)*\n• *Status:* Flagship Super Luxury Ongoing Launch\n• *Typology:* Grand Palatial Residences & Sky Mansions\n• *Highlights:* Artificial lake front, multi-tier lifestyle club, bespoke interior finishes, RERA approved.\n\n📍 *4. One Midtown (Moti Nagar, West Delhi)*\n• *Status:* Advanced Construction / Phased Handover\n• *Typology:* 2, 3 & 4 BHK Luxury Apartments\n• *Highlights:* 45,000 sq.ft. luxury clubhouse, infinity pool, 128 acres of surrounding greens, 4 nearby metro stations.\n\n📍 *5. Independent Floors at DLF City & Alameda*\n• *Status:* Ready & Under-Construction Phases\n• *Typology:* 3 & 4 BHK Independent Low-Rise Floors\n• *Highlights:* Complete floor ownership, private basement storage, stilt parking, private terrace rights."
+    },
+    {
+      "name": "brochure_request",
+      "examples": [
+        "project brochure",
+        "download e-brochure",
+        "send me floor plans",
+        "download brochure",
+        "project deck"
+      ],
+      "keywords": [
+        "brochure", "ebrochure", "e-brochure", "floor plan", "floor plans",
+        "layout", "master plan", "pdf", "deck", "download brochure"
+      ],
+      "requires_feature": "brochure_pdf",
+      "answer": "📄 *Official DLF E-Brochures & Floor Plans:* \n\nYou can view and download high-resolution digital brochures, floor plans, and layout decks directly from our verified portals:\n\n📖 *Master Residential Portfolio:* \n👉 https://www.dlf.in/homes\n\n🏡 *Flagship Project Decks:*\n• *The Dahlias Deck:* https://www.dlf.in/homes/superluxury/thedahlias/\n• *The Camellias Presentation:* https://thecamellias.dlf.in/\n• *The Arbour Brochure:* https://www.dlf.in/homes/luxury/thearbour/\n• *DLF Privana South Specifications:* https://www.dlf.in/homes/luxury/privana/\n• *One Midtown Delhi Floor Plans:* https://www.dlf.in/homes/luxury/onemidtown/\n• *Independent Floors Layout Plans:* https://dlfcityphase-1-3-floors.dlf.in/\n\n💡 *Would you like a specialized floor plan or cost sheet sent directly on WhatsApp? Tap 'Request a Callback' or 'Schedule Site Visit'!*"
+    },
+    {
+      "name": "pricing_plan",
+      "examples": [
+        "pricing and plans",
+        "what is the price",
+        "payment schemes",
+        "home loan options",
+        "cost sheet",
+        "booking amount"
+      ],
+      "keywords": [
+        "price", "pricing", "cost", "payment plan", "payment scheme",
+        "home loan", "emi", "booking token", "token", "clp", "plp", "down payment"
+      ],
+      "requires_feature": "quote",
+      "answer": "💳 *DLF Pricing Overview, Payment Schemes & Bank Tie-ups:*\n\n💰 *Price Guidance by Category:*\n• *Independent Floors (DLF City / Alameda / Gardencity):* Starting ₹1.50 Cr – ₹6.50 Cr\n• *Luxury High-Rise (Privana / Arbour / Midtown / Crest):* Starting ₹3.50 Cr – ₹18.00 Cr\n• *Super Luxury (The Dahlias / The Camellias / King's Court):* ₹25.00 Cr – ₹100.00+ Cr\n\n📝 *Standard Booking Token Amounts:*\n• Independent Floors: ₹5 Lakhs – ₹10 Lakhs\n• Luxury Apartments: ₹10 Lakhs – ₹25 Lakhs\n• Super Luxury Residences: ₹50 Lakhs – ₹1.00 Crore\n\n📑 *Flexible Payment Structures:*\n1. *Construction Linked Plan (CLP):* Linked to structural milestone completion.\n2. *Possession Linked Plan (PLP):* Staged initial installment with balance on offer of possession.\n3. *Down Payment Plan (DPP):* Attractive upfront incentive scheme.\n\n🏦 *Approved Home Loan Partners:*\nPre-approved for instant preferential interest-rate loans with:\n• *State Bank of India (SBI)* • *HDFC Bank* • *ICICI Bank* • *Axis Bank* • *Kotak Mahindra Bank*\n\n👉 *Tap 'Request a Callback' to receive an exact unit-specific cost sheet & EMI calculation!*"
+    },
+    {
+      "name": "rera_approvals",
+      "examples": [
+        "rera & legal",
+        "is it rera approved",
+        "rera registration number",
+        "legal title and approvals",
+        "rera details"
+      ],
+      "keywords": [
+        "rera", "legal", "approval", "approvals", "title", "harera", "dlrera",
+        "registration number", "encumbrance", "license", "government approval"
+      ],
+      "answer": "📜 *DLF RERA Compliance, Clear Titles & Regulatory Approvals:*\n\nEvery DLF development is developed with 100% legal compliance, clear freehold titles, and state RERA registrations.\n\n🏛️ *Key Project RERA Registrations:*\n• *The Dahlias (Gurugram):* Registered under HARERA No. `RC/REP/HARERA/GGM/872/604/2024/99` dated 04.10.2024 (haryanarera.gov.in)\n• *The Arbour (Gurugram):* Registered under HARERA No. `RC/REP/HARERA/GGM/671/403/2023/15` dated 23.02.2023\n• *DLF Privana South (Gurugram):* RERA Registered with HARERA Gurugram\n• *One Midtown (New Delhi):* Registered under Delhi RERA ID: `DLRERA2021P0007`\n• *The Ultima & The Crest:* Fully completed, certified with Occupancy Certificates (OC)\n\n⚖️ *Buyer Protections & Disclosures:*\n1. *Escrow Account:* 70% of collections deposited in project-specific RERA escrow accounts.\n2. *Zero GST:* Ready-to-move properties with Occupancy Certificate attract 0% GST.\n3. *Transparent BBA:* Standardized Builder-Buyer Agreements signed within 30-45 days of booking.\n\n👉 *Need an official RERA certificate or sanction plan? Our legal desk can share it upon request.*"
+    }
+  ],
+
+  "flows": [
+    {
+      "name": "book_callback",
+      "success_message": "🚗 *Thank you! Your private property consultation & site visit have been scheduled.*\n\nA Senior DLF Property Advisor will contact you within 30 minutes to confirm your preferred time slot and coordinate your complimentary chauffeur cab pick-up."
+    },
+    {
+      "name": "get_quote",
+      "success_message": "💳 *Thank you! Our property finance desk is preparing your customized cost sheet.*\n\nWe will deliver a detailed unit quotation, installment breakdown, and preferential bank loan terms directly to your WhatsApp."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "🆘 *Your request has been logged with DLF Customer Relationship Secretariat.*\n\nYour Service Ticket ID has been generated. A dedicated relationship executive will assist you with your existing unit documentation, possession schedule, or query."
+    }
+  ],
 
   "guardrails": {
     "never_state": [
@@ -92,20 +288,5 @@
     ],
     "escalation_message": "This inquiry is being connected directly to our Senior Customer Relationship Director.",
     "handoff_keywords": ["human", "agent", "sales manager", "director", "urgent", "complaint", "talk to advisor"]
-  },
-
-  "flows": [
-    {
-      "name": "book_callback",
-      "success_message": "Thank you! Your private property consultation and site visit coordination have been registered with a Senior DLF Property Advisor."
-    },
-    {
-      "name": "get_quote",
-      "success_message": "Thank you! Our property finance specialist will prepare a customized cost sheet, payment plan, and banking loan details for your shortlisted DLF property."
-    },
-    {
-      "name": "raise_ticket",
-      "success_message": "Your request has been logged with DLF Customer Relationship. A support ticket has been created and an executive will follow up."
-    }
-  ]
+  }
 }

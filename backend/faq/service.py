@@ -274,6 +274,9 @@ Rules for next_actions:
 - If no registry action is relevant, return an empty list for next_actions.
 - Maximum 3 next_actions allowed. NEVER invent new ids or titles outside the registry.
 
+Rules for answer:
+- Keep the "answer" field between 100 and 350 words (maximum 2,500 characters) so it fits in a single WhatsApp chat bubble without overflowing.
+
 Context to use for your answer:
 {context[:4000] if context else "No additional context provided."}
 
@@ -351,7 +354,8 @@ async def _generate_direct_llm_answer(system_prompt: str, user_query: str, conte
 Context to use for your answer:
 {context[:4000] if context else "No additional context provided."}
 
-Please answer the user's question directly, clearly, helpfully, and comprehensively using bullet points."""
+Please answer the user's question directly, clearly, helpfully, and comprehensively using bullet points.
+MANDATORY LENGTH: Keep the entire response between 100 and 350 words (maximum 2,500 characters) so that the entire response fits cleanly inside a single WhatsApp message bubble."""
 
     providers = _get_ordered_providers()
     for name, url, model, api_key, api_type in providers:
@@ -771,6 +775,11 @@ POLICIES, GST, TERMS OF USE & DETAILED QUERIES:
 - Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
 
+🚨 MANDATORY LENGTH LIMIT:
+- Keep your entire response between 100 and 350 words (maximum 2,500 characters).
+- Never exceed 2,500 characters so that your response always fits completely inside a single WhatsApp message bubble without being cut off.
+- Be complete, concise, and focused on what the customer asked.
+
 
 RESPONSE STRUCTURE (WhatsApp/Dunzo style: warm, helpful, simple):
 • [Direct, friendly answer to the main question + key emoji]
@@ -816,6 +825,9 @@ EXPANDED POLICY & TERMS RULE:
 - Add relevant emojis to points for readability.
 - Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
+
+🚨 MANDATORY LENGTH LIMIT:
+- Keep your entire response between 100 and 350 words (maximum 2,500 characters) so that the entire response fits in one complete WhatsApp message without being cut off.
 
 RESPONSE STRUCTURE:
 • [Direct answer based on the available context + emoji]
@@ -1297,7 +1309,9 @@ async def synthesize_intent_answer(
         f"Using ONLY the factual data provided in the context below (including any database context), "
         f"write a comprehensive, professional, WhatsApp-friendly reply. "
         f"Use bullet points (•) and bold (*text*) for headings. "
-        f"Ensure all important details, features, specifications, and options are fully answered without cutting anything short. "
+        f"Ensure all important details, features, specifications, and options are fully answered. "
+        f"MANDATORY LENGTH: Keep the entire reply between 100 and 350 words (maximum 2,500 characters) "
+        f"so it fits comfortably within a single WhatsApp message bubble. "
         f"Do NOT add information that is not present in the context."
     )
 

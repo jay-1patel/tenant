@@ -354,7 +354,7 @@ class UnifiedBotService:
                         prompt = (
                             f"You are a helpful assistant for {BRAND_NAME}. "
                             f"Answer the user's question clearly, warmly, and concisely using ONLY the context below. "
-                            f"Use bullet points if listing multiple items.\n\nContext:\n{context[:3000]}"
+                            f"Use bullet points if listing multiple items. Keep your reply between 100 and 350 words (maximum 2,500 characters) so it fits in a single WhatsApp message.\n\nContext:\n{context[:3000]}"
                         )
                         payload = {
                             "model": GROQ_MODEL,
