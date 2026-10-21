@@ -59,7 +59,7 @@ def _default_config() -> Dict:
             "escalation_message": "I'll connect you with our team. Someone will follow up shortly.",
         },
         "response_settings": {
-            "max_tokens": 300,
+            "max_tokens": 1500,
             "temperature": 0.3,
             "similarity_threshold": 0.40,
             "context_window": 3,
@@ -121,7 +121,7 @@ def get_escalation_rules() -> Dict:
 def get_response_settings() -> Dict:
     cfg = load_bot_config()
     defaults = {
-        "max_tokens": 350,
+        "max_tokens": 1500,
         "temperature": 0.4,
         "similarity_threshold": 0.40,
         "context_window": 3,

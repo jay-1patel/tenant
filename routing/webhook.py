@@ -586,16 +586,19 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 # CATALOG_DELIVERY_MODE=pdf, fall back to the text+button
                 # summary so we still send *something* useful.
                 if interactive and interactive.get("type") == "list" and interactive.get("sections"):
+                    menu_body = interactive.get("body", "")
+                    if not menu_body:
+                        if response_text:
+                            send_whatsapp_message(wa_id, response_text)
+                        menu_body = "Please select an option below:"
                     list_sent = send_whatsapp_list_menu(
                         wa_id,
                         interactive.get("header", ""),
-                        interactive.get("body", "") or response_text,
+                        menu_body,
                         interactive.get("button_text") or interactive.get("button", "Menu"),
                         interactive.get("sections", []),
                         interactive.get("footer", ""),
                     )
-                    if response_text and not interactive.get("body"):
-                        send_whatsapp_message(wa_id, response_text)
                     send_status = "sent_list" if list_sent else "failed_list"
                     logger.info(f"CATALOG_LIST_SENT | {wa_id}")
                 else:

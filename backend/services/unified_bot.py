@@ -363,7 +363,7 @@ class UnifiedBotService:
                                 {"role": "user", "content": message}
                             ],
                             "temperature": 0.2,
-                            "max_tokens": 500
+                            "max_tokens": 1500
                         }
                         resp = requests.post(GROQ_API_URL, json=payload, headers=headers, timeout=15)
                         if resp.status_code == 200:

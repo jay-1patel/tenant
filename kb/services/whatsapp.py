@@ -194,6 +194,30 @@ def build_button(id: str = None, title: str = None, url: str = None) -> dict:
 # NEW API: UNIFIED MESSAGE SENDERS
 # ============================================
 
+def _chunk_text(text: str, limit: int = 4000) -> list:
+    """Split long text into safe chunks for WhatsApp (Meta max 4096 chars)."""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return [text] if text else []
+    chunks = []
+    while text:
+        if len(text) <= limit:
+            chunks.append(text)
+            break
+        split_at = text.rfind("\n\n", 0, limit)
+        if split_at == -1 or split_at < limit // 3:
+            split_at = text.rfind("\n", 0, limit)
+        if split_at == -1 or split_at < limit // 3:
+            split_at = text.rfind(" ", 0, limit)
+        if split_at == -1:
+            split_at = limit
+        chunk = text[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
+        text = text[split_at:].strip()
+    return chunks
+
+
 async def send_text_message(contact_no: str, text: str) -> bool:
     """
     Send text message using NEW API.
@@ -214,44 +238,47 @@ async def send_text_message(contact_no: str, text: str) -> bool:
 
     # Normalize formatting + append the tenant's signature
     text = format_for_whatsapp(text, contact_no)
+    chunks = _chunk_text(text, limit=4000)
+    if not chunks:
+        return False
 
-    # FIX: Build payload with credentials included
-    payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
-        "contact_no": contact_no,
-        "message_type": "text",
-        "message": text
-    }
+    all_ok = True
+    for chunk in chunks:
+        payload = {
+            "user_name": SEND2_USERNAME,
+            "password": SEND2_PASSWORD,
+            "contact_no": contact_no,
+            "message_type": "text",
+            "message": chunk
+        }
 
-    try:
-        # FIX: Use direct httpx call without _send_post_request to avoid double credentials
-        logger.info(f"API_REQUEST | url={SESSION_MSG_URL} | timeout=30 | payload_preview={str(payload)[:200]}")
+        try:
+            logger.info(f"API_REQUEST | url={SESSION_MSG_URL} | timeout=30 | payload_preview={str(payload)[:200]}")
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(SESSION_MSG_URL, json=payload)
-            logger.info(f"API_RESPONSE | status={response.status_code} | body={response.text[:300]}")
-            try:
-                from routing.hookdeck import tee_outbound
-                tee_outbound(SESSION_MSG_URL, payload, response.status_code, response.text, to=contact_no)
-            except Exception:
-                pass
-
-            if response.status_code == 200:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(SESSION_MSG_URL, json=payload)
+                logger.info(f"API_RESPONSE | status={response.status_code} | body={response.text[:300]}")
                 try:
-                    update_session_outbound(contact_no)
+                    from routing.hookdeck import tee_outbound
+                    tee_outbound(SESSION_MSG_URL, payload, response.status_code, response.text, to=contact_no)
                 except Exception:
                     pass
 
-                logger.info(f"TEXT_SENT | to={contact_no} | chars={len(text)}")
-                return True
-            else:
-                logger.error(f"TEXT_SEND_FAILED | to={contact_no} | status={response.status_code} | body={response.text[:300]}")
-                return False
+                if response.status_code == 200:
+                    try:
+                        update_session_outbound(contact_no)
+                    except Exception:
+                        pass
 
-    except Exception as e:
-        logger.error(f"TEXT_SEND_FAILED | to={contact_no} | error={e}")
-        return False
+                    logger.info(f"TEXT_SENT | to={contact_no} | chars={len(chunk)}")
+                else:
+                    logger.error(f"TEXT_SEND_FAILED | to={contact_no} | status={response.status_code} | body={response.text[:300]}")
+                    all_ok = False
+
+        except Exception as e:
+            logger.error(f"TEXT_SEND_FAILED | to={contact_no} | error={e}")
+            all_ok = False
+    return all_ok
 
 
 async def send_media_message(contact_no: str, media_type: str, media_url: str, caption: str = None) -> bool:
@@ -326,6 +353,10 @@ async def send_button_message(
 
     # Normalize formatting + append the tenant's signature to the button message body
     body_text = format_for_whatsapp(body_text, contact_no)
+    if body_text and len(body_text) > 950:
+        logger.info(f"INTERACTIVE_SPLIT | to={contact_no} | chars={len(body_text)} | sending full text first")
+        await send_text_message(contact_no, body_text)
+        body_text = "Please select an option below:"
 
     # Primary path: session-msg-send Cloud interactive API — ONE call carrying
     # optional media header + body + footer + buttons together.
@@ -480,6 +511,10 @@ async def send_list_menu(
 
     # Normalize formatting + append the tenant's signature to the menu body text
     body_text = format_for_whatsapp(body_text, contact_no)
+    if body_text and len(body_text) > 950:
+        logger.info(f"LIST_MENU_SPLIT | to={contact_no} | chars={len(body_text)} | sending full text first")
+        await send_text_message(contact_no, body_text)
+        body_text = "Please select an option below:"
 
     # FIX: Transform sections structure to match OFFICIAL send2.digital API format
     # Based on official docs: sections use "title" and rows use "id", "title", "description"
@@ -585,6 +620,11 @@ async def send_quick_button_message(
     if len(buttons) > 3:
         logger.warning(f"Too many buttons ({len(buttons)}), limiting to 3")
         buttons = buttons[:3]
+
+    if body_text and len(body_text) > 950:
+        logger.info(f"QUICK_BUTTON_SPLIT | to={number} | chars={len(body_text)} | sending full text first")
+        await send_text_message(number, body_text)
+        body_text = "Please select an option below:"
 
     # Build payload with OFFICIAL send2.digital field names.
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise

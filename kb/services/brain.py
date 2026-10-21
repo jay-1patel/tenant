@@ -52,7 +52,7 @@ def _cache_response(cache_key: str, response: str):
             del _response_cache[key]
     logger.info(f"💾 Cached response for key: {cache_key[:8]} (cache size: {len(_response_cache)})")
 
-def _estimate_tokens(messages: list, max_tokens: int = 300) -> int:
+def _estimate_tokens(messages: list, max_tokens: int = 1500) -> int:
     """Estimate token usage for a request."""
     total_chars = sum(len(str(msg.get('content', ''))) for msg in messages)
     # Rough estimation: 1 token ≈ 4 characters
@@ -634,7 +634,7 @@ def _call_groq_with_tools(messages: List[Dict], tools_schemas: List[Dict], user_
         raise ValueError("No LLM provider available")
 
     settings = get_response_settings()
-    max_tokens = settings.get("max_tokens", 300)
+    max_tokens = settings.get("max_tokens", 1500)
     temperature = settings.get("temperature", 0.7)
 
     last_err = None
@@ -768,7 +768,7 @@ def _call_groq_simple(messages: List[Dict]) -> str:
         raise ValueError("No LLM provider available")
 
     settings = get_response_settings()
-    max_tokens = settings.get("max_tokens", 300)
+    max_tokens = settings.get("max_tokens", 1500)
     temperature = settings.get("temperature", 0.7)
 
     last_err = None

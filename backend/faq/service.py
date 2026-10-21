@@ -768,7 +768,7 @@ POLICIES, GST, TERMS OF USE & DETAILED QUERIES:
 - Do not over-summarize; ensure critical facts, figures, and legal/policy limits from the context are fully stated.
 - Never include URLs unless explicitly provided in the context.
 - Never tell the user to visit the website if the information is available in the context.
-- Use 100-140 words.
+- Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
 
 
@@ -814,7 +814,7 @@ EXPANDED POLICY & TERMS RULE:
 - For questions on GST, Policies, Terms of Use, Shipping, Replacements, or Pricing, extract and present ALL available conditions, rules, timelines, and numbers in thorough bullet points.
 - Keep all specific numbers, percentages, fees, and conditions intact without skipping details.
 - Add relevant emojis to points for readability.
-- Use 100-140 words.
+- Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
 
 RESPONSE STRUCTURE:
@@ -1295,10 +1295,9 @@ async def synthesize_intent_answer(
         f"You are a helpful WhatsApp assistant for {brand}. "
         f"A user asked about '{intent_name}'. "
         f"Using ONLY the factual data provided in the context below (including any database context), "
-        f"write a concise, professional, WhatsApp-friendly reply. "
-        f"Use bullet points (•), bold (*text*) for headings, and keep it under 120 words "
-        f"(about 700 characters) so the whole reply fits in one WhatsApp message without "
-        f"being cut off. "
+        f"write a comprehensive, professional, WhatsApp-friendly reply. "
+        f"Use bullet points (•) and bold (*text*) for headings. "
+        f"Ensure all important details, features, specifications, and options are fully answered without cutting anything short. "
         f"Do NOT add information that is not present in the context."
     )
 

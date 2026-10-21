@@ -54,13 +54,12 @@ SECTION_TITLE_MAX = 24
 MAX_ROWS = 10
 MAX_SECTIONS = 10
 
-# Card budget. The card is a text message, but it is also a WhatsApp bubble
-# people read on a phone — a wall of text is worse than a trimmed one.
-CARD_MAX_CHARS = 1200
-ITINERARY_MAX_LINES = 10
-INCLUDES_MAX_BULLETS = 6
-EXCLUDES_MAX_BULLETS = 5
-TERMS_MAX_CHARS = 320
+# Card budget. The card is a text message that can be up to WhatsApp text limits (4096 chars).
+CARD_MAX_CHARS = 3800
+ITINERARY_MAX_LINES = 30
+INCLUDES_MAX_BULLETS = 25
+EXCLUDES_MAX_BULLETS = 25
+TERMS_MAX_CHARS = 1200
 
 # Phrases that ask for the package catalogue.
 LIST_PHRASES = {
@@ -176,7 +175,9 @@ def package_name(pkg: dict) -> str:
 
 def package_attrs(pkg: dict) -> dict:
     attrs = pkg.get("attrs_json")
-    return attrs if isinstance(attrs, dict) else {}
+    if isinstance(attrs, dict) and attrs:
+        return attrs
+    return pkg if isinstance(pkg, dict) else {}
 
 
 def package_row_id(pkg: dict) -> str:
@@ -240,7 +241,7 @@ def package_sections(packages: list) -> list:
 
 # ── the package card ───────────────────────────────────────────────────────
 
-def _bullets(raw, limit: int, item_limit: int = 130) -> list:
+def _bullets(raw, limit: int, item_limit: int = 300) -> list:
     if not raw:
         return []
     parts = re.split(r"[\n\r]+|(?<=\s)•", str(raw))
@@ -255,7 +256,7 @@ def _bullets(raw, limit: int, item_limit: int = 130) -> list:
     return out
 
 
-def _itinerary_lines(raw, limit: int = ITINERARY_MAX_LINES) -> list:
+def _itinerary_lines(raw, limit: int = ITINERARY_MAX_LINES, item_limit: int = 500) -> list:
     if not raw:
         return []
     text = str(raw).replace("\r\n", "\n").replace("\r", "\n")
@@ -267,7 +268,7 @@ def _itinerary_lines(raw, limit: int = ITINERARY_MAX_LINES) -> list:
         line = part.strip(" \t\r\n•-–—*")
         if not line:
             continue
-        out.append("• " + line[:150])
+        out.append("• " + line[:item_limit])
         if len(out) >= limit:
             break
     return out
@@ -306,12 +307,12 @@ def package_card(pkg: dict) -> str:
     terms = str(attrs.get("terms_conditions") or "").strip()
     if terms:
         if len(terms) > TERMS_MAX_CHARS:
-            terms = terms[:TERMS_MAX_CHARS].rsplit(" ", 1)[0] + "…"
+            terms = terms[:TERMS_MAX_CHARS].rsplit(" ", 1)[0]
         lines += ["", f"📄 *Terms (summary)*: {terms}"]
 
     card = "\n".join(lines).strip()
     if len(card) > CARD_MAX_CHARS:
-        card = card[:CARD_MAX_CHARS].rsplit("\n", 1)[0] + "\n…"
+        card = card[:CARD_MAX_CHARS].rsplit("\n", 1)[0]
     return card
 
 

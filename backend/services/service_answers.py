@@ -30,10 +30,10 @@ def is_service_query(text: str) -> bool:
     return any(phrase in query for phrase in SERVICE_QUERY_PHRASES)
 
 
-def _fit_description(text: str, limit: int = 400) -> str:
+def _fit_description(text: str, limit: int = 1200) -> str:
     """Trim a description without slicing a word or sentence in half.
 
-    A plain ``text[:limit]`` cut mid-word (e.g. "...message trac"), so trim at
+    A plain ``text[:limit]`` cuts mid-word, so trim at
     the end of a sentence when possible, then at the last whole word.
     """
     text = (text or "").strip()
@@ -46,7 +46,7 @@ def _fit_description(text: str, limit: int = 400) -> str:
     space = window.rfind(" ")
     if space >= limit // 2:
         window = window[:space]
-    return window.rstrip() + "…"
+    return window.rstrip()
 
 
 def answer_for_text(wa_id: str, text: str, tenant_id: str | None = None) -> str | None:

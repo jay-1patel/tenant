@@ -119,6 +119,30 @@ def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
     return SEND2_USERNAME, SEND2_PASSWORD
 
 
+def _chunk_text(text: str, limit: int = 4000) -> list:
+    """Split long text into safe chunks for WhatsApp (Meta max 4096 chars)."""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return [text] if text else []
+    chunks = []
+    while text:
+        if len(text) <= limit:
+            chunks.append(text)
+            break
+        split_at = text.rfind("\n\n", 0, limit)
+        if split_at == -1 or split_at < limit // 3:
+            split_at = text.rfind("\n", 0, limit)
+        if split_at == -1 or split_at < limit // 3:
+            split_at = text.rfind(" ", 0, limit)
+        if split_at == -1:
+            split_at = limit
+        chunk = text[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
+        text = text[split_at:].strip()
+    return chunks
+
+
 def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tenant_id=None):
     norm_type = _normalize_msg_type(msg_type)
     username, password = get_tenant_send2_credentials(tenant_id)
@@ -126,14 +150,49 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
 
     if norm_type == "text":
         formatted_text = normalize_whatsapp_formatting(text)
-        payload = {
-            "user_name": username,
-            "password": password,
-            "contact_no": clean_to,
-            "message_type": "text",
-            "message": formatted_text,
-            "messaging_product": "whatsapp",
-        }
+        chunks = _chunk_text(formatted_text, limit=4000)
+        if not chunks:
+            chunks = [" "]
+        all_ok = True
+        for chunk in chunks:
+            payload = {
+                "user_name": username,
+                "password": password,
+                "contact_no": clean_to,
+                "message_type": "text",
+                "message": chunk,
+                "messaging_product": "whatsapp",
+            }
+            last_err = None
+            sent_chunk = False
+            for attempt in range(1, retries + 1):
+                try:
+                    resp = requests.post(
+                        SEND2_SESSION_SEND_URL,
+                        json=payload,
+                        timeout=timeout,
+                    )
+                    logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
+                    from routing.hookdeck import tee_outbound
+                    tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
+                    body = (resp.text or "").lower()
+                    if resp.status_code == 200 and (
+                        '"success":true' in body
+                        or '"success": 1' in body
+                        or '"success":1' in body
+                        or "message sent successfully" in body
+                    ):
+                        sent_chunk = True
+                        break
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"send2.digital send failed for {norm_type} (attempt {attempt}/{retries}): {e}")
+            if not sent_chunk:
+                from routing.hookdeck import tee_outbound
+                tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
+                logger.error(f"send2.digital send failed for {norm_type} after {retries} attempts: {last_err}")
+                all_ok = False
+        return all_ok
     else:
         media_url = _resolve_media_url(str(text or "").strip())
         logger.info(f"MEDIA_SEND | to={to} | type={norm_type} | url={media_url[:120]}")
@@ -147,31 +206,31 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
             "messaging_product": "whatsapp",
         }
 
-    last_err = None
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.post(
-                SEND2_SESSION_SEND_URL,
-                json=payload,
-                timeout=timeout,
-            )
-            logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
-            from routing.hookdeck import tee_outbound
-            tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
-            body = (resp.text or "").lower()
-            return resp.status_code == 200 and (
-                '"success":true' in body
-                or '"success": 1' in body
-                or '"success":1' in body
-                or "message sent successfully" in body
-            )
-        except Exception as e:
-            last_err = e
-            logger.warning(f"send2.digital send failed for {norm_type} (attempt {attempt}/{retries}): {e}")
-    from routing.hookdeck import tee_outbound
-    tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
-    logger.error(f"send2.digital send failed for {norm_type} after {retries} attempts: {last_err}")
-    return False
+        last_err = None
+        for attempt in range(1, retries + 1):
+            try:
+                resp = requests.post(
+                    SEND2_SESSION_SEND_URL,
+                    json=payload,
+                    timeout=timeout,
+                )
+                logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
+                from routing.hookdeck import tee_outbound
+                tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
+                body = (resp.text or "").lower()
+                return resp.status_code == 200 and (
+                    '"success":true' in body
+                    or '"success": 1' in body
+                    or '"success":1' in body
+                    or "message sent successfully" in body
+                )
+            except Exception as e:
+                last_err = e
+                logger.warning(f"send2.digital send failed for {norm_type} (attempt {attempt}/{retries}): {e}")
+        from routing.hookdeck import tee_outbound
+        tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
+        logger.error(f"send2.digital send failed for {norm_type} after {retries} attempts: {last_err}")
+        return False
 
 
 def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, footer_text=None, tenant_id=None):
@@ -194,9 +253,16 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
         api_sections.append(api_section)
 
     # WhatsApp rejects the whole message when the body is empty or > 1024 chars
-    # ("Body text length invalid. Min length: 1, Max length: 1024"). Long LLM
-    # answers are re-sent as a list menu (buttons -> rows), so clamp the body.
-    norm_body = _truncate_body(normalize_whatsapp_formatting(body_text or " "))
+    # ("Body text length invalid. Min length: 1, Max length: 1024").
+    # If the body is long (> 950 chars), deliver the FULL untruncated content
+    # first via text message, and present the menu with a clean prompt.
+    raw_body = normalize_whatsapp_formatting(body_text or " ")
+    if len(raw_body) > 950:
+        logger.info(f"LIST_MENU_SPLIT | to={to} | chars={len(raw_body)} | sending full text first")
+        send_whatsapp_message(to, body_text, tenant_id=tenant_id)
+        norm_body = "Please select an option below:"
+    else:
+        norm_body = _truncate_body(raw_body, limit=1020)
 
     payload = {
         "username": username,
@@ -221,6 +287,7 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
         return resp.status_code == 200 and (
             "message sent successfully" in body
             or '"success":true' in body
+            or '"success": true' in body
             or '"success": 1' in body
             or '"success":1' in body
         )
@@ -236,7 +303,7 @@ def _truncate_body(text: str, limit: int = 1020) -> str:
     last_space = cut.rfind(" ")
     if last_space > limit // 2:
         cut = cut[:last_space]
-    return cut.rstrip() + "\n…"
+    return cut.rstrip()
 
 
 def normalize_reply_buttons(buttons):
@@ -295,6 +362,14 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         else:
             formatted_buttons.append(btn)
 
+    raw_text = normalize_whatsapp_formatting(text or " ")
+    if len(raw_text) > 950:
+        logger.info(f"INTERACTIVE_SPLIT | to={to} | chars={len(raw_text)} | sending full text first")
+        send_whatsapp_message(to, text, tenant_id=tenant_id)
+        body_to_send = "Please select an option below:"
+    else:
+        body_to_send = _truncate_body(raw_text, limit=1020)
+
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
@@ -303,7 +378,7 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         "number": to,
         "headertype": "text",
         "headertext": " ",
-        "bodytext": _truncate_body(normalize_whatsapp_formatting(text)),
+        "bodytext": body_to_send,
         "footertext": str(footer or " ")[:60],
         "total_buttons": len(formatted_buttons),
         "buttons": formatted_buttons,
