@@ -1102,6 +1102,8 @@ def get_vertical_defaults(vertical: str) -> Dict[str, Any]:
     flows = deepcopy(DEFAULT_FLOWS)
     if layer.get("vertical") == "ecommerce":
         flows.extend(deepcopy(COMMERCE_FLOWS))
+    if layer.get("vertical") == "tours_travel":
+        flows.extend(deepcopy(TOURS_FLOWS))
     layer["flows"] = flows
     return layer
 
@@ -1115,11 +1117,12 @@ def list_verticals() -> List[str]:
 # its intents/menu by name; a tenant can override any of them by shipping a
 # flow with the same name in clients/<id>/config.json.
 
-def _ask(step_id, key, prompt, validate="", invalid="", max_attempts=3, optional=False) -> Dict[str, Any]:
+def _ask(step_id, key, prompt, validate="", invalid="", max_attempts=3, optional=False,
+         prefill=False) -> Dict[str, Any]:
     return {
         "id": step_id, "type": "ask", "key": key, "prompt": prompt,
         "validate": validate, "invalid_message": invalid, "max_attempts": max_attempts,
-        "optional": optional,
+        "optional": optional, "prefill": prefill,
     }
 
 
@@ -1153,6 +1156,44 @@ _NOTIFY = {
 }
 
 _DONE = {"id": "done", "type": "say", "prompt": "", "goto": ""}
+
+# Booking enquiry for ONE tour package. The package name is usually already
+# known (the user tapped a package row), so the "ask package" step is
+# prefill=True: the flow runner skips it when the value was seeded at start.
+_BOOK_PACKAGE_FLOW = {
+    "name": "book_package",
+    "intent": "package_booking",
+    "requires_feature": "offering_details",
+    "description": "Capture a booking enquiry for a specific tour package.",
+    "start_message": "Great choice! Let me grab a few details so our travel team can confirm availability.",
+    "success_message": (
+        "Thanks! Your enquiry is with our travel team — they will call you shortly "
+        "to confirm availability and pricing. 🙏"
+    ),
+    "steps": [
+        _say("intro", "Great choice! Let me grab a few details so our travel team can confirm availability."),
+        _ask("ask_name", "name", "May I know your name?", validate="name:2",
+             invalid="Could you share your name (at least 2 characters)?"),
+        _ask("ask_package", "package", "Which tour package would you like to book?",
+             validate="min_len:2", prefill=True,
+             invalid="Please tell me which package you'd like to book."),
+        _ask("ask_phone", "phone", "What's the best phone number to reach you on?",
+             validate="phone:10",
+             invalid="Please enter a valid 10-digit phone number. Please try again."),
+        {"id": "save", "type": "save_lead",
+         "collect_keys": ["name", "package", "phone"],
+         "lead_source": "package_booking", "next": "notify"},
+        {"id": "notify", "type": "notify", "channels": [],
+         "subject": "New tour package booking enquiry", "next": "handoff"},
+        # escalate=True floats the conversation to the top of the admin live
+        # inbox as a human-handover item.
+        {"id": "handoff", "type": "handoff", "handoff_reason": "package_booking",
+         "escalate": True, "store_context": True, "next": "done"},
+        {"id": "done", "type": "say",
+         "prompt": ("Thanks! Your enquiry is with our travel team — they will call you "
+                    "shortly to confirm availability and pricing. 🙏")},
+    ],
+}
 
 DEFAULT_FLOWS: List[Dict[str, Any]] = [
     {
@@ -1311,4 +1352,11 @@ COMMERCE_FLOWS: List[Dict[str, Any]] = [
 ]
 DEFAULT_FLOWS: List[Dict[str, Any]] = [
     f for f in DEFAULT_FLOWS if f["name"] not in ("place_order", "track_order")
+]
+
+# Flows that only make sense for a travel/tours tenant. Kept OUT of
+# DEFAULT_FLOWS on purpose, same reason as COMMERCE_FLOWS: a generic tenant
+# inheriting "book_package" would offer a tour booking it cannot serve.
+TOURS_FLOWS: List[Dict[str, Any]] = [
+    _BOOK_PACKAGE_FLOW,
 ]

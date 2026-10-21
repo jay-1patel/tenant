@@ -162,6 +162,10 @@ export interface FlowStep {
   subject: string
   handoff_reason: string
   store_context: boolean
+  /** ask: skip the step when the value was already collected (e.g. a tapped package). */
+  prefill?: boolean
+  /** handoff: also float the conversation to the top of the live inbox. */
+  escalate?: boolean
   on: Record<string, string>
   next: string
   goto: string

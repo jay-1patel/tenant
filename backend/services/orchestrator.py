@@ -354,6 +354,31 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     )
                 user_state = ("B2C_MAIN_MENU", "{}")
 
+        # 1c. Tour package browsing: the package catalogue (list menu), a
+        # package card with its booking button, and the booking enquiry.
+        # Runs after the running flow (a live form keeps the reply) but
+        # before the flow trigger, so a package name never starts an
+        # unrelated flow.
+        try:
+            try:
+                from services import package_flow
+            except ImportError:
+                from backend.services import package_flow
+            package_result = await package_flow.handle_package_action(
+                wa_id, message, tenant_id=tenant_id,
+            )
+            if package_result and package_result.get("handled"):
+                return {
+                    "status": "processed",
+                    "messages": drain_captured(),
+                    "new_state": "B2C_MAIN_MENU",
+                    "human_handover": False,
+                    "user_type": "b2c",
+                    "error": None,
+                }
+        except Exception as exc:
+            logger.debug(f"package browsing failed for {wa_id}: {exc}")
+
         # 2. Check flow trigger for button ID or typed text (e.g. 'book a callback', 'schedule meeting')
         flow_name = (
             flow_runner.flow_for_button(wa_id, message, tenant_id=tenant_id)

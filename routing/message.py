@@ -585,6 +585,26 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
                 result["query_type"] = "flow"
                 return result
 
+        # Tour package browsing: the package catalogue (list menu), a package
+        # card with its booking button, and the booking enquiry. Runs before
+        # the flow trigger so a package name never starts an unrelated flow.
+        try:
+            from backend.services import package_flow
+            _tid, _profile = _tenant_profile(wa_id or "", tenant_id)
+            package_result = await package_flow.handle_package_action(
+                wa_id or "", user_text, tenant_id=_tid,
+                pressed_id=interactive_id or "",
+            )
+            if package_result and package_result.get("handled"):
+                result["answer"] = ""
+                result["query_type"] = "package"
+                result["whatsapp_sent"] = True
+                logger.info("PACKAGE_ACTION | wa_id=%s | action=%s", wa_id,
+                            package_result.get("action"))
+                return result
+        except Exception as exc:
+            logger.debug("Package browsing failed: %s", exc)
+
         flow_name = (
             flow_runner.flow_for_button(wa_id or "", interactive_id or "", tenant_id=tenant_id)
             or flow_runner.flow_for_text(wa_id or "", user_text, tenant_id=tenant_id)

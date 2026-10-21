@@ -57,7 +57,7 @@ def _record(payload: dict) -> None:
         items.append(payload)
 
 
-def _live_sender(kind: str):
+def _live_sender(kind: str, tenant_id: str = None):
     """Lazily import the concrete send2.digital sender for a message kind.
 
     Returns a callable ``(wa_id, *args) -> bool`` that performs a real send, or
@@ -113,6 +113,7 @@ def _live_sender(kind: str):
                         body_text=body,
                         button_text="Select Option",
                         sections=[{"title": "Options", "rows": rows}],
+                        tenant_id=tenant_id,
                     )
                 from kb.services.whatsapp import send_interactive_buttons
                 return send_interactive_buttons(
@@ -128,6 +129,7 @@ def _live_sender(kind: str):
                 body_text=body,
                 button_text=button_text,
                 sections=sections,
+                tenant_id=tenant_id,
             )
     except Exception as e:  # pragma: no cover - depends on app runtime
         logger.warning(f"live sender import failed for {kind}: {e}")
@@ -252,7 +254,8 @@ async def send_new_arrivals_message(wa_id: str) -> bool:
         return False
 
 
-async def send_button_message(wa_id: str, body: str, buttons: list, header_media: dict = None) -> bool:
+async def send_button_message(wa_id: str, body: str, buttons: list,
+                              header_media: dict = None, tenant_id: str = None) -> bool:
     """Send (or capture) an interactive button message.
 
     header_media: optional dict like {"type": "image", "image": {"link": "https://..."}}
@@ -260,7 +263,7 @@ async def send_button_message(wa_id: str, body: str, buttons: list, header_media
     media message needed).
     """
     logger.info(f"SEND_BUTTONS | to={wa_id} | buttons={len(buttons or [])} | header={'yes' if header_media else 'no'}")
-    sender = _live_sender("buttons")
+    sender = _live_sender("buttons", tenant_id)
     if sender is None:
         _record({
             "type": "buttons", "text": body or "", "buttons": buttons or [],
@@ -289,10 +292,11 @@ async def send_list_menu(
     body: str,
     button_text: str,
     sections: list,
+    tenant_id: str = None,
 ) -> bool:
     """Send (or capture) a list menu message."""
     logger.info(f"SEND_LIST | to={wa_id} | sections={len(sections or [])}")
-    sender = _live_sender("list")
+    sender = _live_sender("list", tenant_id)
     if sender is None:
         _record(
             {

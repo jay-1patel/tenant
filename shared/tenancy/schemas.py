@@ -525,6 +525,10 @@ class FlowStep(_Base):
     invalid_message: str = ""
     # number of invalid attempts before the flow bails out
     max_attempts: int = 3
+    # ask: the value may already be known (e.g. the package the user tapped
+    # before the flow started). When true and the key is already collected,
+    # the step is skipped instead of asking again.
+    prefill: bool = False
 
     # choice
     options: List[str] = Field(default_factory=list)
@@ -547,6 +551,9 @@ class FlowStep(_Base):
     # handoff
     handoff_reason: str = ""
     store_context: bool = True
+    # handoff: also float the conversation to the top of the admin live inbox
+    # as a human-handover item, so an agent picks it up.
+    escalate: bool = False
 
     # routing
     on: Dict[str, str] = Field(default_factory=dict)

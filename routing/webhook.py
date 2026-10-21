@@ -446,6 +446,29 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
             except Exception as e:
                 logger.error(f"Profile flow start failed for button {pressed_id}: {e}")
 
+        # ── TOUR PACKAGE BROWSING ───────────────────────────────────────
+        # The package catalogue is an interactive list menu, not a text
+        # answer: a tapped row shows the package card and a booking button.
+        # Handled before the informational panels so the catalogue is never
+        # answered from the LLM.
+        try:
+            from backend.services import package_flow
+            package_result = await package_flow.handle_package_action(
+                wa_id, user_text, tenant_id=tenant_id, pressed_id=pressed_id or "",
+            )
+            if package_result and package_result.get("handled"):
+                action = package_result.get("action")
+                save_chat(wa_id, sender_name, user_text, f"[package] {action}", "package")
+                logger.info("PACKAGE_ACTION | %s | action=%s | package=%s", wa_id, action,
+                            package_result.get("package", ""))
+                response_time_ms = int((time.time() - start_time) * 1000)
+                log_webhook("outgoing", "/webhook/package", json.dumps({
+                    "to": wa_id, "action": action
+                }), 200, f"Package {action}", response_time_ms=response_time_ms)
+                return
+        except Exception as e:
+            logger.error(f"Package browsing failed for {user_text!r}: {e}")
+
         # ── PROFILE-DEFINED INFORMATIONAL PANELS (Phase 3) ────────────
         # A tapped menu row whose profile entry names an intent (Technologies,
         # Portfolio, Careers, Benefits...) answers from the tenant's own

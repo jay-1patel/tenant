@@ -222,7 +222,7 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
             vals.append(flow_name)
         if "service_required" in cols:
             fields.append("service_required")
-            vals.append(str(data.get("need") or ""))
+            vals.append(str(data.get("need") or data.get("package") or ""))
 
         placeholders = ", ".join(["?"] * len(vals))
         col_names = ", ".join(fields)
@@ -371,6 +371,30 @@ def _handoff(tenant_id: str, wa_id: str, flow_name: str, step,
     logger.info("HANDOFF_CREATED | tenant=%s | flow=%s | handoff_id=%s",
                 tenant_id, flow_name, handoff_id)
     return handoff_id
+
+
+def _escalate(tenant_id: str, wa_id: str, flow_name: str) -> bool:
+    """Float the conversation to the top of the admin live inbox.
+
+    The inbox queue sorts by ``human_handover DESC``, so setting the flag
+    both stops the bot from auto-replying and pins the conversation to the
+    top of the queue for an agent to pick up.
+    """
+    try:
+        set_human_handover = _db().set_human_handover
+    except Exception as e:
+        logger.error("HANDOFF_ESCALATE_FAILED | tenant=%s | flow=%s | wa_id=%s | %s",
+                     tenant_id, flow_name, wa_id, e)
+        return False
+    try:
+        set_human_handover(wa_id, True)
+        logger.info("HANDOFF_ESCALATED | tenant=%s | flow=%s | wa_id=%s",
+                    tenant_id, flow_name, wa_id)
+        return True
+    except Exception as e:
+        logger.error("HANDOFF_ESCALATE_FAILED | tenant=%s | flow=%s | wa_id=%s | %s",
+                     tenant_id, flow_name, wa_id, e)
+        return False
 
 
 # ── the runner ─────────────────────────────────────────────────────────────
@@ -542,8 +566,12 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
     return None
 
 
-def start_flow(wa_id: str, flow_name: str, tenant_id=None) -> dict:
+def start_flow(wa_id: str, flow_name: str, tenant_id=None, seed: dict = None) -> dict:
     """Begin a flow for a user. Respects out-of-hours variants.
+
+    ``seed`` pre-fills collected values (e.g. the tour package the user
+    tapped). Ask steps marked ``prefill`` are skipped when their key is
+    already known.
 
     Returns an outcome dict (never raises): ok=False outcomes carry an error
     the caller can log and fall through on.
@@ -569,11 +597,17 @@ def start_flow(wa_id: str, flow_name: str, tenant_id=None) -> dict:
     sm.set_tenant(wa_id, profile.tenant_id)
     sm.start_flow(wa_id, flow.name)
 
+    # start_flow wipes collected, so the seed is written afterwards.
+    collected = {str(k): v for k, v in (seed or {}).items()
+                 if v is not None and str(v).strip() != ""}
+    if collected:
+        sm.merge_collected(wa_id, collected)
+
     messages = []
     if flow.start_message and flow.steps and flow.steps[0].type != "say":
         messages.append(flow.start_message)
 
-    return _run_from(wa_id, profile, flow, flow.first_step_id(), {}, messages)
+    return _run_from(wa_id, profile, flow, flow.first_step_id(), collected, messages)
 
 
 def handle_reply(wa_id: str, text: str, tenant_id=None):
@@ -791,6 +825,13 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             break
 
         if step.type in ("ask", "choice", "confirm"):
+            if step.type == "ask" and step.prefill:
+                key = step.key or step.id
+                if str(collected.get(key) or "").strip():
+                    logger.info("FLOW_PREFILL_SKIP | wa_id=%s | flow=%s | step=%s | key=%s",
+                                wa_id, flow.name, step.id, key)
+                    step_id = _next_after(step)
+                    continue
             prompt = step.prompt or step.message
             if step.type == "choice" and prompt and step.options:
                 # Emit a tappable options message (the sender renders buttons as a
@@ -827,6 +868,8 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         elif step.type == "handoff":
             handoff_id = _handoff(profile.tenant_id, wa_id, flow.name, step, collected)
             paused = True
+            if step.escalate:
+                _escalate(profile.tenant_id, wa_id, flow.name)
             if step.prompt and step.prompt not in messages:
                 messages.append(step.prompt)
 
