@@ -1,0 +1,252 @@
+{
+  "tenant_id": "leewaysoftech",
+  "vertical": "it_software",
+  "display_name": "Leewaysoftech",
+  "brand": {
+    "name": "Leewaysoftech",
+    "bot_name": "Leewaysoftech Assistant",
+    "tagline": "a software development company building web, mobile, and enterprise solutions",
+    "website": "www.leewaysoftech.com",
+    "support_email": "customercare@leewaysoftech.com",
+    "support_phone": "+91 98765 43210",
+    "signature": "Leewaysoftech — Building software that moves business forward."
+  },
+  "features": {
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "track_order": false,
+    "returns": false,
+    "brochure_pdf": true,
+    "distributors": false,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "quote": true,
+    "callback": true,
+    "book_appointment": true,
+    "handoff": true,
+    "faq": true,
+    "kb": true,
+    "complaints": true,
+    "campaigns": false,
+    "human_handover": true
+  },
+  "vocabulary": {
+    "item_noun": "services",
+    "item_noun_singular": "service",
+    "browse_label": "Our Services",
+    "catalog_label": "Services",
+    "catalog_noun": "services",
+    "brochure_label": "Company Profile",
+    "brochure_noun": "company profile",
+    "offer_noun": "engagement",
+    "offer_noun_plural": "engagements",
+    "lead_noun": "requirement",
+    "enquiry_label": "Enquire",
+    "quote_label": "Get a Quote",
+    "callback_label": "Request a Callback",
+    "support_label": "Raise Ticket"
+  },
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "09:30",
+    "close": "18:30",
+    "open_days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "intents": [
+    {
+      "name": "technologies",
+      "answer": "• Here's the stack we build with:\n• *Frontend:* React, Angular and Vue\n• *Backend:* Node.js, Python (Django/Flask), PHP and .NET\n• *Mobile:* Flutter, React Native and native iOS/Android\n• *Cloud & DevOps:* AWS, Azure, GCP, Docker, Kubernetes and CI/CD pipelines\n• *Databases:* PostgreSQL, MySQL, MongoDB and Redis\n• Tell us what you're building and we'll match the right stack for it."
+    },
+    {
+      "name": "projects",
+      "answer": "• A snapshot of the work we deliver:\n• *Web platforms:* e-commerce stores, customer portals and internal systems\n• *Mobile apps:* customer and field-force apps for iOS and Android\n• *Enterprise:* CRM/ERP integrations, workflow automation and analytics dashboards\n• *Industries:* retail, healthcare, finance, logistics and education\n• We share client names and detailed case studies only with their written permission — our team can walk you through relevant examples on a call."
+    },
+    {
+      "name": "careers",
+      "answer": "• We're always glad to hear from good people:\n• *Roles we hire for:* frontend, backend and mobile developers, QA engineers, DevOps and UI/UX designers\n• *Internships:* available for final-year students and fresh graduates\n• *How to apply:* send your CV to info@leewaysoftech.com with the role in the subject line\n• Shortlisted candidates hear from us within a few working days."
+    },
+    {
+      "name": "benefits",
+      "answer": "• Why teams choose to work with us:\n• *Dedicated project manager* as your single point of contact\n• *Agile delivery* in two-week sprints with regular demos\n• *Transparent reporting* — you always know where things stand\n• *Post-launch support and maintenance* packages\n• *Your IP stays yours* — full code and documentation handover\n• *Fixed-price or dedicated-team* engagement models, NDA on request"
+    },
+    {
+      "name": "service_enquiry",
+      "examples": [
+        "what services do you offer",
+        "do you build mobile apps"
+      ],
+      "keywords": [
+        "service",
+        "services",
+        "what do you do",
+        "capability",
+        "capabilities",
+        "offerings",
+        "solution",
+        "expertise"
+      ],
+      "requires_feature": "offerings",
+      "answer": "",
+      "enabled": true
+    }
+  ],
+  "guardrails": {
+    "never_state": [
+      "prices, budgets, or rates before the team confirms a quote",
+      "delivery dates without team confirmation",
+      "client names without their written permission"
+    ],
+    "escalate_keywords": [
+      "production down",
+      "urgent bug",
+      "security breach",
+      "data loss",
+      "legal",
+      "contract dispute"
+    ],
+    "escalation_message": "That needs a person from our team — connecting you now.",
+    "handoff_keywords": [
+      "human",
+      "agent",
+      "manager",
+      "urgent",
+      "complaint"
+    ]
+  },
+  "notifications": {
+    "sales_email": "sales@leewaysoftech.com",
+    "support_email": "customercare@leewaysoftech.com",
+    "brochure_url": "",
+    "brochure_label": "Company Profile",
+    "channels": [
+      {
+        "type": "email",
+        "to": "sales@leewaysoftech.com",
+        "label": "sales"
+      }
+    ]
+  },
+  "flows": [
+    {
+      "name": "get_quote",
+      "success_message": "Thanks! Our team has your project details and will reach out with next steps shortly."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Ticket raised. Our support team will get back to you shortly."
+    },
+    {
+      "name": "book_callback",
+      "success_message": "Done! Your callback and Google Meeting have been scheduled."
+    }
+  ],
+  "menu": {
+    "key": "kb_main",
+    "header": "",
+    "body": "How can we help you today?",
+    "footer": "Or type your question",
+    "button_text": "Show Options",
+    "buttons": [
+      {
+        "id": "menu_services",
+        "title": "Services",
+        "description": "what we build and offer",
+        "section": "about & offerings",
+        "icon": "🚀",
+        "sort_order": 0,
+        "enabled": true,
+        "requires_feature": "services",
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": null
+      },
+      {
+        "id": "menu_technologies",
+        "title": "Technologies",
+        "description": "our tech stack & expertise ",
+        "section": "about & offerings",
+        "icon": "💻",
+        "sort_order": 1,
+        "enabled": true,
+        "requires_feature": "offering_details",
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": "technologies"
+      },
+      {
+        "id": "menu_benefits",
+        "title": "Benefits",
+        "description": "Our expertise & trust",
+        "section": "careers & help",
+        "icon": "🏆",
+        "sort_order": 2,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": "benefits"
+      },
+      {
+        "id": "menu_development",
+        "title": "Development",
+        "description": "what we develop",
+        "section": "about & offerings",
+        "icon": "👨‍💻",
+        "sort_order": 3,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": null
+      },
+      {
+        "id": "menu_career",
+        "title": "Career",
+        "description": "Join our team/openings",
+        "section": "careers & help",
+        "icon": "💼",
+        "sort_order": 4,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": null
+      },
+      {
+        "id": "menu_support",
+        "title": " Customer Support ",
+        "description": "Get technical help",
+        "section": "careers & help",
+        "icon": "🛠️",
+        "sort_order": 5,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": "raise_ticket",
+        "intent": null
+      },
+      {
+        "id": "menu_talk_human",
+        "title": "Book a Callback",
+        "description": "Have us call you back",
+        "section": "talk to us",
+        "icon": "📞",
+        "sort_order": 6,
+        "enabled": true,
+        "requires_feature": null,
+        "out_of_hours_only": false,
+        "flow": null,
+        "intent": null
+      }
+    ]
+  }
+}

@@ -111,7 +111,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
   }, [focusId, menu])
 
   const flowNames = useMemo(
-    () => [],
+    () => (effective?.flows ?? []).map((f) => f.name).sort(),
     [effective],
   )
   const intentNames = useMemo(

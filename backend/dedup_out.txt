@@ -1,0 +1,34 @@
+test_capture_only_records_without_live_send (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_capture_only_records_without_live_send) ... ok
+test_careers_button_uses_profile_answer_before_pipeline (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_careers_button_uses_profile_answer_before_pipeline) ... ok
+test_database_dedup_blocks_repeats_across_local_caches (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_database_dedup_blocks_repeats_across_local_caches) ... ok
+test_faq_forwarding_keeps_explicit_tenant (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_faq_forwarding_keeps_explicit_tenant) ... ok
+test_listener_processes_each_polled_message_id_once (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_listener_processes_each_polled_message_id_once) ... ok
+test_orchestrator_capture_only_prevents_listener_double_send (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_orchestrator_capture_only_prevents_listener_double_send) ... FAIL
+test_typed_careers_uses_explicit_tenant_profile (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_typed_careers_uses_explicit_tenant_profile) ... ok
+test_webhook_claims_repeated_meta_message_only_once (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_webhook_claims_repeated_meta_message_only_once) ... ok
+
+======================================================================
+FAIL: test_orchestrator_capture_only_prevents_listener_double_send (test_whatsapp_routing_dedup.WhatsAppRoutingDedupTests.test_orchestrator_capture_only_prevents_listener_double_send)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Program Files\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Program Files\Python313\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\keya\leeway_tenant_5\backend\test_whatsapp_routing_dedup.py", line 213, in test_orchestrator_capture_only_prevents_listener_double_send
+    self.assertEqual(result["messages"], [{"type": "text", "text": "one reply", "sent_live": False}])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [{'type': 'list', 'header': 'Hi there! 👋 Welcome to [980 chars]lse}] != [{'type': 'text', 'text': 'one reply', 'sent_live': False}]
+
+First differing element 0:
+{'type': 'list', 'header': 'Hi there! 👋 Welcome to [979 chars]alse}
+{'type': 'text', 'text': 'one reply', 'sent_live': False}
+
+Diff is 1793 characters long. Set self.maxDiff to None to see it.
+
+----------------------------------------------------------------------
+Ran 8 tests in 7.736s
+
+FAILED (failures=1)
