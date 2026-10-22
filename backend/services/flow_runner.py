@@ -37,7 +37,7 @@ logger = logging.getLogger("flow_runner")
 CANCEL_WORDS = {
     "cancel", "stop", "quit", "exit", "menu", "main menu", "nevermind", "never mind",
     "cancel it", "cancel form", "back", "home", "restart", "start over", "leave",
-    "abort", "close", "end", "done", "clear", "break", "no", "forget it", "opt out",
+    "abort", "close", "end", "done", "clear", "break", "forget it", "opt out",
 }
 SKIP_WORDS = {"skip", "-", "na", "n/a", "none", "no email"}
 
@@ -46,7 +46,9 @@ _STATUS_PAUSED = "paused"
 
 _QUESTION_STARTERS = (
     "what", "how", "where", "when", "why", "who", "which",
-    "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+    "can you", "can i", "can we", "could you", "would you", "should i",
+    "do you", "does it", "is there", "is it", "are there", "are you",
+    "will you", "will it", "will there", "may i",
     "tell me", "show me", "i want to", "i would like", "i have a question",
     "details of", "information on", "info about", "price of", "cost of",
     "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
@@ -661,7 +663,13 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
             return _retry(wa_id, flow, step, collected,
                          "Please reply with an answer, or type *cancel*.")
         elif validate_answer(step.validate_rule, answer):
-            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id) and (
+            # For name/phone/email fields, don't check for question intent to avoid
+            # breaking forms when user's name is "Hi" or similar
+            validation_key = (step.validate_rule or "").lower()
+            is_name_or_contact = any(
+                rule in validation_key for rule in ["name", "phone", "email", "digits"]
+            )
+            if not is_name_or_contact and is_likely_question_or_intent(answer, tenant_id=profile.tenant_id) and (
                 key not in ("need", "issue", "project", "details", "subject")
                 or _is_explicit_topic_switch(answer, profile.tenant_id)
             ):
@@ -671,7 +679,12 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
             collected[key] = answer
             collected.pop("_attempts", None)
         else:
-            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
+            # For name/phone/email fields, don't check for question intent
+            validation_key = (step.validate_rule or "").lower()
+            is_name_or_contact = any(
+                rule in validation_key for rule in ["name", "phone", "email", "digits"]
+            )
+            if not is_name_or_contact and is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
                 logger.info("FLOW_BREAK | wa_id=%s | user asked question instead of flow input: %r", wa_id, answer[:50])
                 sm.clear_flow(wa_id)
                 return {"handled": False, "switched_topic": True}
@@ -944,6 +957,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             f"⚡ *Priority:* {raw_urgency}",
             f"📄 *Issue:* {issue}",
             "\nOur support team has logged your complaint and will review and address it shortly. Please keep this Ticket ID for your reference. 🙏",
+            "Type *menu* anytime to view our services or ask any question!",
         ]
         cmp_confirmation = "\n".join(cmp_lines)
         if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("ticket", "shortly", "done", "team", "complaint")):
@@ -951,7 +965,10 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         else:
             messages.append(cmp_confirmation)
     elif flow.success_message and not emitted_done and flow.success_message not in messages:
-        messages.append(flow.success_message)
+        s_msg = flow.success_message
+        if "menu" not in s_msg.lower():
+            s_msg = f"{s_msg}\n\nType *menu* anytime or feel free to ask another question! 🙏"
+        messages.append(s_msg)
     return _outcome(flow.name, messages, finished=True, lead_id=lead_id,
                     handoff_id=handoff_id,
                     status=_STATUS_PAUSED if paused else _STATUS_BOT)

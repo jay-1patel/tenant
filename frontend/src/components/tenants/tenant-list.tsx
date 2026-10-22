@@ -149,7 +149,7 @@ export function TenantList() {
             const open = () => navigate(`/tenants/${encodeURIComponent(tenant.id)}/overview`)
             const isTestActive = Boolean(
               (activeTestTenant && tenant.id && String(activeTestTenant) === String(tenant.id)) ||
-              (activeTestTenant && tenant.slug && activeTestTenant.toLowerCase() === tenant.slug.toLowerCase())
+              (activeTestTenant && tenant.slug && String(activeTestTenant).toLowerCase() === tenant.slug.toLowerCase())
             )
             const tenantKey = tenant.slug || String(tenant.id)
             return (
