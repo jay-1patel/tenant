@@ -708,8 +708,16 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 brand = _brand_context(tid)
                 sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
                 combined_context = "\n\n---\n\n".join(kb_chunks)
+                history_turns = []
                 try:
-                    llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context, tenant_id=tid)
+                    from database import get_recent_history
+                    history_turns = get_recent_history(wa_id, limit=3, ttl_minutes=30)
+                except Exception:
+                    pass
+                try:
+                    llm_res = await _generate_ollama_dynamic_response(
+                        sys_prompt, message, combined_context, tenant_id=tid, conversation_history=history_turns
+                    )
                     if llm_res and llm_res.get("answer"):
                         answer = _append_signature(llm_res["answer"], tid)
                         interactive = llm_res.get("interactive")
@@ -811,7 +819,15 @@ async def _kb_answer(wa_id: str, query: str, tenant_id: str | None = None) -> st
             brand = _brand_context(tenant_id)
             sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
             combined_context = "\n\n---\n\n".join(kb_chunks)
-            llm_res = await _generate_ollama_dynamic_response(sys_prompt, query, combined_context, tenant_id=tenant_id)
+            history_turns = []
+            try:
+                from database import get_recent_history
+                history_turns = get_recent_history(wa_id, limit=3, ttl_minutes=30)
+            except Exception:
+                pass
+            llm_res = await _generate_ollama_dynamic_response(
+                sys_prompt, query, combined_context, tenant_id=tenant_id, conversation_history=history_turns
+            )
             if llm_res and llm_res.get("answer"):
                 return _append_signature(llm_res["answer"], tenant_id)
     except Exception as e:

@@ -342,7 +342,6 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 # Check if last update was >30 minutes ago
                 last_updated = convo.get("updated_at")
                 if last_updated:
-                    import time
                     from datetime import datetime, timedelta
                     if isinstance(last_updated, str):
                         try:
