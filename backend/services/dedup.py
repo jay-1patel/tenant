@@ -29,9 +29,22 @@ def _l2_check_and_set(message_id: str, wa_id: str) -> bool:
     """True if ANY worker already claimed this message (authoritative)."""
     try:
         with get_db_context() as conn:
+            # Check if send2 poller already claimed it
+            row = conn.execute(
+                "SELECT 1 FROM processed_inbound_messages WHERE message_id = ? LIMIT 1",
+                (message_id,),
+            ).fetchone()
+            if row is not None:
+                return True
             cur = conn.execute(
                 "INSERT OR IGNORE INTO webhook_dedup (message_id, wa_id, processed_at) "
                 "VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (message_id, wa_id),
+            )
+            # Also keep processed_inbound_messages in sync so poller won't re-answer
+            conn.execute(
+                "INSERT OR IGNORE INTO processed_inbound_messages (message_id, wa_id, channel) "
+                "VALUES (?, ?, 'webhook')",
                 (message_id, wa_id),
             )
             return cur.rowcount == 0  # ignored insert = already existed

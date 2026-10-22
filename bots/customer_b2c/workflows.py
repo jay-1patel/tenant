@@ -687,7 +687,7 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             import json as _json
             from kb.services.rag import search_kb_faiss
             from database import get_db_context
-            hits = search_kb_faiss(message, limit=5)
+            hits = search_kb_faiss(message, limit=5, tenant_id=tid)
             if hits:
                 with get_db_context() as conn:
                     for top in hits:
@@ -799,7 +799,7 @@ async def _kb_answer(wa_id: str, query: str, tenant_id: str | None = None) -> st
         import json as _json
         from kb.services.rag import search_kb_faiss
         from database import get_db_context
-        hits = search_kb_faiss(query, limit=3)
+        hits = search_kb_faiss(query, limit=3, tenant_id=tenant_id)
         kb_chunks = []
         if hits:
             with get_db_context() as conn:

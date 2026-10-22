@@ -2348,19 +2348,26 @@ def get_webhook_stats():
 # ── Chat history ─────────────────────────────────────────────────────────
 
 def was_inbound_processed(message_id: str, channel: str = "send2") -> bool:
-    """True if this channel already processed the message (survives restarts).
+    """True if this channel or the webhook already processed the message (survives restarts).
 
-    Used by the send2 poller so a restart does not re-answer the entire last
-    poll window that the incoming-report re-returns on the next request.
+    Used by the send2 poller and webhook receiver so a restart or dual-path
+    delivery does not double-answer the message.
     """
     if not message_id:
         return False
     try:
         with get_db_context() as conn:
-            return conn.execute(
-                "SELECT 1 FROM processed_inbound_messages WHERE message_id=? AND channel=?",
-                (message_id, channel),
-            ).fetchone() is not None
+            row1 = conn.execute(
+                "SELECT 1 FROM processed_inbound_messages WHERE message_id=?",
+                (message_id,),
+            ).fetchone()
+            if row1 is not None:
+                return True
+            row2 = conn.execute(
+                "SELECT 1 FROM webhook_dedup WHERE message_id=?",
+                (message_id,),
+            ).fetchone()
+            return row2 is not None
     except Exception as e:
         logger.error(f"was_inbound_processed check failed for {message_id}: {e}")
         return False
@@ -2374,6 +2381,10 @@ def mark_inbound_processed(message_id: str, wa_id: str, channel: str = "send2") 
             conn.execute(
                 "INSERT OR IGNORE INTO processed_inbound_messages (message_id, wa_id, channel) VALUES (?, ?, ?)",
                 (message_id, wa_id, channel),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO webhook_dedup (message_id, wa_id, processed_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (message_id, wa_id),
             )
     except Exception as e:
         logger.error(f"mark_inbound_processed failed for {message_id}: {e}")

@@ -51,6 +51,7 @@ class SimulatorRequest(BaseModel):
     wa_id: str = "test-user-001"
     message: str = ""
     user_type: Optional[Literal["b2b", "b2c", "auto"]] = "auto"
+    tenant_id: Optional[str] = None
 
 
 class MenuPreviewRequest(BaseModel):
@@ -59,6 +60,7 @@ class MenuPreviewRequest(BaseModel):
     user_type: Optional[Literal["b2b", "b2c"]] = "b2c"
     tier: Optional[str] = None
     outstanding: Optional[float] = None
+    tenant_id: Optional[str] = None
 
 
 def _ensure_user_type(wa_id: str, user_type: str) -> str:
@@ -96,7 +98,16 @@ async def simulate_message(request: SimulatorRequest):
 
     wa_id = (request.wa_id or "").strip() or "test-user-001"
     message = (request.message or "").strip()
-    logger.info(f"TEST_SIMULATOR | wa_id={wa_id} | type={request.user_type} | message={message!r}")
+    logger.info(f"TEST_SIMULATOR | wa_id={wa_id} | tenant={request.tenant_id} | type={request.user_type} | message={message!r}")
+
+    if request.tenant_id:
+        try:
+            from database import set_request_tenant
+            from backend.services import state_manager as sm
+            set_request_tenant(request.tenant_id)
+            sm.set_tenant(wa_id, request.tenant_id)
+        except Exception as exc:
+            logger.debug(f"Could not stamp simulator tenant: {exc}")
 
     resolved_type = _ensure_user_type(wa_id, request.user_type)
 
