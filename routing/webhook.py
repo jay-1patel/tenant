@@ -556,22 +556,22 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         # Handled before the informational panels so the catalogue is never
         # answered from the LLM.
         try:
-            from backend.services import package_flow
-            package_result = await package_flow.handle_package_action(
+            from backend.services import offerings_flow
+            offerings_result = await offerings_flow.handle_offerings_action(
                 wa_id, user_text, tenant_id=tenant_id, pressed_id=pressed_id or "",
             )
-            if package_result and package_result.get("handled"):
-                action = package_result.get("action")
-                save_chat(wa_id, sender_name, user_text, f"[package] {action}", "package")
-                logger.info("PACKAGE_ACTION | %s | action=%s | package=%s", wa_id, action,
-                            package_result.get("package", ""))
+            if offerings_result and offerings_result.get("handled"):
+                action = offerings_result.get("action")
+                save_chat(wa_id, sender_name, user_text, f"[offerings] {action}", "offerings")
+                logger.info("OFFERINGS_ACTION | %s | action=%s | product=%s", wa_id, action,
+                            offerings_result.get("product", ""))
                 response_time_ms = int((time.time() - start_time) * 1000)
-                log_webhook("outgoing", "/webhook/package", json.dumps({
+                log_webhook("outgoing", "/webhook/offerings", json.dumps({
                     "to": wa_id, "action": action
-                }), 200, f"Package {action}", response_time_ms=response_time_ms)
+                }), 200, f"Offerings {action}", response_time_ms=response_time_ms)
                 return
         except Exception as e:
-            logger.error(f"Package browsing failed for {user_text!r}: {e}")
+            logger.error(f"Offerings browsing failed for {user_text!r}: {e}")
 
         # ── PROFILE-DEFINED INFORMATIONAL PANELS (Phase 3) ────────────
         # A tapped menu row whose profile entry names an intent (Technologies,

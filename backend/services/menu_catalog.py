@@ -337,12 +337,49 @@ def get_profile_menu(
 ) -> List[MenuItem]:
     """Menu items for a tenant, from the profile's own button list.
 
-    Disabled buttons and buttons whose feature flag is off are omitted. These
-    are presentation rules only: each service still enforces its own entitlement.
+    Disabled buttons and buttons whose feature flag is off are omitted.
+    Intelligently feature-gates offerings buttons based on whether the
+    tenant actually has active products in the database.
     """
-    buttons = profile.menu.visible_buttons(
+    buttons = list(profile.menu.visible_buttons(
         profile.features, in_business_hours=in_business_hours
-    )
+    ))
+
+    # Check tenant products count for intelligent feature gating
+    try:
+        from database import count_products
+        p_count = count_products(tenant_id=profile.tenant_id, active_only=True)
+    except Exception:
+        p_count = 0
+
+    offerings_ids = {
+        "menu_packages", "menu_properties", "menu_banking_products",
+        "menu_products", "menu_offerings", "menu_catalogue"
+    }
+
+    if p_count == 0:
+        # Hide offerings buttons if tenant has 0 products
+        buttons = [b for b in buttons if b.id not in offerings_ids]
+    else:
+        # Ensure the tenant has an active offerings button if >= 1 product exists
+        has_offerings_btn = any(b.id in offerings_ids for b in buttons)
+        if not has_offerings_btn:
+            try:
+                from services.offerings_flow import get_vertical_offerings_button
+                v_btn = get_vertical_offerings_button(profile.tenant_id)
+                if v_btn:
+                    from shared.tenancy.schemas import MenuButton
+                    buttons.insert(0, MenuButton(
+                        id=v_btn["id"],
+                        title=v_btn["title"],
+                        description="Explore our available offerings",
+                        section="Our Offerings",
+                        icon="📋",
+                        enabled=True,
+                    ))
+            except Exception:
+                pass
+
     return [
         MenuItem(
             id=b.id,

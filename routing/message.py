@@ -601,25 +601,26 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
                 result["query_type"] = "flow"
                 return result
 
-        # Tour package browsing: the package catalogue (list menu), a package
-        # card with its booking button, and the booking enquiry. Runs before
-        # the flow trigger so a package name never starts an unrelated flow.
+        # Offerings / products / packages browsing across all tenant verticals
+        # (Banking, Tours & Travel, Real Estate, Finance, IT, Retail).
+        # Renders the interactive WhatsApp list menu, the formatted detail
+        # card with booking/enquiry button, and the booking/lead enquiry.
         try:
-            from backend.services import package_flow
+            from backend.services import offerings_flow
             _tid, _profile = _tenant_profile(wa_id or "", tenant_id)
-            package_result = await package_flow.handle_package_action(
+            offerings_result = await offerings_flow.handle_offerings_action(
                 wa_id or "", user_text, tenant_id=_tid,
                 pressed_id=interactive_id or "",
             )
-            if package_result and package_result.get("handled"):
+            if offerings_result and offerings_result.get("handled"):
                 result["answer"] = ""
-                result["query_type"] = "package"
+                result["query_type"] = "offerings"
                 result["whatsapp_sent"] = True
-                logger.info("PACKAGE_ACTION | wa_id=%s | action=%s", wa_id,
-                            package_result.get("action"))
+                logger.info("OFFERINGS_ACTION | wa_id=%s | action=%s", wa_id,
+                            offerings_result.get("action"))
                 return result
         except Exception as exc:
-            logger.debug("Package browsing failed: %s", exc)
+            logger.debug("Offerings browsing failed: %s", exc)
 
         flow_name = (
             flow_runner.flow_for_button(wa_id or "", interactive_id or "", tenant_id=tenant_id)
