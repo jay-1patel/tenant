@@ -4,16 +4,17 @@ import base64
 import logging
 import uuid
 import aiohttp
+import asyncio
 from typing import List
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse, Response
 from pydantic import BaseModel
 from database import (
     get_files_summary, delete_file_chunks, delete_knowledge_base_file, save_chunks, get_db, get_db_context,
     list_admin_files, list_products, get_products_by_category, save_admin_file, delete_admin_file,
     get_menu_items, upsert_menu_item, reset_menu, get_menu_settings, set_menu_settings,
-    record_admin_audit_event,
+    record_admin_audit_event, update_admin_file_status,
 )
 from services.menu_catalog import (
     invalidate_menu_cache, get_menu_editor_items, get_effective_item,
@@ -651,6 +652,7 @@ def delete_admin_file_api(
 @router.post("/files/upload")
 async def upload_admin_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     module: str = Query("faq"),
     url: str = Query(None),
     media_type: str = Query(None),
@@ -661,7 +663,60 @@ async def upload_admin_file(
     The tenant-aware variant lives in ``routes/tenant_files.py``; both share
     ``run_upload`` so the extraction/indexing logic exists once.
     """
-    return await run_upload(request, module, url, media_type, current_admin, tenant_id=None)
+    return await run_upload(request, module, url, media_type, current_admin, tenant_id=None, background_tasks=background_tasks)
+
+
+def _process_document_background(
+    filepath: str,
+    filename: str,
+    ext: str,
+    module: str,
+    effective_url: str,
+    effective_media_type: str,
+    tenant_id: str | None,
+):
+    """Background worker for document text extraction, chunking, and vector index builds."""
+    chunks = []
+    try:
+        results = process_file(filepath)
+        if results:
+            chunks = results_to_chunks(results)
+            if chunks:
+                if module == "kb":
+                    from database import save_knowledge_base_chunks
+                    save_knowledge_base_chunks(chunks, filename, media_url=effective_url, media_type=effective_media_type, tenant_id=tenant_id)
+                    try:
+                        from kb.services.rag import build_chunks_for_kb, generate_missing_embeddings, rebuild_faiss_index
+                        build_chunks_for_kb()
+                        generate_missing_embeddings()
+                        rebuild_faiss_index()
+                        logger.info(f"KB_FAISS_REBUILT | {filename} ({len(chunks)} chunks)")
+                    except Exception as e:
+                        logger.error(f"KB FAISS rebuild failed after background upload {filename}: {e}")
+                else:
+                    save_chunks(chunks, module=module, media_url=effective_url, media_type=effective_media_type, tenant_id=tenant_id)
+                try:
+                    from faq.service import faq_index
+                    faq_index.build(force=True)
+                    logger.info(f"FAQ_INDEX_AUTOSYNCED | {filename} ({len(chunks)} chunks)")
+                except Exception as e:
+                    logger.warning(f"FAQ index auto-sync failed after background upload {filename}: {e}")
+
+        update_admin_file_status(
+            filename,
+            status="ready",
+            chunks_count=len(chunks),
+            tenant_id=tenant_id,
+        )
+        logger.info(f"ASYNC_INGESTION_COMPLETED | {filename} | chunks={len(chunks)} | tenant={tenant_id}")
+    except Exception as exc:
+        logger.error(f"ASYNC_INGESTION_FAILED | {filename}: {exc}", exc_info=True)
+        update_admin_file_status(
+            filename,
+            status="failed",
+            error_message=str(exc),
+            tenant_id=tenant_id,
+        )
 
 
 async def run_upload(
@@ -671,6 +726,7 @@ async def run_upload(
     media_type: str | None,
     current_admin: dict,
     tenant_id: str | None = None,
+    background_tasks: BackgroundTasks | None = None,
 ):
     if module == "kb":
         if not has_permission(current_admin, "upload_kb"):
@@ -766,54 +822,65 @@ async def run_upload(
             logger.error(f"Catbox upload failed for {filename}: {e}")
             catbox_url = None
 
-    def _process():
-        module_dir = os.path.join(UPLOAD_DIR, module)
-        os.makedirs(module_dir, exist_ok=True)
-        filepath = os.path.join(module_dir, filename)
-        with open(filepath, "wb") as f:
-            f.write(content)
-        size = len(content)
-        save_admin_file(filename, ext.lstrip("."), module, size, file_path=filepath, url=url or catbox_url, tenant_id=tenant_id, actor=current_admin)
-        chunks = []
-        try:
-            results = process_file(filepath)
-            if results:
-                chunks = results_to_chunks(results)
-                if chunks:
-                    effective_url = url or catbox_url or f"/uploaded_files/{module}/{filename}"
-                    effective_media_type = media_type or ext.lstrip(".")
-                    if module == "kb":
-                        from database import save_knowledge_base_chunks
-                        save_knowledge_base_chunks(chunks, filename, media_url=effective_url, media_type=effective_media_type, tenant_id=tenant_id)
-                        try:
-                            from kb.services.rag import build_chunks_for_kb, generate_missing_embeddings, rebuild_faiss_index
-                            build_chunks_for_kb()
-                            generate_missing_embeddings()
-                            rebuild_faiss_index()
-                            logger.info(f"KB_FAISS_REBUILT | {filename}")
-                        except Exception as e:
-                            logger.error(f"KB FAISS rebuild failed after upload {filename}: {e}")
-                    else:
-                        save_chunks(chunks, module=module, media_url=effective_url, media_type=effective_media_type, tenant_id=tenant_id)
-                    try:
-                        from faq.service import faq_index
-                        faq_index.build(force=True)
-                        logger.info(f"FAQ_INDEX_AUTOSYNCED | {filename}")
-                    except Exception as e:
-                        logger.warning(f"FAQ index auto-sync failed after upload {filename}: {e}")
-        except Exception as e:
-            logger.error(f"Extraction failed for {filename}: {e}")
-        return {
-            "status": "ok",
-            "filename": filename,
-            "module": module,
-            "chunks": len(chunks),
-            "size": size,
-            "file_url": url or catbox_url or f"/uploaded_files/{module}/{filename}",
-        }
+    module_dir = os.path.join(UPLOAD_DIR, module)
+    os.makedirs(module_dir, exist_ok=True)
+    filepath = os.path.join(module_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+    size = len(content)
 
-    result = await run_in_threadpool(_process)
-    return result
+    effective_url = url or catbox_url or f"/uploaded_files/{module}/{filename}"
+    effective_media_type = media_type or ext.lstrip(".")
+
+    save_admin_file(
+        filename,
+        ext.lstrip("."),
+        module,
+        size,
+        file_path=filepath,
+        url=effective_url,
+        tenant_id=tenant_id,
+        actor=current_admin,
+        status="processing",
+        chunks_count=0,
+    )
+
+    if background_tasks:
+        background_tasks.add_task(
+            _process_document_background,
+            filepath,
+            filename,
+            ext,
+            module,
+            effective_url,
+            effective_media_type,
+            tenant_id,
+        )
+    else:
+        asyncio.create_task(
+            run_in_threadpool(
+                _process_document_background,
+                filepath,
+                filename,
+                ext,
+                module,
+                effective_url,
+                effective_media_type,
+                tenant_id,
+            )
+        )
+
+    logger.info(f"ASYNC_INGESTION_DISPATCHED | {filename} ({size} bytes) | tenant={tenant_id}")
+    return {
+        "status": "ok",
+        "state": "processing",
+        "filename": filename,
+        "module": module,
+        "chunks": 0,
+        "size": size,
+        "file_url": effective_url,
+        "message": f"Document '{filename}' uploaded successfully. Vector chunking and index builds are processing in the background.",
+    }
 
 
 # ── Chat history with user lookup ─────────────────────────────────────────

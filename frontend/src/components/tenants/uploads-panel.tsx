@@ -14,6 +14,12 @@ import {
   ArrowRight,
   Bot,
   Compass,
+  HelpCircle,
+  Lightbulb,
+  Check,
+  Plus,
+  Loader2,
+  X,
 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
@@ -26,15 +32,17 @@ import {
   openBlob,
   saveBlob,
   uploadsApi,
+  knowledgeGapsApi,
   type AdminFile,
   type BifurcationResult,
+  type KnowledgeGap,
 } from '@/lib/uploads'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { Input, Textarea } from '@/components/ui/input'
 import { Alert, EmptyState, LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
@@ -61,9 +69,22 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   const [bifurcating, setBifurcating] = useState(false)
   const [bifurcationResult, setBifurcationResult] = useState<BifurcationResult | null>(null)
 
+  // Knowledge Gap Analytics State
+  const [showResolvedGaps, setShowResolvedGaps] = useState(false)
+  const [gapModalItem, setGapModalItem] = useState<KnowledgeGap | null>(null)
+  const [faqQuestion, setFaqQuestion] = useState('')
+  const [faqAnswer, setFaqAnswer] = useState('')
+  const [creatingFaq, setCreatingFaq] = useState(false)
+  const [resolvingId, setResolvingId] = useState<number | null>(null)
+
   const state = useAsync(
     (signal) => uploadsApi.list(tenantId, { module, search: search || undefined }, signal),
     [tenantId, module, search],
+  )
+
+  const gapsState = useAsync(
+    (signal) => knowledgeGapsApi.list(tenantId, showResolvedGaps, 50, signal),
+    [tenantId, showResolvedGaps],
   )
 
   const activeModule = FILE_MODULES.find((m) => m.value === module) ?? FILE_MODULES[0]
@@ -78,10 +99,49 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
     if (!file) return
     const result = await action.run(() => uploadsApi.upload(tenantId, file, module))
     if (result) {
-      toast.push(`${file.name} uploaded (${result.chunks} chunks indexed)`)
+      toast.push(`${file.name} uploaded — processing in background...`)
       state.reload()
+      setTimeout(() => state.reload(), 3500)
     }
     if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const openFaqCreator = (gap: KnowledgeGap) => {
+    setGapModalItem(gap)
+    setFaqQuestion(gap.query)
+    setFaqAnswer('')
+  }
+
+  const onSaveFaq = async () => {
+    if (!gapModalItem || !faqAnswer.trim()) {
+      toast.push('Please enter an answer for the FAQ.', 'error')
+      return
+    }
+    setCreatingFaq(true)
+    try {
+      await knowledgeGapsApi.createFaq(tenantId, gapModalItem.id, faqQuestion, faqAnswer)
+      toast.push('FAQ published & indexed! Gap resolved.')
+      setGapModalItem(null)
+      gapsState.reload()
+      state.reload()
+    } catch (err) {
+      toast.push((err as Error).message || 'Failed to create FAQ', 'error')
+    } finally {
+      setCreatingFaq(false)
+    }
+  }
+
+  const onResolveGap = async (gap: KnowledgeGap) => {
+    setResolvingId(gap.id)
+    try {
+      await knowledgeGapsApi.resolve(tenantId, gap.id)
+      toast.push('Knowledge gap marked resolved.')
+      gapsState.reload()
+    } catch (err) {
+      toast.push((err as Error).message || 'Failed to resolve gap', 'error')
+    } finally {
+      setResolvingId(null)
+    }
   }
 
   const onAutoBatchFiles = async (fileList: FileList | null) => {
@@ -438,11 +498,31 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
                 <div className="flex min-w-0 items-start gap-3 sm:flex-1 sm:items-center">
                   <FileText className="mt-0.5 h-4 w-4 shrink-0 text-accent-400 sm:mt-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="break-all text-sm font-medium text-slate-100 sm:truncate" title={item.name}>
-                      {item.name}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="break-all text-sm font-medium text-slate-100 sm:truncate" title={item.name}>
+                        {item.name}
+                      </p>
+                      {item.status === 'processing' && (
+                        <Badge tone="warning" className="flex items-center gap-1 text-2xs animate-pulse">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Processing
+                        </Badge>
+                      )}
+                      {item.status === 'ready' && (
+                        <Badge tone="success" className="text-2xs">
+                          {item.chunks_count ?? 0} chunks
+                        </Badge>
+                      )}
+                      {item.status === 'failed' && (
+                        <span title={item.error_message || 'Processing failed'}>
+                          <Badge tone="danger" className="text-2xs">
+                            Failed
+                          </Badge>
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-0.5 text-2xs text-slate-500">
                       {(item.ext || 'file').toUpperCase()} · {formatBytes(item.size)} · {formatDate(item.created_at)}
+                      {item.error_message ? ` · Error: ${item.error_message}` : ''}
                     </p>
                   </div>
                 </div>
@@ -476,6 +556,228 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
           </ul>
         )}
       </Card>
+
+      {/* ── Knowledge Gap Analytics & 1-Click FAQ Generation ─────────────── */}
+      <Card className="mt-8 border-amber-500/30 bg-surface-panel/40">
+        <CardHeader
+          title="Customer Knowledge Gaps & Unanswered Queries"
+          icon={<HelpCircle className="h-5 w-5 text-amber-400" />}
+          actions={
+            <div className="flex items-center gap-2">
+              <Button
+                variant={showResolvedGaps ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setShowResolvedGaps(!showResolvedGaps)}
+              >
+                {showResolvedGaps ? 'Showing Resolved' : 'Showing Unresolved'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RefreshCw className={cn('h-3.5 w-3.5', gapsState.loading && 'animate-spin')} />}
+                onClick={gapsState.reload}
+              >
+                Refresh
+              </Button>
+            </div>
+          }
+        />
+        <CardBody className="space-y-4">
+          <p className="text-xs text-slate-400">
+            Real customer questions that scored below bot confidence thresholds or triggered fallback replies.
+            Review the top questions the bot failed to answer and 1-click turn them into live FAQ answers to train your AI.
+          </p>
+
+          {/* Top Recurring Questions Summary */}
+          {gapsState.data?.summary.top_queries && gapsState.data.summary.top_queries.length > 0 && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-950/10 p-3.5">
+              <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-amber-300">
+                <Lightbulb className="h-4 w-4" />
+                <span>Top High-Frequency Questions Asked by Customers</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {gapsState.data.summary.top_queries.slice(0, 6).map((tq, idx) => (
+                  <div
+                    key={idx}
+                    className="flex flex-col justify-between rounded border border-surface-line bg-surface-base p-2.5"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <Badge tone="warning" className="text-2xs">
+                          Asked {tq.count} {tq.count === 1 ? 'time' : 'times'}
+                        </Badge>
+                        <span className="text-2xs text-slate-500">{formatDate(tq.last_asked)}</span>
+                      </div>
+                      <p className="text-xs font-medium text-slate-200 line-clamp-2" title={tq.query}>
+                        "{tq.query}"
+                      </p>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-surface-line/50 flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        icon={<Plus className="h-3 w-3" />}
+                        onClick={() => openFaqCreator({
+                          id: tq.sample_id,
+                          tenant_id: tenantId,
+                          wa_id: null,
+                          query: tq.query,
+                          reason: tq.reason,
+                          confidence_score: tq.avg_score,
+                          created_at: tq.last_asked,
+                          resolved: 0,
+                        })}
+                      >
+                        1-Click FAQ
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Knowledge Gaps List */}
+          {gapsState.loading && !gapsState.data ? (
+            <LoadingBlock label="Loading knowledge gaps..." />
+          ) : gapsState.error ? (
+            <Alert tone="danger" title="Could not load knowledge gaps">
+              {gapsState.error}
+            </Alert>
+          ) : !gapsState.data?.gaps.length ? (
+            <EmptyState
+              title={showResolvedGaps ? 'No resolved queries' : 'No unanswered queries detected'}
+              description={
+                showResolvedGaps
+                  ? 'Resolved questions will appear here.'
+                  : 'Great job! The AI bot has successfully answered incoming customer questions with high confidence.'
+              }
+              icon={<CheckCircle2 className="h-6 w-6 text-emerald-400" />}
+            />
+          ) : (
+            <ul className="divide-y divide-surface-line rounded-lg border border-surface-line bg-surface-base overflow-hidden">
+              {gapsState.data.gaps.map((gap) => (
+                <li key={gap.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-slate-100">"{gap.query}"</span>
+                      {gap.reason === 'no_match' && (
+                        <Badge tone="danger" className="text-2xs">No FAQ Match</Badge>
+                      )}
+                      {gap.reason === 'low_confidence' && (
+                        <Badge tone="warning" className="text-2xs">
+                          Low Confidence ({gap.confidence_score.toFixed(2)})
+                        </Badge>
+                      )}
+                      {gap.reason === 'uncertain_fallback' && (
+                        <Badge tone="accent" className="text-2xs">Uncertain Fallback</Badge>
+                      )}
+                      {gap.resolved === 1 && (
+                        <Badge tone="success" className="text-2xs">Resolved</Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-2xs text-slate-500">
+                      <span>Asked: {formatDate(gap.created_at)}</span>
+                      {gap.wa_id && <span>User: {gap.wa_id}</span>}
+                      {gap.resolution_notes && (
+                        <span className="text-slate-400 italic">({gap.resolution_notes})</span>
+                      )}
+                    </div>
+                  </div>
+                  {gap.resolved === 0 && (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        icon={<Plus className="h-3.5 w-3.5" />}
+                        onClick={() => openFaqCreator(gap)}
+                      >
+                        1-Click FAQ
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<Check className="h-3.5 w-3.5" />}
+                        loading={resolvingId === gap.id}
+                        onClick={() => void onResolveGap(gap)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* ── 1-Click FAQ Creation Modal ───────────────────────────────────── */}
+      {gapModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[2px] p-4">
+          <div className="w-full max-w-lg rounded-xl border border-surface-line bg-surface-panel p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-line">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                <Sparkles className="h-4 w-4 text-accent-400" />
+                <span>Turn Question into Knowledge Base FAQ</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGapModalItem(null)}
+                className="text-slate-400 hover:text-slate-200 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">
+                  Customer Question
+                </label>
+                <Input
+                  value={faqQuestion}
+                  onChange={(e) => setFaqQuestion(e.target.value)}
+                  placeholder="E.g., What is your return policy?"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">
+                  Official FAQ Answer
+                </label>
+                <Textarea
+                  rows={4}
+                  value={faqAnswer}
+                  onChange={(e) => setFaqAnswer(e.target.value)}
+                  placeholder="Enter the clear, direct answer the bot should provide to customers..."
+                />
+                <p className="mt-1 text-2xs text-slate-400">
+                  This will be added to the tenant FAQ dataset and immediately indexed in FAISS vector search.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-surface-line">
+              <Button
+                variant="ghost"
+                onClick={() => setGapModalItem(null)}
+                disabled={creatingFaq}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                icon={<Sparkles className="h-4 w-4" />}
+                loading={creatingFaq}
+                onClick={() => void onSaveFaq()}
+              >
+                Save & Index FAQ
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

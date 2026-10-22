@@ -1136,6 +1136,17 @@ async def handle_faq_query(payload: dict) -> dict:
             f"Dissimilar question (no FAQ match): '{message}' | "
             f"Query returned 0 results after similarity threshold ({SIMILARITY_THRESHOLD})"
         )
+        try:
+            from database import record_unanswered_query
+            record_unanswered_query(
+                tenant_id=tenant_id or "default",
+                query=message,
+                wa_id=wa_id,
+                reason="no_match",
+                confidence_score=0.0,
+            )
+        except Exception:
+            pass
         return {"answer": _append_signature("", tenant_id)}
 
     logger.info(f"Top 20 QA matches for user question: '{message}'")
@@ -1147,6 +1158,18 @@ async def handle_faq_query(payload: dict) -> dict:
         )
 
     best_ce_score = results[0][2]
+    if best_ce_score < CE_SCORE_THRESHOLD:
+        try:
+            from database import record_unanswered_query
+            record_unanswered_query(
+                tenant_id=tenant_id or "default",
+                query=message,
+                wa_id=wa_id,
+                reason="low_confidence",
+                confidence_score=float(best_ce_score),
+            )
+        except Exception:
+            pass
 
     # ── Build context (filter by CE score) ────
     context_parts = []

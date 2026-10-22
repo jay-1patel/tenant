@@ -18,7 +18,7 @@ rebuilding exist once; the tenant id is threaded into every stored row and chunk
 import logging
 import os
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -28,6 +28,10 @@ from database import (
     delete_knowledge_base_file,
     get_admin_file,
     list_admin_files,
+    list_unanswered_queries,
+    resolve_unanswered_query,
+    get_knowledge_gaps_summary,
+    add_faq_from_gap,
 )
 from routes.admin import (
     SUPPORTED,
@@ -118,6 +122,7 @@ def list_tenant_files(
 async def upload_tenant_file(
     request: Request,
     tenant_id: str,
+    background_tasks: BackgroundTasks,
     module: str = Query("faq"),
     url: str = Query(None),
     media_type: str = Query(None),
@@ -125,7 +130,7 @@ async def upload_tenant_file(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     uploader = _resolve_uploader(request, principal, credentials)
-    return await run_upload(request, module, url, media_type, uploader, tenant_id=tenant_id)
+    return await run_upload(request, module, url, media_type, uploader, tenant_id=tenant_id, background_tasks=background_tasks)
 
 
 @router.post("/files/auto-bifurcate")
@@ -371,3 +376,72 @@ async def upload_tenant_image(
         logger.error("Could not audit tenant image upload: %s", exc)
     logger.info("TENANT_IMAGE_UPLOADED | tenant=%s | name=%s | bytes=%s", tenant_id, file.filename, len(content))
     return {"url": url, "name": file.filename, "size": len(content)}
+
+
+# ── Knowledge Gap Analytics & 1-Click FAQ Generation ────────────────────────
+
+@router.get("/knowledge-gaps")
+def get_tenant_knowledge_gaps(
+    tenant_id: str,
+    resolved: bool = Query(False),
+    limit: int = Query(50, ge=1, le=500),
+    principal: dict = Depends(require_tenant_access()),
+):
+    """Retrieve unanswered customer queries and knowledge gap analytics for this tenant."""
+    gaps = list_unanswered_queries(tenant_id=tenant_id, resolved=resolved, limit=limit)
+    summary = get_knowledge_gaps_summary(tenant_id=tenant_id)
+    return {"gaps": gaps, "summary": summary}
+
+
+@router.post("/knowledge-gaps/{gap_id}/resolve")
+async def resolve_tenant_knowledge_gap(
+    request: Request,
+    tenant_id: str,
+    gap_id: int,
+    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Mark a knowledge gap as resolved without creating a FAQ."""
+    uploader = _resolve_uploader(request, principal, credentials)
+    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
+    notes = body.get("notes", "")
+    ok = resolve_unanswered_query(
+        gap_id=gap_id,
+        tenant_id=tenant_id,
+        resolved_by=uploader.get("label") or uploader.get("username") or "admin",
+        notes=notes,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Knowledge gap not found")
+    return {"status": "ok", "gap_id": gap_id, "resolved": True}
+
+
+@router.post("/knowledge-gaps/{gap_id}/create-faq")
+async def create_faq_from_knowledge_gap(
+    request: Request,
+    tenant_id: str,
+    gap_id: int,
+    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """1-Click turn an unanswered customer query into an indexed FAQ entry."""
+    uploader = _resolve_uploader(request, principal, credentials)
+    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
+    question = body.get("question", "").strip()
+    answer = body.get("answer", "").strip()
+    if not question or not answer:
+        raise HTTPException(status_code=400, detail="Both question and answer are required")
+
+    try:
+        res = add_faq_from_gap(
+            tenant_id=tenant_id,
+            gap_id=gap_id,
+            question=question,
+            answer=answer,
+            resolved_by=uploader.get("label") or uploader.get("username") or "admin",
+        )
+        logger.info("KNOWLEDGE_GAP_FAQ_CREATED | tenant=%s | gap_id=%s | question='%s'", tenant_id, gap_id, question[:40])
+        return res
+    except Exception as exc:
+        logger.error("Failed to create FAQ from knowledge gap: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))

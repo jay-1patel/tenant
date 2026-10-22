@@ -731,6 +731,17 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
             logger.warning(f"KB index lookup failed: {e}")
 
     if not answer:
+        try:
+            from database import record_unanswered_query
+            record_unanswered_query(
+                tenant_id=tid or "default",
+                query=message,
+                wa_id=wa_id,
+                reason="uncertain_fallback",
+                confidence_score=0.0,
+            )
+        except Exception as e:
+            logger.debug(f"Knowledge gap recording failed: {e}")
         answer = (
             "I'm not certain about that. Would you like to check our services, "
             "book a callback, or talk to an agent?"

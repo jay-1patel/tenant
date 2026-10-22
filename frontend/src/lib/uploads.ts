@@ -22,6 +22,40 @@ export interface AdminFile {
   url: string | null
   tenant_id: string | null
   created_at: string
+  status?: string
+  chunks_count?: number
+  error_message?: string | null
+}
+
+export interface KnowledgeGap {
+  id: number
+  tenant_id: string
+  wa_id: string | null
+  query: string
+  reason: string
+  confidence_score: number
+  created_at: string
+  resolved: number
+  resolved_at?: string | null
+  resolved_by?: string | null
+  resolution_notes?: string | null
+}
+
+export interface KnowledgeGapsSummaryQuery {
+  query: string
+  count: number
+  last_asked: string
+  avg_score: number
+  reason: string
+  sample_id: number
+}
+
+export interface KnowledgeGapsResponse {
+  gaps: KnowledgeGap[]
+  summary: {
+    total_unresolved: number
+    top_queries: KnowledgeGapsSummaryQuery[]
+  }
 }
 
 export interface BifurcationResult {
@@ -130,6 +164,26 @@ export const uploadsApi = {
     if (!res.ok) throw new Error(`Could not fetch the file (${res.status})`)
     return res.blob()
   },
+}
+
+export const knowledgeGapsApi = {
+  list: (tenantId: string, resolved = false, limit = 50, signal?: AbortSignal) =>
+    api.get<KnowledgeGapsResponse>(
+      `${base(tenantId)}/knowledge-gaps?resolved=${resolved ? 'true' : 'false'}&limit=${limit}`,
+      signal,
+    ),
+
+  resolve: (tenantId: string, gapId: number, notes?: string) =>
+    api.post<{ status: string; gap_id: number; resolved: boolean }>(
+      `${base(tenantId)}/knowledge-gaps/${gapId}/resolve`,
+      { notes },
+    ),
+
+  createFaq: (tenantId: string, gapId: number, question: string, answer: string) =>
+    api.post<{ status: string; question: string; answer: string; tenant_id: string }>(
+      `${base(tenantId)}/knowledge-gaps/${gapId}/create-faq`,
+      { question, answer },
+    ),
 }
 
 /**

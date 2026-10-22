@@ -803,6 +803,17 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
 
     answer = data.get("answer", "")
     if not answer or is_uncertain_answer(answer):
+        try:
+            from database import record_unanswered_query
+            record_unanswered_query(
+                tenant_id=tenant_id or "default",
+                query=user_text,
+                wa_id=wa_id,
+                reason="uncertain_fallback",
+                confidence_score=0.0,
+            )
+        except Exception:
+            pass
         answer = (
             "Hmm, I couldn't find a solid answer for that one 🤔 "
             "Try rephrasing, or tap below and our team will jump in to help! 🙋"
