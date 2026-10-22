@@ -11,6 +11,74 @@ logger = logging.getLogger("b2c_workflows")
 MIN_FAQ_CE_SCORE = 0.30
 MIN_KB_SIMILARITY = 0.40
 
+# WhatsApp message length limits
+MAX_WHATSAPP_TEXT_LENGTH = 4000
+
+# Common question starters for detecting user questions
+QUESTION_WORDS = (
+    "what", "how", "where", "when", "why", "who", "which",
+    "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+    "show", "tell", "price", "cost", "rates", "hi", "hello", "hey",
+    "help", "support", "services", "products", "loans", "cards"
+)
+
+
+def _truncate_for_whatsapp(text: str, max_len: int = MAX_WHATSAPP_TEXT_LENGTH) -> str:
+    """Truncate text to WhatsApp's maximum message length."""
+    if not text:
+        return text
+    return text[:max_len] + ("..." if len(text) > max_len else "")
+
+
+def _validate_input_length(text: str, field_name: str = "input") -> tuple[bool, str]:
+    """Validate input length and return (is_valid, error_message)."""
+    if not text or len(text.strip()) == 0:
+        return False, f"Please provide a valid {field_name}."
+    if len(text) > MAX_WHATSAPP_TEXT_LENGTH:
+        return False, f"Please keep your {field_name} under {MAX_WHATSAPP_TEXT_LENGTH} characters."
+    return True, ""
+
+
+def _sanitize_kb_query(query: str) -> str:
+    """Sanitize a KB query to prevent injection or special character issues."""
+    if not query:
+        return query
+    # Remove special SQL/NoSQL characters that could cause issues
+    import re
+    sanitized = re.sub(r'[;\-\'\"\\(){}<>+|=*&%$#@!~`]', ' ', query)
+    # Normalize whitespace
+    sanitized = ' '.join(sanitized.strip().split())
+    return sanitized[:MAX_WHATSAPP_TEXT_LENGTH]
+
+
+def _is_new_user(wa_id: str) -> bool:
+    """Check if this is the user's first interaction."""
+    try:
+        from database import get_db_context
+        with get_db_context() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM user_states WHERE wa_id = ?", (wa_id,)
+            ).fetchone()
+            return row is None
+    except Exception:
+        return False
+
+
+def _get_tenant_complaint_types(wa_id: str) -> list:
+    """Get tenant-specific complaint types or return default."""
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        from shared.tenancy.loader import get_tenant_profile
+        tenant_id = resolve_tenant_for_user(wa_id)
+        if tenant_id:
+            profile = get_tenant_profile(tenant_id)
+            if profile and hasattr(profile, 'complaint_types'):
+                return profile.complaint_types
+    except Exception:
+        pass
+    # Default complaint types for e-commerce
+    return ["Damaged Product", "Wrong Item", "Delivery Issue", "Billing & Payment", "Product Quality", "Other"]
+
 
 def _clean(text: str) -> str:
     """Lowercase and strip emoji so menu titles / list replies match keywords."""
@@ -75,6 +143,14 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     cfg = _cfg()
     message = (message or "").strip()
     context = context or {}
+    
+    # Resolve tenant_id for this user
+    tenant_id = None
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        tenant_id = resolve_tenant_for_user(wa_id)
+    except Exception:
+        pass
 
     # ── Global rule: human handover request wins over anything else ──────────
     if tools.should_escalate(message):
@@ -85,20 +161,53 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
         clean_msg = _clean(message)
         if clean_msg in ("main menu", "menu", "start", "hi", "hello", "hey", "show options", "options") or message in ("Main Menu", "main_menu", "menu_main"):
             menu_data = menus.get_main_menu(wa_id)
-            if menu_data.get("type") == "buttons":
-                await send_button_message(
-                    wa_id,
-                    body=menu_data.get("text", "Options"),
-                    buttons=menu_data.get("buttons", []),
-                )
+            
+            # Add welcome message for first-time users
+            if _is_new_user(wa_id):
+                try:
+                    from shared.tenancy.resolver import resolve_tenant_for_user
+                    from shared.tenancy.loader import get_tenant_profile
+                    tenant_id = resolve_tenant_for_user(wa_id)
+                    if tenant_id:
+                        profile = get_tenant_profile(tenant_id)
+                        tenant_name = getattr(getattr(profile, 'brand', None), 'name', 'our service')
+                    else:
+                        tenant_name = "our service"
+                    welcome_msg = f"👋 Welcome to *{tenant_name}*! I'm your virtual assistant.\n"
+                except Exception:
+                    welcome_msg = "👋 Welcome! I'm your virtual assistant.\n"
+                
+                if menu_data.get("type") == "buttons":
+                    body = f"{welcome_msg}{menu_data.get('text', 'Here are your options:')}"
+                    await send_button_message(
+                        wa_id,
+                        body=body,
+                        buttons=menu_data.get("buttons", []),
+                    )
+                else:
+                    body = f"{welcome_msg}{menu_data.get('body', 'What would you like to explore today?')}"
+                    await send_list_menu(
+                        wa_id,
+                        header=menu_data.get("header", ""),
+                        body=body,
+                        button_text=menu_data.get("button_text", "Show Options"),
+                        sections=menu_data.get("sections", []),
+                    )
             else:
-                await send_list_menu(
-                    wa_id,
-                    header=menu_data.get("header", ""),
-                    body=menu_data.get("body", "What would you like to explore today?"),
-                    button_text=menu_data.get("button_text", "Show Options"),
-                    sections=menu_data.get("sections", []),
-                )
+                if menu_data.get("type") == "buttons":
+                    await send_button_message(
+                        wa_id,
+                        body=menu_data.get("text", "Options"),
+                        buttons=menu_data.get("buttons", []),
+                    )
+                else:
+                    await send_list_menu(
+                        wa_id,
+                        header=menu_data.get("header", ""),
+                        body=menu_data.get("body", "What would you like to explore today?"),
+                        button_text=menu_data.get("button_text", "Show Options"),
+                        sections=menu_data.get("sections", []),
+                    )
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Greeting-ish input (typos / letter-spam like "Helooyyy"): show the menu.
         if _is_greeting(message):
@@ -118,10 +227,24 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
                     sections=menu_data.get("sections", []),
                 )
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
-        # Meaningless / keyboard-mash input: nudge to the menu instead of
+        # Meaningless / keyboard-mash input: show the menu instead of
         # throwing the noise at the RAG index (which returns unrelated answers).
         if _is_meaningless(message):
-            await send_text_message(wa_id, "Sorry, I didn't catch that. Type *hi* for the menu.")
+            menu_data = menus.get_main_menu(wa_id)
+            if menu_data.get("type") == "buttons":
+                await send_button_message(
+                    wa_id,
+                    body="Here are your options:",
+                    buttons=menu_data.get("buttons", []),
+                )
+            else:
+                await send_list_menu(
+                    wa_id,
+                    header=menu_data.get("header", ""),
+                    body=menu_data.get("body", "What would you like to explore today?"),
+                    button_text=menu_data.get("button_text", "Show Options"),
+                    sections=menu_data.get("sections", []),
+                )
             return {"status": "meaningless", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
         return await _handle_main_selection(wa_id, message, context, cfg)
@@ -130,61 +253,122 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     if state == cfg.B2C_AWAITING_COMPLAINT_TYPE:
         clean = (message or "").strip().lower()
         if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back", "restart", "start over"):
-            await send_text_message(wa_id, "Complaint registration cancelled. Type *menu* or ask me anything anytime! 🙏")
-            return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
+            # Show menu automatically
+            menu_data = menus.get_main_menu(wa_id)
+            if menu_data.get("type") == "buttons":
+                await send_button_message(
+                    wa_id,
+                    body="Complaint registration cancelled. What would you like to do?",
+                    buttons=menu_data.get("buttons", []),
+                )
+            else:
+                await send_list_menu(
+                    wa_id,
+                    header=menu_data.get("header", ""),
+                    body=menu_data.get("body", "What would you like to explore today?"),
+                    button_text=menu_data.get("button_text", "Show Options"),
+                    sections=menu_data.get("sections", []),
+                )
+            return {"status": "cancelled", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
         # If user asked a new question, break out of complaint flow and answer it via RAG
-        question_words = (
-            "what", "how", "where", "when", "why", "who", "which",
-            "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
-            "show", "tell", "price", "cost", "rates", "hi", "hello", "hey",
-            "help", "support", "services", "products", "loans", "cards"
-        )
-        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in question_words):
+        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in QUESTION_WORDS):
+            context.pop("complaint_type", None)
             return await _fallback_to_rag(wa_id, message, cfg)
 
+        # Get tenant-specific complaint types
+        complaint_types = _get_tenant_complaint_types(wa_id)
         buttons = [
-            {"id": "b2c_complaint_damaged", "title": "Damaged"},
-            {"id": "b2c_complaint_wrong_item", "title": "Wrong Item"},
-            {"id": "b2c_complaint_other", "title": "Other"},
+            {"id": f"b2c_complaint_{i}", "title": ctype}
+            for i, ctype in enumerate(complaint_types)
         ]
-        complaint_type = _match_complaint_type(message)
+        # Try to match the user's message to a complaint type
+        complaint_type = _match_complaint_type(message, complaint_types)
         if complaint_type:
             context["complaint_type"] = complaint_type
             await send_text_message(wa_id, "Please briefly describe the issue (or type *cancel* to exit).")
-            return {"new_state": cfg.B2C_AWAITING_COMPLAINT_DESC, "context": context}
+            return {"status": "awaiting_description", "new_state": cfg.B2C_AWAITING_COMPLAINT_DESC, "context": context}
         await send_button_message(wa_id, "Please select the type of complaint (or type *cancel*):", buttons)
-        return {"new_state": cfg.B2C_AWAITING_COMPLAINT_TYPE}
+        return {"status": "awaiting_type", "new_state": cfg.B2C_AWAITING_COMPLAINT_TYPE, "context": context}
 
     # ── Complaint: awaiting description ───────────────────────────────────────
     if state == cfg.B2C_AWAITING_COMPLAINT_DESC:
         clean = (message or "").strip().lower()
         if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back"):
             context.pop("complaint_type", None)
-            await send_text_message(wa_id, "Complaint registration cancelled. Type *menu* or ask me anything anytime! 🙏")
-            return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
+            # Show menu automatically
+            menu_data = menus.get_main_menu(wa_id)
+            if menu_data.get("type") == "buttons":
+                await send_button_message(
+                    wa_id,
+                    body="Complaint registration cancelled. What would you like to do?",
+                    buttons=menu_data.get("buttons", []),
+                )
+            else:
+                await send_list_menu(
+                    wa_id,
+                    header=menu_data.get("header", ""),
+                    body=menu_data.get("body", "What would you like to explore today?"),
+                    button_text=menu_data.get("button_text", "Show Options"),
+                    sections=menu_data.get("sections", []),
+                )
+            return {"status": "cancelled", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
 
-        question_words = (
-            "what", "how", "where", "when", "why", "who", "which",
-            "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
-            "show", "tell", "price", "cost", "rates", "hi", "hello", "hey",
-            "help", "support", "services", "products", "loans", "cards"
-        )
-        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in question_words):
+        # Validate input length for complaint description
+        is_valid, error_msg = _validate_input_length(message, "complaint description")
+        if not is_valid:
+            await send_text_message(wa_id, error_msg)
+            return {"status": "invalid_input", "new_state": cfg.B2C_AWAITING_COMPLAINT_DESC, "context": context}
+
+        if "?" in clean or any(clean.startswith(w + " ") or clean == w for w in QUESTION_WORDS):
             context.pop("complaint_type", None)
             return await _fallback_to_rag(wa_id, message, cfg)
 
         ctype = context.get("complaint_type", "Other")
         ticket = tools.register_b2c_complaint(wa_id, ctype, message)
         context.pop("complaint_type", None)
+        
+        # Validate complaint was successfully registered
+        if not ticket or not str(ticket).strip():
+            await send_text_message(
+                wa_id,
+                "❌ Sorry, I couldn't register your complaint. Please try again or contact support directly."
+            )
+            return {"status": "error", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
+        
+        # Send confirmation
         await send_text_message(
             wa_id,
-            f"✅ Complaint registered! Your ticket ID is {ticket}. We'll be in touch soon.\n\nType *menu* anytime or feel free to ask another question."
+            f"✅ Complaint registered! Your ticket ID is {ticket}. We'll be in touch soon."
         )
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
+        
+        # Show menu for re-engagement
+        menu_data = menus.get_main_menu(wa_id)
+        if menu_data.get("type") == "buttons":
+            await send_button_message(
+                wa_id,
+                body="What would you like to do next?",
+                buttons=menu_data.get("buttons", []),
+            )
+        else:
+            await send_list_menu(
+                wa_id,
+                header=menu_data.get("header", ""),
+                body=menu_data.get("body", "What would you like to explore today?"),
+                button_text=menu_data.get("button_text", "Show Options"),
+                sections=menu_data.get("sections", []),
+            )
+        
+        return {"status": "complaint_registered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": context}
 
     # ── Nutrition lookup ──────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_PRODUCT_QUERY:
+        # Validate input length
+        is_valid, error_msg = _validate_input_length(message, "product name")
+        if not is_valid:
+            await send_text_message(wa_id, error_msg)
+            return {"status": "invalid_input", "new_state": cfg.B2C_AWAITING_PRODUCT_QUERY, "context": {}}
+        
         info = tools.get_nutrition_info(message)
         if info:
             text = info["name"].title()
@@ -196,26 +380,42 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
                 text += f" per {info['unit']}"
             if info.get("ingredients"):
                 text += f"\nIngredients: {info['ingredients']}"
-            await send_text_message(wa_id, text)
+            await send_text_message(wa_id, _truncate_for_whatsapp(text))
         else:
             await send_text_message(wa_id, "Sorry, I couldn't find nutrition info for that product.")
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     # ── Recipe suggestions ────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_RECIPE_QUERY:
+        # Validate input length
+        is_valid, error_msg = _validate_input_length(message, "ingredient name")
+        if not is_valid:
+            await send_text_message(wa_id, error_msg)
+            return {"status": "invalid_input", "new_state": cfg.B2C_AWAITING_RECIPE_QUERY, "context": {}}
+        
         recipes = tools.get_recipe_suggestions(message)
         if recipes:
             text = "\n".join(f"- {r['title']} ({', '.join(r['ingredients'])})" for r in recipes)
-            await send_text_message(wa_id, f"Here are some recipe ideas:\n{text}")
+            full_text = f"Here are some recipe ideas:\n{text}"
+            await send_text_message(wa_id, _truncate_for_whatsapp(full_text))
         else:
             await send_text_message(wa_id, "I couldn't find recipes for that. Try another ingredient!")
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     # ── Order tracking ────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_ORDER_ID:
+        # Validate order ID format
+        clean_msg = (message or "").strip()
+        if clean_msg.lower() in ("recent", "latest", "all", "orders"):
+            query_ref = ""
+        elif not re.match(r'^ORD-\d{4,}$', clean_msg.upper()):
+            await send_text_message(wa_id, "Please enter a valid Order ID (e.g., ORD-1234), or reply *recent* to view your latest orders.")
+            return {"status": "invalid_input", "new_state": cfg.B2C_AWAITING_ORDER_ID, "context": {}}
+        else:
+            query_ref = clean_msg
+        
         try:
             from backend.services.order_service import lookup_order_status
-            query_ref = "" if message.strip().lower() in ("recent", "latest", "all", "orders") else message
             status_text = lookup_order_status(wa_id, query_ref)
         except Exception as exc:
             logger = __import__("logging").getLogger("b2c_workflows")
@@ -225,12 +425,13 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
                 "Please try again with your Order ID."
             )
         await send_text_message(wa_id, status_text)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     # ── Shipping help ─────────────────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_SHIPPING_QUERY:
-        await send_text_message(wa_id, "Standard delivery takes 3-5 business days. Need anything else?")
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "What is your shipping policy?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     # ── Unknown / stale state: fall back to RAG ───────────────────────────────
     return await _fallback_to_rag(wa_id, message, cfg)
@@ -244,6 +445,14 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
     """
     from services.whatsapp_sender import send_text_message, send_button_message, send_list_menu, send_image_message
     from . import tools, menus
+    
+    # Resolve tenant_id for this user
+    tenant_id = None
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        tenant_id = resolve_tenant_for_user(wa_id)
+    except Exception:
+        pass
 
     sel = _clean(message)
 
@@ -252,7 +461,7 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
         sent = await send_new_arrivals_message(wa_id)
         if not sent:
             await send_text_message(wa_id, "The new releases PDF could not be delivered right now. Please try again shortly.")
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("products", "b2c_products", "browse", "product", "view products", "menu_products"):
         products = tools.list_products()
@@ -274,21 +483,21 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
             await send_text_message(wa_id, "\n".join(lines))
         else:
             await send_text_message(wa_id, "Sorry, our product catalog is currently empty. Check back soon!")
-        return {"new_state": cfg.B2C_AWAITING_PRODUCT_QUERY}
+        return {"status": "answered", "new_state": cfg.B2C_AWAITING_PRODUCT_QUERY, "context": {}}
 
     if sel in ("nutrition", "b2c_nutrition"):
         await send_text_message(wa_id, "Which product would you like nutrition info for?")
-        return {"new_state": cfg.B2C_AWAITING_PRODUCT_QUERY}
+        return {"status": "awaiting_query", "new_state": cfg.B2C_AWAITING_PRODUCT_QUERY, "context": {}}
 
     if sel in ("health benefits", "b2c_health_benefits", "health"):
-        answer = await _kb_answer(wa_id, "What are the health benefits of your products?")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "What are the health benefits of your products?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("product usage", "b2c_product_usage", "usage"):
-        answer = await _kb_answer(wa_id, "How should I use your products? What is the recommended usage and best way to consume them?")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "How should I use your products? What is the recommended usage and best way to consume them?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     # My Order: Track / Complaint
     if sel in ("track order", "b2c_track_order", "track", "track_order", "menu_track_order", "orders", "my orders", "order status"):
@@ -296,45 +505,45 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
             wa_id,
             "Please share your *Order ID* (e.g. ORD-1234), or reply *recent* to view your latest orders."
         )
-        return {"new_state": cfg.B2C_AWAITING_ORDER_ID}
+        return {"status": "awaiting_order_id", "new_state": cfg.B2C_AWAITING_ORDER_ID, "context": {}}
 
     if sel in ("raise complaint", "b2c_complaint", "complaint", "menu_complaint"):
         await send_text_message(wa_id, "Please select the type of complaint.")
-        return {"new_state": cfg.B2C_AWAITING_COMPLAINT_TYPE}
+        return {"status": "awaiting_complaint_type", "new_state": cfg.B2C_AWAITING_COMPLAINT_TYPE, "context": {}}
 
     # Help: Shipping / Recipes / Human handover
     if sel in ("shipping", "b2c_shipping", "shipping & returns", "return & refund policy",
                "return policy", "returns", "menu_return_policy"):
-        answer = await _kb_answer(wa_id, "What is your shipping policy, return policy, and refund policy?")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "What is your shipping policy, return policy, and refund policy?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("company policies", "menu_about"):
-        answer = await _kb_answer(wa_id, "Tell me about your company and company policies.")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "Tell me about your company and company policies.", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("discounts & offers", "menu_discounts", "offers", "discounts"):
-        answer = await _kb_answer(wa_id, "What discounts and offers do you currently have?")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "What discounts and offers do you currently have?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("gst info", "menu_gst", "gst"):
-        answer = await _kb_answer(wa_id, "What is your GST number and tax/invoice details?")
-        await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        answer = await _kb_answer(wa_id, "What is your GST number and tax/invoice details?", tenant_id)
+        await send_text_message(wa_id, _truncate_for_whatsapp(answer))
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
     if sel in ("recipes", "b2c_recipes"):
         await send_text_message(wa_id, "Which ingredient or product would you like recipe ideas for?")
-        return {"new_state": cfg.B2C_AWAITING_RECIPE_QUERY}
+        return {"status": "awaiting_query", "new_state": cfg.B2C_AWAITING_RECIPE_QUERY, "context": {}}
 
     if sel in ("talk to human", "b2c_human", "human", "menu_human"):
         return await _escalate(wa_id, cfg)
 
     if sel in ("view cart", "menu_view_cart"):
-        answer = await _kb_answer(wa_id, "Show me the items in my cart.")
+        answer = await _kb_answer(wa_id, "Show me the items in my cart.", tenant_id)
         await send_text_message(wa_id, answer)
-        return {"new_state": cfg.B2C_MAIN_MENU_STATE}
+        return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
 
     # Anything else while in the main menu: answer via the RAG pipeline.
     return await _fallback_to_rag(wa_id, message, cfg)
@@ -353,6 +562,8 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
          floor so an off-topic tap does not get a confident-looking answer.
       4. A generic "not certain" reply as the final fallback.
     """
+    # Sanitize the message
+    message = _sanitize_kb_query(message)
     from services.whatsapp_sender import send_text_message, send_button_message
 
     # 0. Tenant menu row (tapped title) / rules intent: authoritative, no RAG.
@@ -471,12 +682,12 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
 
     # 2. KB FAISS index: covers the remaining KB PDFs (company, nutrition, full site)
     if not answer:
+        kb_chunks = []  # Store chunks for fallback
         try:
             import json as _json
             from kb.services.rag import search_kb_faiss
             from database import get_db_context
             hits = search_kb_faiss(message, limit=5)
-            kb_chunks = []
             if hits:
                 with get_db_context() as conn:
                     for top in hits:
@@ -497,10 +708,17 @@ async def _fallback_to_rag(wa_id: str, message: str, cfg) -> dict:
                 brand = _brand_context(tid)
                 sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
                 combined_context = "\n\n---\n\n".join(kb_chunks)
-                llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context, tenant_id=tid)
-                if llm_res and llm_res.get("answer"):
-                    answer = _append_signature(llm_res["answer"], tid)
-                    interactive = llm_res.get("interactive")
+                try:
+                    llm_res = await _generate_ollama_dynamic_response(sys_prompt, message, combined_context, tenant_id=tid)
+                    if llm_res and llm_res.get("answer"):
+                        answer = _append_signature(llm_res["answer"], tid)
+                        interactive = llm_res.get("interactive")
+                except Exception as e:
+                    logger.warning(f"LLM synthesis failed for KB chunks: {e}")
+                    # Fallback: use raw KB chunks if LLM fails but we have relevant content
+                    if kb_chunks:
+                        answer = "\n\n".join(kb_chunks)
+                        logger.info(f"Using raw KB chunks as fallback for {wa_id}")
         except Exception as e:
             logger.warning(f"KB index lookup failed: {e}")
 
@@ -548,11 +766,22 @@ def _is_services_title(wa_id: str, message: str) -> bool:
     return False
 
 
-async def _kb_answer(wa_id: str, query: str) -> str:
+async def _kb_answer(wa_id: str, query: str, tenant_id: str | None = None) -> str:
     """Answer an informational query via document indexes with LLM synthesis."""
+    # Sanitize the query
+    query = _sanitize_kb_query(query)
+    
+    # Resolve tenant_id if not provided
+    if tenant_id is None:
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tenant_id = resolve_tenant_for_user(wa_id)
+        except Exception:
+            tenant_id = None
+    
     try:
         from faq.service import handle_faq_query
-        res = await handle_faq_query({"message": query, "wa_id": wa_id})
+        res = await handle_faq_query({"message": query, "wa_id": wa_id, "tenant_id": tenant_id})
         if res and res.get("answer") and res.get("answer").strip():
             return res["answer"]
     except Exception as e:
@@ -579,12 +808,12 @@ async def _kb_answer(wa_id: str, query: str) -> str:
 
         if kb_chunks:
             from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature
-            brand = _brand_context()
+            brand = _brand_context(tenant_id)
             sys_prompt = _render_prompt(SYSTEM_PROMPT_TEMPLATE, brand)
             combined_context = "\n\n---\n\n".join(kb_chunks)
-            llm_res = await _generate_ollama_dynamic_response(sys_prompt, query, combined_context)
+            llm_res = await _generate_ollama_dynamic_response(sys_prompt, query, combined_context, tenant_id=tenant_id)
             if llm_res and llm_res.get("answer"):
-                return _append_signature(llm_res["answer"])
+                return _append_signature(llm_res["answer"], tenant_id)
     except Exception as e:
         logger.warning(f"KB index lookup for '{query}' failed: {e}")
 
@@ -594,17 +823,35 @@ async def _kb_answer(wa_id: str, query: str) -> str:
     )
 
 
-def _match_complaint_type(message: str) -> str | None:
-    """Return a normalized complaint type if the message selects one."""
+def _match_complaint_type(message: str, complaint_types: list | None = None) -> str | None:
+    """Return a normalized complaint type if the message selects one.
+    
+    Uses fuzzy matching against the provided complaint_types list.
+    If no list provided, uses default e-commerce types.
+    """
     if not message:
         return None
+    
+    complaint_types = complaint_types or ["Damaged Product", "Wrong Item", "Delivery Issue", "Billing & Payment", "Product Quality", "Other"]
     lowered = message.strip().lower()
-    if lowered in ("damaged", "damaged item"):
-        return "Damaged"
-    if lowered in ("wrong item", "wrong"):
-        return "Wrong Item"
-    if lowered in ("other",):
+    
+    # Direct match
+    for ctype in complaint_types:
+        if lowered == ctype.lower():
+            return ctype
+    
+    # Keyword-based matching
+    for ctype in complaint_types:
+        ctype_lower = ctype.lower()
+        # Check if message contains keywords from the complaint type
+        ctype_keywords = [w for w in ctype_lower.split() if len(w) > 2]  # Skip short words
+        if any(kw in lowered for kw in ctype_keywords):
+            return ctype
+    
+    # For "Other" - match various forms
+    if any(word in lowered for word in ["other", "miscellaneous", "general"]):
         return "Other"
+    
     return None
 
 

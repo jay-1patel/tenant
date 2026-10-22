@@ -325,6 +325,32 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         touch_customer(tenant_id, wa_id, sender_name)
     except Exception as exc:
         logger.debug(f"Could not touch customer {wa_id}: {exc}")
+    
+    # ── CHECK SESSION TIMEOUT ──────────────────────────────────────────
+    # If a user has been idle in a flow for >30 minutes, auto-reset to main menu
+    try:
+        from backend.services import flow_runner, state_manager as sm
+        if flow_runner.is_running(wa_id):
+            convo = sm.read_conversation(wa_id)
+            if convo and convo.get("active_flow"):
+                # Check if last update was >30 minutes ago
+                last_updated = convo.get("updated_at")
+                if last_updated:
+                    import time
+                    from datetime import datetime, timedelta
+                    if isinstance(last_updated, str):
+                        try:
+                            last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                        except ValueError:
+                            last_updated_dt = datetime.fromtimestamp(float(last_updated))
+                    else:
+                        last_updated_dt = last_updated
+                    
+                    if datetime.now() - last_updated_dt > timedelta(minutes=30):
+                        flow_runner.clear_flow(wa_id)
+                        logger.info(f"SESSION_TIMEOUT | {wa_id} | cleared stale flow after 30min idle")
+    except Exception as e:
+        logger.debug(f"Session timeout check failed for {wa_id}: {e}")
     try:
         # ── TESTING COMMANDS: #tenant, #tenants, #switch ──────────────
         clean_cmd = (user_text or "").strip().lower()
@@ -375,12 +401,26 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 return
 
         # ── CHECK HUMAN HANDOVER ────────────────────────────────────────
-        # While a human agent is handling the conversation, still save the
-        # message so it appears in the agent inbox, BUT also let the bot
-        # keep answering so the chat is never stuck.
+        # While a human agent is handling the conversation, save the message
+        # for the agent inbox but do NOT let the bot answer. The user asked for
+        # a human, so the bot must stay silent until resumed.
+        # Resume keywords: "bot", "resume bot", "back to bot" allow the user to exit handover mode.
         if _is_handover_active(wa_id):
-            logger.info(f"HANDOVER_ACTIVE | {wa_id} | saving for agent, bot continues")
-            save_chat(wa_id, sender_name, user_text, "", "human_handover")
+            resume_phrases = {"bot", "resume bot", "back to bot", "bot mode", "resume", "continue with bot"}
+            clean_text = (user_text or "").strip().lower()
+            if any(phrase in clean_text for phrase in resume_phrases):
+                # User wants to resume bot mode
+                _set_human_handover(wa_id, enabled=False)
+                save_chat(wa_id, sender_name, user_text, HANDOVER_BOT_RESUME, "human_handover")
+                if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    send_whatsapp_message(wa_id, HANDOVER_BOT_RESUME)
+                logger.info(f"HANDOVER_RESUMED | {wa_id} | user requested bot resume")
+                # Continue with bot processing below
+            else:
+                # Still in handover mode - save for agent but don't let bot answer
+                logger.info(f"HANDOVER_ACTIVE | {wa_id} | saving for agent, bot silent")
+                save_chat(wa_id, sender_name, user_text, "", "human_handover")
+                return
 
         # ── CHECK IF USER WANTS A HUMAN AGENT ───────────────────────────
         if _wants_human_agent(user_text):
@@ -420,8 +460,13 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                                 f"finished={outcome.get('finished')}")
                     return
                 elif outcome and not outcome.get("handled"):
-                    logger.info(f"FLOW_BREAK | {wa_id} | flow={outcome.get('flow')} exited on user query/topic-switch: {user_text[:50]}")
+                    # Send transition message before breaking out of flow
+                    transition_msg = "Got it! Let me answer that for you... 🙏"
                     flow_runner.clear_flow(wa_id)
+                    save_chat(wa_id, sender_name, user_text, transition_msg, "flow_break")
+                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        send_whatsapp_message(wa_id, transition_msg)
+                    logger.info(f"FLOW_BREAK | {wa_id} | flow={outcome.get('flow')} exited on user query/topic-switch: {user_text[:50]}")
         except Exception as e:
             logger.error(f"Profile flow reply handling failed (continuing): {e}")
 

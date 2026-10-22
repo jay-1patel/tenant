@@ -37,7 +37,7 @@ logger = logging.getLogger("flow_runner")
 CANCEL_WORDS = {
     "cancel", "stop", "quit", "exit", "menu", "main menu", "nevermind", "never mind",
     "cancel it", "cancel form", "back", "home", "restart", "start over", "leave",
-    "abort", "close", "end", "done", "clear", "break", "no", "forget it", "opt out",
+    "abort", "close", "end", "done", "clear", "break", "forget it", "opt out",
 }
 SKIP_WORDS = {"skip", "-", "na", "n/a", "none", "no email"}
 
@@ -661,7 +661,13 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
             return _retry(wa_id, flow, step, collected,
                          "Please reply with an answer, or type *cancel*.")
         elif validate_answer(step.validate_rule, answer):
-            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id) and (
+            # For name/phone/email fields, don't check for question intent to avoid
+            # breaking forms when user's name is "Hi" or similar
+            validation_key = (step.validate_rule or "").lower()
+            is_name_or_contact = any(
+                rule in validation_key for rule in ["name", "phone", "email", "digits"]
+            )
+            if not is_name_or_contact and is_likely_question_or_intent(answer, tenant_id=profile.tenant_id) and (
                 key not in ("need", "issue", "project", "details", "subject")
                 or _is_explicit_topic_switch(answer, profile.tenant_id)
             ):
@@ -671,7 +677,12 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
             collected[key] = answer
             collected.pop("_attempts", None)
         else:
-            if is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
+            # For name/phone/email fields, don't check for question intent
+            validation_key = (step.validate_rule or "").lower()
+            is_name_or_contact = any(
+                rule in validation_key for rule in ["name", "phone", "email", "digits"]
+            )
+            if not is_name_or_contact and is_likely_question_or_intent(answer, tenant_id=profile.tenant_id):
                 logger.info("FLOW_BREAK | wa_id=%s | user asked question instead of flow input: %r", wa_id, answer[:50])
                 sm.clear_flow(wa_id)
                 return {"handled": False, "switched_topic": True}
