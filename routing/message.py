@@ -136,26 +136,41 @@ CATALOGUE_PDF_TRIGGERS = (
     "pdf", "send pdf", "catalogue pdf", "catalog pdf", "full catalogue",
     "full catalog", "send catalogue", "send catalog", "send document",
     "catalogue document", "catalog document", "brochure pdf",
-    "price list pdf", "product list pdf",
+    "price list pdf", "product list pdf", "brochure", "send brochure",
+    "share brochure", "download brochure", "project brochure", "e brochure",
+    "ebrochure", "project deck", "deck", "presentation", "share pdf",
+    "download pdf", "give brochure", "get brochure", "need brochure",
+    "catalogue", "catalog",
 )
 
 
 def _wants_catalogue_pdf(text) -> bool:
-    """True when the plain-text message is a short request for the catalogue PDF."""
+    """True when the plain-text message is a request for a brochure/catalogue PDF."""
     if not text:
         return False
     cleaned = re.sub(r"[^a-zA-Z\s]", " ", (text or "").lower()).strip()
-    if not cleaned or len(cleaned) > 40:
+    if not cleaned or len(cleaned) > 50:
         return False
-    # Direct phrase match (most common: just "pdf").
+
+    words = cleaned.split()
+    # If the user is asking an informational question ("what is in the brochure", "why brochure", etc.), don't trigger PDF
+    if any(q in words for q in ("what", "why", "how", "who", "when", "where", "explain", "details")):
+        return False
+
+    # Direct phrase match
     if cleaned in CATALOGUE_PDF_TRIGGERS:
         return True
-    # Substring match for multi-word triggers only when the cleaned message
-    # is itself short — protects against catching "what is in the pdf" etc.
-    if len(cleaned) <= 32:
-        for trigger in CATALOGUE_PDF_TRIGGERS:
-            if " " in trigger and trigger in cleaned:
-                return True
+
+    # Word-boundary match for multi-word triggers
+    for trigger in CATALOGUE_PDF_TRIGGERS:
+        if " " in trigger and re.search(rf"\b{re.escape(trigger)}\b", cleaned):
+            return True
+
+    # Natural combination match: (request verb) + (document noun)
+    has_pdf_keyword = any(kw in words for kw in ("pdf", "brochure", "brochures", "ebrochure", "deck", "catalogue", "catalog"))
+    has_request_intent = any(w in words for w in ("send", "share", "give", "get", "download", "need", "want", "provide", "show", "view", "attach"))
+    if has_pdf_keyword and (has_request_intent or len(words) <= 3):
+        return True
     return False
 
 
@@ -493,6 +508,7 @@ async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None, te
             sender_name="",
             update_session=True,
             raw_message=raw_message,
+            tenant_id=tenant_id,
         )
     logger.info(f"{query_type} bot response keys: {list(data.keys())}, media_url={data.get('media_url')}, media_type={data.get('media_type')}, whatsapp_sent={data.get('whatsapp_sent')}")
     return data

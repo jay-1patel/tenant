@@ -31,8 +31,16 @@ CLIENTS_DIR = _dir_from_env("CLIENTS_DIR", REPO_ROOT / "clients")
 def client_dir(tenant_id: str) -> Path:
     tid = str(tenant_id or "").strip()
     primary = CLIENTS_DIR / tid
-    if primary.exists():
+    if primary.exists() and (primary / "config.json").exists():
+        # Special check: if primary is 'l' without knowledge, prefer leewaysoftech if present
+        if tid == "l" and not (primary / "knowledge").exists() and (CLIENTS_DIR / "leewaysoftech").exists():
+            return CLIENTS_DIR / "leewaysoftech"
         return primary
+
+    # Direct fallback for leeway variants
+    if tid.lower() in ("1", "default", "leeway-softech", "leewaysoftech", "leeway", "l"):
+        if (CLIENTS_DIR / "leewaysoftech").exists():
+            return CLIENTS_DIR / "leewaysoftech"
 
     # Fallback: check if tenant_id is an integer ID or slug and resolve via database
     try:
@@ -45,11 +53,6 @@ def client_dir(tenant_id: str) -> Path:
                     return CLIENTS_DIR / candidate
     except Exception:
         pass
-
-    # Direct fallback for leewaysoftech
-    if tid in ("1", "default", "leeway-softech", "leewaysoftech"):
-        if (CLIENTS_DIR / "leewaysoftech").exists():
-            return CLIENTS_DIR / "leewaysoftech"
 
     return primary
 

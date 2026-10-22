@@ -2612,10 +2612,12 @@ def set_active_test_tenant(tenant_id: Optional[str]) -> None:
         except Exception:
             pass
     set_app_setting("active_test_tenant", val)
-    # Clear conversation user states so tester starts completely fresh with greeting/menu
+    # Clear conversation user states and carts so tester starts completely fresh with greeting/menu
     try:
         with get_db_context() as conn:
             conn.execute("DELETE FROM user_states")
+            conn.execute("DELETE FROM carts")
+            conn.execute("DELETE FROM cart_items")
     except Exception as e:
         logger.debug(f"Could not clear user_states: {e}")
     try:
@@ -3373,8 +3375,34 @@ def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
     words = [w for w in _re.findall(r"[a-zA-Z]{2,}", query.lower())]
     if not words:
         return []
-    tenant_clause = " AND tenant_id = ?" if tenant_id else ""
-    tenant_params = [tenant_id] if tenant_id else []
+
+    effective_tid = tenant_id or _resolve_tenant()
+    t_id_str = None
+    t_slug = None
+    if effective_tid:
+        try:
+            from shared.tenancy import store
+            rec = store.get_tenant(str(effective_tid))
+            if rec:
+                t_id_str = str(rec.get("id"))
+                t_slug = str(rec.get("slug"))
+            else:
+                t_id_str = str(effective_tid)
+                t_slug = str(effective_tid)
+        except Exception:
+            t_id_str = str(effective_tid)
+            t_slug = str(effective_tid)
+
+    if t_id_str and t_slug and t_id_str != t_slug:
+        tenant_clause = " AND (tenant_id = ? OR tenant_id = ? OR tenant_id = ?)"
+        tenant_params = [t_id_str, int(t_id_str) if t_id_str.isdigit() else t_id_str, t_slug]
+    elif t_id_str:
+        tenant_clause = " AND (tenant_id = ? OR tenant_id = ?)"
+        tenant_params = [t_id_str, int(t_id_str) if t_id_str.isdigit() else t_id_str]
+    else:
+        tenant_clause = ""
+        tenant_params = []
+
     with get_db_context() as conn:
         rows = conn.execute(
             f"""SELECT * FROM faq_dataset
@@ -3386,9 +3414,11 @@ def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
             return [_row_to_dict(r) for r in rows]
         all_rows = conn.execute("SELECT * FROM faq_dataset").fetchall()
         scored = []
+        allowed_tids = {t_id_str, t_slug, str(effective_tid)} if effective_tid else set()
         for r in all_rows:
             d = _row_to_dict(r)
-            if tenant_id and (d.get("tenant_id") or "") != tenant_id:
+            row_tid = str(d.get("tenant_id") or "")
+            if allowed_tids and row_tid not in allowed_tids:
                 continue
             searchable = " ".join([
                 (d.get("source_file") or "").lower(),
@@ -3406,8 +3436,34 @@ def search_knowledge_base_db(query: str, limit: int = 5, tenant_id: str = None) 
     words = [w for w in _re.findall(r"[a-zA-Z]{2,}", query.lower())]
     if not words:
         return []
-    tenant_clause = " AND tenant_id = ?" if tenant_id else ""
-    tenant_params = [tenant_id] if tenant_id else []
+
+    effective_tid = tenant_id or _resolve_tenant()
+    t_id_str = None
+    t_slug = None
+    if effective_tid:
+        try:
+            from shared.tenancy import store
+            rec = store.get_tenant(str(effective_tid))
+            if rec:
+                t_id_str = str(rec.get("id"))
+                t_slug = str(rec.get("slug"))
+            else:
+                t_id_str = str(effective_tid)
+                t_slug = str(effective_tid)
+        except Exception:
+            t_id_str = str(effective_tid)
+            t_slug = str(effective_tid)
+
+    if t_id_str and t_slug and t_id_str != t_slug:
+        tenant_clause = " AND (tenant_id = ? OR tenant_id = ? OR tenant_id = ?)"
+        tenant_params = [t_id_str, int(t_id_str) if t_id_str.isdigit() else t_id_str, t_slug]
+    elif t_id_str:
+        tenant_clause = " AND (tenant_id = ? OR tenant_id = ?)"
+        tenant_params = [t_id_str, int(t_id_str) if t_id_str.isdigit() else t_id_str]
+    else:
+        tenant_clause = ""
+        tenant_params = []
+
     with get_db_context() as conn:
         rows = conn.execute(
             f"""SELECT * FROM knowledge_base
@@ -3419,9 +3475,11 @@ def search_knowledge_base_db(query: str, limit: int = 5, tenant_id: str = None) 
             return [_row_to_dict(r) for r in rows]
         all_rows = conn.execute("SELECT * FROM knowledge_base").fetchall()
         scored = []
+        allowed_tids = {t_id_str, t_slug, str(effective_tid)} if effective_tid else set()
         for r in all_rows:
             d = _row_to_dict(r)
-            if tenant_id and (d.get("tenant_id") or "") != tenant_id:
+            row_tid = str(d.get("tenant_id") or "")
+            if allowed_tids and row_tid not in allowed_tids:
                 continue
             searchable = " ".join([
                 (d.get("title") or "").lower(),

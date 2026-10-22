@@ -270,6 +270,7 @@ def _build_system_prompt(retrieved_context: str = "", wa_id: str = "") -> str:
     parts.append("- Call the appropriate tool, use the results to answer, and include specific product details and prices")
     parts.append("\n## Formatting Rules (strict)")
     parts.append("- Use ONLY WhatsApp formatting: *bold*, _italic_, - bullet points")
+    parts.append("- MANDATORY LENGTH LIMIT: Keep your response between 100 and 350 words (maximum 2,500 characters). Ensure your answer is complete and fits cleanly in a single WhatsApp chat bubble without overflowing.")
     parts.append("- For company policy, terms, warranty, return, refund, shipping, or detailed informational questions: provide comprehensive answers with key points, bullet points, and important details (aim for 4-8 sentences or structured bullet points)")
     parts.append("- For simple product questions or casual conversation: keep responses conversational and helpful (2-4 sentences)")
     parts.append("- Match response length to question complexity - detailed questions deserve detailed answers")

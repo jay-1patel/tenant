@@ -49,14 +49,26 @@ def _extract_phone_ids(payload: Dict[str, Any]) -> list[str]:
 def _active_test_override() -> Optional[str]:
     try:
         from database import get_active_test_tenant
-        return get_active_test_tenant()
+        val = get_active_test_tenant()
+        if val:
+            from . import store
+            rec = store.get_tenant(val)
+            if rec:
+                return str(rec.get("slug") or rec.get("id"))
+            return val
     except Exception:
-        return None
+        pass
+    return None
 
 
 def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
-    """Tenant for an inbound webhook body. Falls back to active test tenant or default tenant."""
+    """Tenant for an inbound webhook body. Respects active test tenant first, then phone binding."""
     from . import store  # local import: store needs the backend on sys.path
+
+    # Active test override takes absolute precedence for single-number testing
+    override = _active_test_override()
+    if override:
+        return override
 
     fallback = os.getenv("DEFAULT_TENANT_ID", DEFAULT_TENANT_ID)
 
@@ -71,10 +83,6 @@ def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
         if store.get_tenant(candidate):
             return candidate
 
-    override = _active_test_override()
-    if override:
-        return override
-
     if _extract_phone_ids(payload or {}):
         logger.warning(
             "Unbound WABA phone id(s) %s — falling back to tenant '%s'",
@@ -85,6 +93,10 @@ def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
 
 def resolve_tenant_for_phone(phone_id: str, default: Optional[str] = None) -> str:
     """Tenant for a known phone-number id (test harness, admin simulator)."""
+    override = _active_test_override()
+    if override:
+        return override
+
     from . import store
 
     tid = store.find_tenant_by_phone_id(phone_id) if phone_id else None
@@ -104,15 +116,10 @@ def resolve_default_tenant() -> str:
     """The tenant an unrecognised request belongs to.
 
     Resolution order:
-      1. ``DEFAULT_TENANT_ID`` from the environment, if that tenant is registered
-      2. the single active tenant, when exactly one is registered
-      3. the literal default id as a last resort
-
-    Step 1 checks registration on purpose. The single-shop deployment that
-    predates tenants has exactly one registered tenant and no
-    ``DEFAULT_TENANT_ID``; falling back to a literal id would build a synthetic
-    ``generic`` profile, whose feature flags have commerce off, and silently
-    lock every existing shopper out of their cart.
+      1. ``_active_test_override()`` if active test tenant is toggled
+      2. ``DEFAULT_TENANT_ID`` from the environment, if that tenant is registered
+      3. the single active tenant, when exactly one is registered
+      4. the literal default id as a last resort
     """
     override = _active_test_override()
     if override:
@@ -128,8 +135,6 @@ def resolve_default_tenant() -> str:
     if len(active) == 1:
         return active[0]["id"]
     if active:
-        # Ambiguous. Guessing would route users to a tenant they do not belong
-        # to, so say so and let the deployment pin DEFAULT_TENANT_ID.
         logger.warning(
             "DEFAULT_TENANT_ID is not set and %d tenants are registered (%s); "
             "falling back to %r. Set DEFAULT_TENANT_ID to the owning tenant.",
@@ -141,34 +146,25 @@ def resolve_default_tenant() -> str:
 def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
     """Tenant that owns a WhatsApp user.
 
-    Lets the service layer enforce feature flags without threading ``tenant_id``
-    through every ``cart_service``/``order_service`` signature. ``user_states``
-    is keyed by ``wa_id`` and already carries ``tenant_id`` (D3), so the owner of
-    a conversation is a single indexed read.
-
-    Falls back to active test tenant or :func:`resolve_default_tenant` when the user
-    has no state row yet.
+    In single-number testing mode, active test tenant override takes absolute
+    precedence so testers don't get trapped in stale tenant states.
     """
+    override = _active_test_override()
+    if override:
+        return override
+
     if not wa_id:
-        return default or _active_test_override() or resolve_default_tenant()
+        return default or resolve_default_tenant()
 
     from . import store
 
     tid = store.tenant_id_for_user(wa_id)
     if tid:
-        # Guard against stale/legacy ids (e.g. a backfilled slug such as
-        # "leewaysoftech" when the registered tenant is "l"). An unregistered
-        # tenant id would scope every product/FAQ/KB lookup to an empty set, so
-        # fall through to the default tenant rather than trusting it blindly.
         if store.get_tenant(tid):
             return tid
         logger.warning(
             "user %s is stamped with unregistered tenant %r; falling back to default",
             wa_id, tid,
         )
-
-    override = _active_test_override()
-    if override:
-        return override
 
     return default or resolve_default_tenant()

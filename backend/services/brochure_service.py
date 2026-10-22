@@ -195,6 +195,14 @@ class Brochure:
         query_words = set(re.split(r'[\s\-_]+', query_lower))
         query_words.discard('')  # Remove empty strings
         
+        # Entity-level project matching (e.g. Arbour, Dahlias, Privana, Midtown)
+        filename_tokens = set(re.split(r'[\-_\s.]+', (self.filename or self.name or "").lower()))
+        generic_tokens = {'dlf', 'brochure', 'pdf', 'project', 'deck', 'luxury', 'residences', 'the', 'portfolio', 'super', 'new', 'general', 'info'}
+        specific_tokens = filename_tokens - generic_tokens
+        specific_hits = query_words.intersection(specific_tokens)
+        if specific_hits:
+            return 0.95
+
         matching_keywords = query_words.intersection(set(self.keywords))
         
         if matching_keywords:
@@ -255,6 +263,27 @@ class BrochureService:
                     )
                     brochures.append(brochure)
             
+            # Check tenant profile for configured brochure_url if no database files found
+            if not brochures and tenant_id:
+                try:
+                    from shared.tenancy.loader import get_tenant_profile
+                    from shared.tenancy.resolver import resolve_tenant_for_user
+                    tid = resolve_tenant_for_user(tenant_id)
+                    profile = get_tenant_profile(tid)
+                    url = (getattr(getattr(profile, "notifications", None), "brochure_url", "") or "").strip()
+                    label = (getattr(getattr(profile, "notifications", None), "brochure_label", "") or "").strip() or "Brochure.pdf"
+                    if url:
+                        brochures.append(Brochure(
+                            file_id=0,
+                            tenant_id=tid,
+                            module="catalogue",
+                            name=label,
+                            filename=label if label.endswith(".pdf") else f"{label}.pdf",
+                            url=url,
+                        ))
+                except Exception as exc:
+                    logger.debug(f"profile brochure fallback failed: {exc}")
+
             # Cache the result
             self.brochure_cache[cache_key] = brochures
             return brochures
