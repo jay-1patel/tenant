@@ -428,6 +428,42 @@ def _is_book_button_tap(text: str) -> bool:
     return _normalize(text) in BOOK_BUTTON_ALIASES
 
 
+QUESTION_CUES_RE = re.compile(
+    r"\b(where|which|why|who|whom|whose|when|how|what|can\s+i|can\s+we|is\s+there|are\s+there|will\s+there|will\s+we|will\s+i|do\s+you|do\s+we|could\s+you|tell\s+me\s+about\s+the)\b",
+    re.IGNORECASE,
+)
+
+PACKAGE_ATTR_RE = re.compile(
+    r"\b(pickup|pick\s*up|drop|drop\s*off|dropoff|hotel|hotels|stay|staying|room|rooms|resort|resorts|food|meal|meals|lunch|dinner|breakfast|veg|jain|flight|flights|airfare|train|ticket|tickets|transport|transportation|vehicle|cab|car|tempo|innova|suv|sedan|refund|cancel|cancellation|luggage|baggage|guide|driver|timing|timings|allocated|allocation|customise|customize|customization|discount|offer|coupon|itinerary\s+details|day\s*\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_specific_package_question(text: str, pkg: dict) -> bool:
+    """Return True if `text` is asking a specific question about package logistics/attributes
+    (e.g. pickup, hotel, food, timings) rather than simply asking to view
+    the package card/brochure."""
+    if not text:
+        return False
+    raw = text.strip()
+    has_qmark = "?" in raw
+    has_attr = bool(PACKAGE_ATTR_RE.search(raw))
+    has_question_cue = bool(QUESTION_CUES_RE.search(raw))
+
+    if has_attr:
+        return True
+    if has_qmark and has_question_cue:
+        return True
+
+    clean = _normalize(raw)
+    pkg_title = _normalize(package_name(pkg))
+    words = clean.split()
+    if len(words) > len(pkg_title.split()) + 3 and has_question_cue:
+        return True
+
+    return False
+
+
 # ── sending ────────────────────────────────────────────────────────────────
 
 def _brand_name(tenant_id: str) -> str:
@@ -557,8 +593,13 @@ async def handle_package_action(wa_id: str, text: str, tenant_id: str = None,
     # 4. A package named in free text.
     pkg = find_package(tenant_id, raw_text, packages)
     if pkg:
+        remember_package(wa_id, pkg)
         if _has_book_verb(raw_text):
             return await _start_booking(wa_id, pkg, tenant_id)
+        if _is_specific_package_question(raw_text, pkg):
+            logger.info("PACKAGE_SPECIFIC_QUESTION | wa_id=%s | pkg=%s | falling through to FAQ/RAG",
+                        wa_id, package_name(pkg))
+            return None
         await send_package_details(wa_id, pkg, tenant_id)
         return {"handled": True, "action": "package_details",
                 "package": package_name(pkg)}

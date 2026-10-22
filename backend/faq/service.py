@@ -831,6 +831,13 @@ POLICIES, GST, TERMS OF USE & DETAILED QUERIES:
 - Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
 
+DESTINATION & PACKAGE ISOLATION (MANDATORY):
+- When the customer asks about a specific destination, state, city, or tour package (e.g., Gujarat, Goa, Kashmir, Kerala, Rajasthan, Dubai):
+  • Answer ONLY for that specific destination and package.
+  • NEVER mix in, quote, or borrow hotel details, prices, itineraries, or highlights from other destinations (such as Goa, Dubai, etc.) that may appear in the context.
+  • If specific hotel names for that package are not named in the context, clearly explain that accommodations are assigned based on the selected package category (3-star, 4-star, 5-star, or heritage) as detailed in their booking confirmation voucher.
+  • Never quote prices, inclusions, or hotel names from another city or tour.
+
 🚨 MANDATORY LENGTH LIMIT:
 - Keep your entire response between 100 and 350 words (maximum 2,500 characters).
 - Never exceed 2,500 characters so that your response always fits completely inside a single WhatsApp message bubble without being cut off.
@@ -881,6 +888,13 @@ EXPANDED POLICY & TERMS RULE:
 - Add relevant emojis to points for readability.
 - Be thorough and complete without leaving out important facts or conditions.
 - Cover important amount, days, period, conditions etc
+
+DESTINATION & PACKAGE ISOLATION (MANDATORY):
+- When the customer asks about a specific destination, state, city, or tour package (e.g., Gujarat, Goa, Kashmir, Kerala, Rajasthan, Dubai):
+  • Answer ONLY for that specific destination and package.
+  • NEVER mix in, quote, or borrow hotel details, prices, itineraries, or highlights from other destinations (such as Goa, Dubai, etc.) that may appear in the context.
+  • If specific hotel names for that package are not named in the context, clearly explain that accommodations are assigned based on the selected package category (3-star, 4-star, 5-star, or heritage) as detailed in their booking confirmation voucher.
+  • Never quote prices, inclusions, or hotel names from another city or tour.
 
 🚨 MANDATORY LENGTH LIMIT:
 - Keep your entire response between 100 and 350 words (maximum 2,500 characters) so that the entire response fits in one complete WhatsApp message without being cut off.
@@ -1068,6 +1082,90 @@ def build_index() -> dict:
     }
 
 
+# ── Destination Isolation & Regional Filtering ─────────────────────────
+KNOWN_DESTINATIONS = {
+    "gujarat": {
+        "gujarat", "ahmedabad", "somnath", "dwarka", "gir", "kutch", "rann",
+        "bhuj", "statue of unity", "sasangir", "rajkot", "vadodara", "gandhinagar",
+        "diu", "daman", "porbandar", "junagadh", "bhavnagar", "modhera", "patan"
+    },
+    "goa": {
+        "goa", "panaji", "panjim", "calangute", "baga", "candolim", "anjuna",
+        "colva", "dona paula", "vasco", "madgaon", "margao", "morjim", "arambol"
+    },
+    "kashmir": {
+        "kashmir", "srinagar", "gulmarg", "pahalgam", "sonmarg", "dal lake", "ladakh", "leh"
+    },
+    "kerala": {
+        "kerala", "munnar", "alleppey", "thekkady", "kochi", "cochin", "kovalam",
+        "wayanad", "kumarakom", "varkala"
+    },
+    "rajasthan": {
+        "rajasthan", "jaipur", "udaipur", "jodhpur", "jaisalmer", "pushkar",
+        "bikaner", "mount abu", "chittorgarh", "ranthambore"
+    },
+    "himachal": {
+        "himachal", "manali", "shimla", "dharamshala", "dalhousie", "kullu",
+        "spiti", "kasol", "kaza", "jispa"
+    },
+    "uttarakhand": {
+        "uttarakhand", "rishikesh", "haridwar", "nainital", "mussoorie",
+        "dehradun", "kedarnath", "badrinath", "corbett", "jim corbett", "auli"
+    },
+    "andaman": {
+        "andaman", "nicobar", "port blair", "havelock", "neil island", "radhanagar"
+    },
+    "dubai": {
+        "dubai", "uae", "abu dhabi", "sharjah"
+    },
+    "bali": {
+        "bali", "indonesia", "ubud", "kuta", "seminyak", "nusa penida"
+    },
+    "thailand": {
+        "thailand", "bangkok", "phuket", "pattaya", "krabi", "koh samui"
+    },
+    "singapore": {
+        "singapore", "sentosa", "marina bay"
+    },
+    "maldives": {
+        "maldives", "male"
+    },
+}
+
+
+def _detect_destination(text: str) -> str | None:
+    if not text:
+        return None
+    lower = f" {text.lower()} "
+    for dest, keywords in KNOWN_DESTINATIONS.items():
+        for kw in keywords:
+            if re.search(rf"\b{re.escape(kw)}\b", lower):
+                return dest
+    return None
+
+
+def _is_conflicting_dest_chunk(chunk_text: str, metadata: dict, target_dest: str) -> bool:
+    """Returns True if the chunk explicitly belongs to a competing destination
+    while omitting the target destination."""
+    if not target_dest:
+        return False
+    combined = f"{chunk_text} {metadata.get('source_file') or ''}".lower()
+
+    # If the chunk mentions the target destination (or any of its aliases), it does NOT conflict
+    target_keywords = KNOWN_DESTINATIONS.get(target_dest, {target_dest})
+    if any(re.search(rf"\b{re.escape(kw)}\b", combined) for kw in target_keywords):
+        return False
+
+    # If the chunk does NOT mention target_dest, check if it mentions any other known destination
+    for other_dest, keywords in KNOWN_DESTINATIONS.items():
+        if other_dest == target_dest:
+            continue
+        if any(re.search(rf"\b{re.escape(kw)}\b", combined) for kw in keywords):
+            return True
+
+    return False
+
+
 async def handle_faq_query(payload: dict) -> dict:
     message = payload.get("message", "").strip()
     tenant_id = _tenant_from_payload(payload)
@@ -1084,6 +1182,39 @@ async def handle_faq_query(payload: dict) -> dict:
             history_turns = get_recent_history(wa_id, limit=3, ttl_minutes=30)
         except Exception as e:
             logger.debug(f"Could not load recent history for {wa_id}: {e}")
+
+    # ── Check active pending package from state ────
+    active_pkg = {}
+    if wa_id:
+        try:
+            from services.package_flow import pending_package
+            active_pkg = pending_package(wa_id) or {}
+        except Exception:
+            try:
+                from backend.services.package_flow import pending_package
+                active_pkg = pending_package(wa_id) or {}
+            except Exception:
+                active_pkg = {}
+
+    active_pkg_name = (active_pkg.get("name") or "").strip()
+    active_pkg_dest = (active_pkg.get("destination") or "").strip()
+
+    # ── Detect target destination ────
+    # Priority: current message -> active package in state -> recent user history
+    target_dest = _detect_destination(message)
+    if not target_dest:
+        if active_pkg_dest:
+            target_dest = _detect_destination(active_pkg_dest)
+        elif active_pkg_name:
+            target_dest = _detect_destination(active_pkg_name)
+
+    if not target_dest and history_turns:
+        for turn in reversed(history_turns):
+            user_msg = turn.get("user") or ""
+            d = _detect_destination(user_msg)
+            if d:
+                target_dest = d
+                break
 
     # ── Dynamic catalogue / new-arrivals listing ──
     # Listing requests ("✨ New Arrivals", "show new arrivals", "catalogue")
@@ -1115,21 +1246,54 @@ async def handle_faq_query(payload: dict) -> dict:
 
     # ── Query Expansion for Multi-Turn Follow-Ups ────
     search_query = message
-    if history_turns:
-        query_words = set(re.findall(r"\b\w+\b", message.lower()))
-        follow_up_cues = {
-            "it", "its", "this", "that", "these", "those", "price", "cost",
-            "where", "location", "details", "more", "tell", "show", "how",
-            "rate", "rates", "fees", "fee", "brochure", "timing", "timings"
-        }
-        if len(message.split()) <= 4 or (query_words & follow_up_cues):
-            last_user_turn = (history_turns[-1].get("user") or "").strip()
-            if last_user_turn and last_user_turn.lower() != message.lower():
-                search_query = f"{last_user_turn} {message}"
-                logger.info(f"FAQ_QUERY_EXPANDED | wa_id={wa_id} | from='{message}' -> to='{search_query}'")
+    query_words = set(re.findall(r"\b\w+\b", message.lower()))
+    follow_up_cues = {
+        "it", "its", "this", "that", "these", "those", "price", "cost",
+        "where", "location", "details", "more", "tell", "show", "how",
+        "rate", "rates", "fees", "fee", "brochure", "timing", "timings",
+        "which", "what", "who", "when", "why", "hotel", "hotels", "stay",
+        "room", "rooms", "resort", "resorts", "package", "tour", "allocated",
+        "allocate", "included", "include", "pickup", "drop", "dropoff",
+        "food", "meal", "meals", "flight", "flights", "transport", "cab",
+        "vehicle", "discount", "offer", "itinerary", "refund", "cancel",
+        "guide", "driver", "duration", "day", "days"
+    }
+    is_follow_up = len(message.split()) <= 4 or bool(query_words & follow_up_cues)
+
+    msg_dest = _detect_destination(message)
+    if (active_pkg_name or active_pkg_dest) and (not msg_dest or msg_dest == target_dest):
+        if is_follow_up or active_pkg_name.lower() not in message.lower():
+            anchor_parts = [p for p in (active_pkg_name, active_pkg_dest) if p]
+            anchor = " ".join(anchor_parts)
+            search_query = f"{anchor} {message}"
+            logger.info(f"FAQ_QUERY_ANCHORED_PACKAGE | wa_id={wa_id} | pkg='{anchor}' -> search_query='{search_query}'")
+    elif history_turns and is_follow_up:
+        last_user_turn = (history_turns[-1].get("user") or "").strip()
+        if last_user_turn and last_user_turn.lower() != message.lower():
+            search_query = f"{last_user_turn} {message}"
+            logger.info(f"FAQ_QUERY_EXPANDED | wa_id={wa_id} | from='{message}' -> to='{search_query}'")
+
+    if target_dest and target_dest not in search_query.lower():
+        search_query = f"{target_dest} {search_query}"
+        logger.info(f"FAQ_QUERY_ANCHORED_DEST | wa_id={wa_id} | dest='{target_dest}' -> search_query='{search_query}'")
 
     # ── Retrieve & re-rank ────────────────────
     results = faq_index.search(search_query, k=RERANK_TOP_K, tenant_id=tenant_id)
+
+    # ── Destination Conflict Filtering ────
+    if target_dest and results:
+        filtered = [
+            r for r in results
+            if not _is_conflicting_dest_chunk(r[0], r[1], target_dest)
+        ]
+        if filtered:
+            dropped_count = len(results) - len(filtered)
+            if dropped_count > 0:
+                logger.info(
+                    f"DESTINATION_ISOLATION | target='{target_dest}' | "
+                    f"dropped {dropped_count} conflicting chunks, kept {len(filtered)}"
+                )
+            results = filtered
 
     if not results:
         logger.warning(

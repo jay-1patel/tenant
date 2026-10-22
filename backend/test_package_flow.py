@@ -343,6 +343,26 @@ class PackageBrowsingTests(unittest.TestCase):
         # The conversation floats to the top of the admin live inbox.
         self.assertEqual(database.get_user_state(WA).get("human_handover"), 1)
 
+    def test_specific_question_about_package_falls_through_and_remembers_package(self):
+        result = self._run(
+            package_flow.handle_package_action(
+                WA, f"Where would be Pickup and drop-off of {SHORT_NAME}?", tenant_id=TENANT,
+            )
+        )
+        self.assertIsNone(result, "Specific questions must fall through to FAQ/RAG")
+        pending = package_flow.pending_package(WA)
+        self.assertEqual(pending.get("name"), SHORT_NAME, "Package must still be remembered in context")
+
+    def test_hotel_question_about_package_falls_through(self):
+        result = self._run(
+            package_flow.handle_package_action(
+                WA, f"Which hotel is allocated to me in {SHORT_NAME}?", tenant_id=TENANT,
+            )
+        )
+        self.assertIsNone(result, "Hotel question must fall through to FAQ/RAG")
+        pending = package_flow.pending_package(WA)
+        self.assertEqual(pending.get("name"), SHORT_NAME)
+
     @staticmethod
     def _outcome_text(outcome):
         messages = outcome.get("messages") or []

@@ -2455,10 +2455,13 @@ def get_recent_history(wa_id: str, limit: int = 5, ttl_minutes: int = 30):
             return []
     except Exception:
         pass
-    return [
-        {"user": row["message"], "assistant": row["response"]}
-        for row in rows
-    ]
+    out = []
+    for row in rows:
+        raw_user = row["message"] or ""
+        # Strip internal route prefixes like [send2], [webhook], [faq]
+        clean_user = re.sub(r"^\[[\w\-/]+\]\s*", "", raw_user).strip()
+        out.append({"user": clean_user, "assistant": row["response"] or ""})
+    return out
 
 
 # ── FAQ dataset helpers ─────────────────────────────────────────────────
