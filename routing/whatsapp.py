@@ -52,16 +52,54 @@ def normalize_whatsapp_formatting(text: str) -> str:
     """
     Normalize Markdown-ish emphasis, headers, links, and bullets so WhatsApp
     renders clean bold/italic (*bold* / _italic_) and clickable URLs instead of
-    broken raw markdown syntax.
+    broken raw markdown syntax. Also formats markdown tables into clean bulleted lists.
     """
     if not text:
         return text or ""
     import re
 
-    # 1. Markdown headers (# Header, ## Subheading) -> WhatsApp bold (*Header*)
+    # 0. Strip wrapping code fences (e.g. ```json ... ``` or ```markdown ... ``` or bare ```)
+    clean = text.strip()
+    clean = re.sub(r"^```(?:json|markdown|text)?\s*\n?", "", clean)
+    clean = re.sub(r"\n?```\s*$", "", clean)
+    text = clean
+
+    # 1. Convert markdown tables into clean WhatsApp bullet points
+    lines = text.split("\n")
+    table_converted = []
+    in_table = False
+    headers = []
+    for line in lines:
+        s = line.strip()
+        if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
+            parts = [p.strip() for p in s.strip("|").split("|")]
+            # Skip separator rows like | --- | --- |
+            if all(re.match(r"^:?-+:?$", p) for p in parts if p):
+                continue
+            if not in_table:
+                headers = parts
+                in_table = True
+            else:
+                row_items = []
+                for idx, cell in enumerate(parts):
+                    if not cell:
+                        continue
+                    if idx < len(headers) and headers[idx]:
+                        row_items.append(f"*{headers[idx]}*: {cell}")
+                    else:
+                        row_items.append(cell)
+                if row_items:
+                    table_converted.append("• " + " | ".join(row_items))
+        else:
+            in_table = False
+            headers = []
+            table_converted.append(line)
+    text = "\n".join(table_converted)
+
+    # 2. Markdown headers (# Header, ## Subheading) -> WhatsApp bold (*Header*)
     text = re.sub(r"(?m)^#{1,6}\s*(.+?)\s*$", r"*\1*", text)
 
-    # 2. Markdown links: [Title](https://...) -> Title: https://...
+    # 3. Markdown links: [Title](https://...) -> Title: https://...
     def _link_repl(m):
         title = m.group(1).strip()
         url = m.group(2).strip()
@@ -70,22 +108,46 @@ def normalize_whatsapp_formatting(text: str) -> str:
         return f"{title}: {url}"
     text = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+)\)", _link_repl, text)
 
-    # 3. Bold + Italic: ***text*** / ___text___ -> *_text_*
+    # 4. Bold + Italic: ***text*** / ___text___ -> *_text_*
     text = re.sub(r"\*\*\*(.+?)\*\*\*", r"*_\1_*", text)
     text = re.sub(r"___(.+?)___", r"*_\1_*", text)
 
-    # 4. Bold: **text** / __text__ -> *text*
+    # 5. Bold: **text** / __text__ -> *text*
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
     text = re.sub(r"__(.+?)__", r"*\1*", text)
 
-    # 5. Strikethrough: ~~text~~ -> ~text~
+    # 6. Strikethrough: ~~text~~ -> ~text~
     text = re.sub(r"~~(.+?)~~", r"~\1~", text)
 
-    # 6. Asterisk bullet points at line starts (* Item) -> • Item
+    # 7. Asterisk bullet points at line starts (* Item) -> • Item
     # Prevents WhatsApp from pairing asterisks across lines and bolding entire lists
     text = re.sub(r"(?m)^\*\s+", r"• ", text)
 
-    return text
+    # 8. Compress 3+ consecutive newlines down to 2
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+def send_whatsapp_typing(to: str, tenant_id: str = None) -> bool:
+    """Send typing indicator or mark as read if supported by provider, failing silently."""
+    try:
+        username, password = get_tenant_send2_credentials(tenant_id)
+        if not username or not password:
+            return False
+        clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
+        payload = {
+            "user_name": username,
+            "password": password,
+            "contact_no": clean_to,
+            "message_type": "action",
+            "action": "typing",
+            "messaging_product": "whatsapp",
+        }
+        requests.post(SEND2_SESSION_SEND_URL, json=payload, timeout=2)
+        return True
+    except Exception:
+        return False
 
 
 def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:

@@ -46,7 +46,9 @@ _STATUS_PAUSED = "paused"
 
 _QUESTION_STARTERS = (
     "what", "how", "where", "when", "why", "who", "which",
-    "can", "could", "would", "should", "do", "does", "did", "is", "are", "will", "may",
+    "can you", "can i", "can we", "could you", "would you", "should i",
+    "do you", "does it", "is there", "is it", "are there", "are you",
+    "will you", "will it", "will there", "may i",
     "tell me", "show me", "i want to", "i would like", "i have a question",
     "details of", "information on", "info about", "price of", "cost of",
     "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
@@ -955,6 +957,7 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             f"⚡ *Priority:* {raw_urgency}",
             f"📄 *Issue:* {issue}",
             "\nOur support team has logged your complaint and will review and address it shortly. Please keep this Ticket ID for your reference. 🙏",
+            "Type *menu* anytime to view our services or ask any question!",
         ]
         cmp_confirmation = "\n".join(cmp_lines)
         if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("ticket", "shortly", "done", "team", "complaint")):
@@ -962,7 +965,10 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         else:
             messages.append(cmp_confirmation)
     elif flow.success_message and not emitted_done and flow.success_message not in messages:
-        messages.append(flow.success_message)
+        s_msg = flow.success_message
+        if "menu" not in s_msg.lower():
+            s_msg = f"{s_msg}\n\nType *menu* anytime or feel free to ask another question! 🙏"
+        messages.append(s_msg)
     return _outcome(flow.name, messages, finished=True, lead_id=lead_id,
                     handoff_id=handoff_id,
                     status=_STATUS_PAUSED if paused else _STATUS_BOT)

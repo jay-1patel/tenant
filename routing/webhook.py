@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import routing.config as config
 from routing.database import get_db_context, log_webhook, save_chat, set_request_tenant
-from routing.whatsapp import send_whatsapp_message, send_whatsapp_interactive, send_whatsapp_list_menu, _resolve_media_url, _normalize_msg_type
+from routing.whatsapp import send_whatsapp_message, send_whatsapp_interactive, send_whatsapp_list_menu, send_whatsapp_typing, _resolve_media_url, _normalize_msg_type
 from routing.message import (
     process_message, DOCUMENT_BUTTON_ID, is_direct_media_query,
     build_catalog_text_fallback,
@@ -325,6 +325,12 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         touch_customer(tenant_id, wa_id, sender_name)
     except Exception as exc:
         logger.debug(f"Could not touch customer {wa_id}: {exc}")
+
+    # Send typing indicator to acknowledge receipt immediately
+    try:
+        send_whatsapp_typing(wa_id, tenant_id=tenant_id)
+    except Exception:
+        pass
     
     # ── CHECK SESSION TIMEOUT ──────────────────────────────────────────
     # If a user has been idle in a flow for >30 minutes, auto-reset to main menu
@@ -404,11 +410,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         # While a human agent is handling the conversation, save the message
         # for the agent inbox but do NOT let the bot answer. The user asked for
         # a human, so the bot must stay silent until resumed.
-        # Resume keywords: "bot", "resume bot", "back to bot" allow the user to exit handover mode.
+        # Resume keywords: "bot", "resume bot", "hi", "hello", "menu" allow the user to exit handover mode.
         if _is_handover_active(wa_id):
-            resume_phrases = {"bot", "resume bot", "back to bot", "bot mode", "resume", "continue with bot"}
+            resume_phrases = {
+                "bot", "resume bot", "back to bot", "bot mode", "resume", "continue with bot",
+                "hi", "hello", "hey", "menu", "main menu", "start"
+            }
             clean_text = (user_text or "").strip().lower()
-            if any(phrase in clean_text for phrase in resume_phrases):
+            if clean_text in resume_phrases or any(phrase in clean_text for phrase in resume_phrases):
                 # User wants to resume bot mode
                 _set_human_handover(wa_id, enabled=False)
                 save_chat(wa_id, sender_name, user_text, HANDOVER_BOT_RESUME, "human_handover")
