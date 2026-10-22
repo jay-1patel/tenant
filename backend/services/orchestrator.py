@@ -361,13 +361,13 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         # unrelated flow.
         try:
             try:
-                from services import offerings_flow
+                from services import package_flow
             except ImportError:
-                from backend.services import offerings_flow
-            offerings_result = await offerings_flow.handle_offerings_action(
+                from backend.services import package_flow
+            package_result = await package_flow.handle_package_action(
                 wa_id, message, tenant_id=tenant_id,
             )
-            if offerings_result and offerings_result.get("handled"):
+            if package_result and package_result.get("handled"):
                 return {
                     "status": "processed",
                     "messages": drain_captured(),

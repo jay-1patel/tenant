@@ -79,10 +79,7 @@ BUTTONS: dict[str, str] = {
     "menu_specialities": "🏥 Specialities",
     "menu_appointment": "📅 Book Appointment",
     "menu_offerings": "📋 Offerings",
-    # Real Estate
-    "menu_properties": "🏢 View Properties",
     # Banking
-    "menu_banking_products": "🏦 Banking Products",
     "menu_products": "🏦 Banking Products",
     "menu_cards": "💳 Cards",
     "menu_loans": "🏠 Loans",
@@ -761,30 +758,7 @@ def get_contextual_buttons(
             picked_ids = ["menu_products", "menu_catalogue", "menu_discounts"]
         picked_ids.append("main_menu")
 
-    # 7. Real Estate Vertical
-    elif vertical == "real_estate":
-        if any(k in q for k in ("property", "flat", "apartment", "villa", "bhk", "sqft", "possession", "amenities", "project", "residence")):
-            picked_ids.append("menu_properties")
-            if profile and profile.features.is_on("quote"):
-                picked_ids.append("menu_quote")
-        elif any(k in q for k in ("site visit", "visit", "schedule", "meet", "tour")):
-            if profile and profile.features.is_on("book_appointment"):
-                picked_ids.append("menu_appointment")
-            picked_ids.append("menu_properties")
-        elif any(k in q for k in ("price", "cost", "payment", "emi", "loan", "down payment", "plan")):
-            if profile and profile.features.is_on("quote"):
-                picked_ids.append("menu_quote")
-            picked_ids.append("menu_properties")
-        elif any(k in q for k in ("callback", "call", "agent", "consultant")):
-            if profile and profile.features.is_on("callback"):
-                picked_ids.append("menu_callback")
-            if profile and profile.features.is_on("human_handover"):
-                picked_ids.append("menu_human")
-        else:
-            picked_ids = ["menu_properties", "menu_callback", "main_menu"]
-        picked_ids.append("main_menu")
-
-    # 8. Generic Fallback
+    # 7. Generic Fallback
     else:
         if any(k in q for k in ("quote", "cost", "price")):
             if profile and profile.features.is_on("quote"):

@@ -2679,43 +2679,6 @@ def _resolve_tenant(tenant_id: str = None) -> str:
         return os.environ.get("DEFAULT_TENANT_ID", "default")
 
 
-def _resolve_tenant_ids(tenant_id: str = None) -> list:
-    """Return matching tenant identifiers (numeric id, slug, raw string) so that
-    queries match rows regardless of whether tenant_id was stored as integer or text."""
-    raw = str(tenant_id or "").strip()
-    if not raw:
-        active = get_active_test_tenant()
-        raw = str(active or "").strip()
-    if not raw:
-        try:
-            from shared.tenancy.resolver import resolve_default_tenant
-            raw = str(resolve_default_tenant() or "").strip()
-        except Exception:
-            raw = os.environ.get("DEFAULT_TENANT_ID", "default")
-
-    candidates = {raw}
-    if raw.isdigit():
-        candidates.add(int(raw))
-
-    try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT id, slug FROM tenants WHERE id = ? OR slug = ? OR LOWER(slug) = LOWER(?)",
-                (raw, raw, raw),
-            ).fetchone()
-            if row:
-                if row["id"] is not None:
-                    candidates.add(row["id"])
-                    candidates.add(str(row["id"]))
-                if row["slug"]:
-                    candidates.add(row["slug"])
-                    candidates.add(row["slug"].lower())
-    except Exception:
-        pass
-
-    return list(candidates)
-
-
 def save_product(name: str, slug: str, category: str = "general",
                  description: str = "", short_description: str = "",
                  price: str = "", mrp: str = "", unit: str = "piece",
@@ -2772,33 +2735,27 @@ def save_product(name: str, slug: str, category: str = "general",
 
 
 def get_product(product_id: int, tenant_id: str = None) -> dict:
-    t_ids = _resolve_tenant_ids(tenant_id)
-    placeholders = ", ".join(["?"] * len(t_ids))
     with get_db_context() as conn:
         row = conn.execute(
-            f"SELECT * FROM products WHERE id = ? AND tenant_id IN ({placeholders})",
-            (product_id, *t_ids),
+            "SELECT * FROM products WHERE id = ? AND tenant_id = ?",
+            (product_id, _resolve_tenant(tenant_id)),
         ).fetchone()
     return _deserialize_product(dict(row)) if row else None
 
 
 def get_product_by_slug(slug: str, tenant_id: str = None) -> dict:
-    t_ids = _resolve_tenant_ids(tenant_id)
-    placeholders = ", ".join(["?"] * len(t_ids))
     with get_db_context() as conn:
         row = conn.execute(
-            f"SELECT * FROM products WHERE slug = ? AND tenant_id IN ({placeholders})",
-            (slug, *t_ids),
+            "SELECT * FROM products WHERE slug = ? AND tenant_id = ?",
+            (slug, _resolve_tenant(tenant_id)),
         ).fetchone()
     return _deserialize_product(dict(row)) if row else None
 
 
 def list_products(category: str = None, active_only: bool = True, limit: int = 100,
                   tenant_id: str = None) -> list:
-    t_ids = _resolve_tenant_ids(tenant_id)
-    placeholders = ", ".join(["?"] * len(t_ids))
-    query = f"SELECT * FROM products WHERE tenant_id IN ({placeholders})"
-    params = list(t_ids)
+    query = "SELECT * FROM products WHERE tenant_id = ?"
+    params = [_resolve_tenant(tenant_id)]
     if active_only:
         query += " AND is_active = 1"
     if category:
@@ -2809,34 +2766,6 @@ def list_products(category: str = None, active_only: bool = True, limit: int = 1
     with get_db_context() as conn:
         rows = conn.execute(query, params).fetchall()
     return [_deserialize_product(dict(r)) for r in rows]
-
-
-def count_products(category: str = None, active_only: bool = True, tenant_id: str = None) -> int:
-    t_ids = _resolve_tenant_ids(tenant_id)
-    placeholders = ", ".join(["?"] * len(t_ids))
-    query = f"SELECT COUNT(*) FROM products WHERE tenant_id IN ({placeholders})"
-    params = list(t_ids)
-    if active_only:
-        query += " AND is_active = 1"
-    if category:
-        query += " AND category = ?"
-        params.append(category)
-    with get_db_context() as conn:
-        row = conn.execute(query, params).fetchone()
-        return int(row[0]) if row else 0
-
-
-def list_product_categories(active_only: bool = True, tenant_id: str = None) -> list[str]:
-    t_ids = _resolve_tenant_ids(tenant_id)
-    placeholders = ", ".join(["?"] * len(t_ids))
-    query = f"SELECT DISTINCT category FROM products WHERE tenant_id IN ({placeholders}) AND category IS NOT NULL"
-    params = list(t_ids)
-    if active_only:
-        query += " AND is_active = 1"
-    query += " ORDER BY category ASC"
-    with get_db_context() as conn:
-        rows = conn.execute(query, params).fetchall()
-        return [str(r[0]).strip() for r in rows if r[0] and str(r[0]).strip()]
 
 
 def _row_to_dict(row) -> dict:
