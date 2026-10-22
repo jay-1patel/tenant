@@ -1,15 +1,15 @@
 {
-  "tenant_id": "leewaysoftech",
-  "vertical": "it_software",
+  "tenant_id": "l",
+  "vertical": "generic",
   "display_name": "Leewaysoftech",
   "brand": {
     "name": "Leewaysoftech",
-    "bot_name": "Leewaysoftech Assistant",
-    "tagline": "a software development company building web, mobile, and enterprise solutions",
-    "website": "www.leewaysoftech.com",
+    "bot_name": "l Assistant",
+    "tagline": "Your trusted partner for all needs.",
+    "website": "https://leewaysoftech.com/",
     "support_email": "customercare@leewaysoftech.com",
-    "support_phone": "+91 98765 43210",
-    "signature": "Leewaysoftech — Building software that moves business forward."
+    "support_phone": "+91 8000305305",
+    "signature": "Leewaysoftech — Innovative Technology, Creative Work"
   },
   "features": {
     "cart": false,
@@ -30,7 +30,11 @@
     "kb": true,
     "complaints": true,
     "campaigns": false,
-    "human_handover": true
+    "human_handover": true,
+    "payments": false,
+    "services": true,
+    "products": true,
+    "products_schemes": true
   },
   "vocabulary": {
     "item_noun": "services",
@@ -46,7 +50,12 @@
     "enquiry_label": "Enquire",
     "quote_label": "Get a Quote",
     "callback_label": "Request a Callback",
-    "support_label": "Raise Ticket"
+    "support_label": "Raise Ticket",
+    "order_noun": "engagement",
+    "order_noun_plural": "engagements",
+    "cart_noun": "shortlist",
+    "checkout_label": "Request a Quote",
+    "track_label": "Track Request"
   },
   "business_hours": {
     "timezone": "Asia/Kolkata",
@@ -58,8 +67,10 @@
       1,
       2,
       3,
-      4
-    ]
+      4,
+      5
+    ],
+    "out_of_hours_message": "We are currently outside our working hours. Leave your details and our team will call you back on the next working day."
   },
   "intents": [
     {
@@ -72,7 +83,9 @@
     },
     {
       "name": "careers",
-      "answer": "• We're always glad to hear from good people:\n• *Roles we hire for:* frontend, backend and mobile developers, QA engineers, DevOps and UI/UX designers\n• *Internships:* available for final-year students and fresh graduates\n• *How to apply:* send your CV to info@leewaysoftech.com with the role in the subject line\n• Shortlisted candidates hear from us within a few working days."
+      "answer": "\n*Sales*\n• We're always glad to hear from good people: — 2–4 yrs · Mumbai\n• *Roles we hire for:* frontend, backend and mobile developers, QA engineers, DevOps and UI/UX designers — 2–4 yrs · Mumbai\n• *Internships:* available for final — - · Mumbai\n\n*Other*\n• *How to apply:* send your CV to hr@leewaysoftech.com with the role in the subject line\n• Shortlisted candidates hear from us within a few working days.",
+      "keywords": [],
+      "enabled": true
     },
     {
       "name": "benefits",
@@ -97,6 +110,81 @@
       "requires_feature": "offerings",
       "answer": "",
       "enabled": true
+    },
+    {
+      "name": "request-quote",
+      "examples": [
+        "Can I get a quote for the 3BHK apartment?",
+        "What is the price for the office space?",
+        "I need a price estimate for the villa."
+      ],
+      "keywords": [
+        "quote",
+        "price",
+        "estimate"
+      ],
+      "flow": "get_quote",
+      "enabled": true
+    },
+    {
+      "name": "schedule-visit",
+      "examples": [
+        "I would like to schedule a visit to the property",
+        "Can I book a tour of the office space?",
+        "When can I visit the villa?"
+      ],
+      "keywords": [
+        "visit",
+        "schedule",
+        "tour"
+      ],
+      "flow": "book_callback",
+      "enabled": true
+    },
+    {
+      "name": "ask-faq",
+      "examples": [
+        "What are the payment terms?",
+        "How long does the lease last?",
+        "Do you offer maintenance?"
+      ],
+      "keywords": [
+        "faq",
+        "question",
+        "help"
+      ],
+      "flow": null,
+      "enabled": true
+    },
+    {
+      "name": "report-issue",
+      "examples": [
+        "I have a problem with my booking",
+        "The property listing is incorrect",
+        "I need help with my account"
+      ],
+      "keywords": [
+        "issue",
+        "problem",
+        "support"
+      ],
+      "flow": "raise_ticket",
+      "enabled": true
+    },
+    {
+      "name": "product-inquiry",
+      "examples": [
+        "Tell me more about the 2BHK apartment",
+        "What are the specifications of the office space?",
+        "Can you give me the features of the villa?"
+      ],
+      "keywords": [
+        "details",
+        "specs",
+        "features"
+      ],
+      "flow": null,
+      "enabled": true
     }
   ],
   "guardrails": {
@@ -120,6 +208,17 @@
       "manager",
       "urgent",
       "complaint"
+    ],
+    "forbidden_terms": [
+      "cart",
+      "checkout",
+      "add to cart",
+      "buy now",
+      "place order",
+      "track order",
+      "shipping",
+      "delivery charge",
+      "mrp"
     ]
   },
   "notifications": {
@@ -138,23 +237,23 @@
   "flows": [
     {
       "name": "get_quote",
-      "success_message": "Thanks! Our team has your project details and will reach out with next steps shortly."
+      "success_message": "Thank you! Our specialist will prepare a customized quote and follow up promptly."
     },
     {
       "name": "raise_ticket",
-      "success_message": "Ticket raised. Our support team will get back to you shortly."
+      "success_message": "Your request has been logged. A support ticket has been created and an executive will assist you."
     },
     {
       "name": "book_callback",
-      "success_message": "Done! Your callback and Google Meeting have been scheduled."
+      "success_message": "Thank you! Your consultation request has been scheduled with l Assistant."
     }
   ],
   "menu": {
     "key": "kb_main",
-    "header": "",
-    "body": "How can we help you today?",
-    "footer": "Or type your question",
-    "button_text": "Show Options",
+    "header": "l",
+    "body": "Welcome! How can we assist you today?",
+    "footer": "Select an option or type your query directly",
+    "button_text": "Select Option",
     "buttons": [
       {
         "id": "menu_services",
@@ -201,7 +300,7 @@
         "description": "what we develop",
         "section": "about & offerings",
         "icon": "👨‍💻",
-        "sort_order": 3,
+        "sort_order": 4,
         "enabled": true,
         "requires_feature": null,
         "out_of_hours_only": false,
@@ -214,39 +313,55 @@
         "description": "Join our team/openings",
         "section": "careers & help",
         "icon": "💼",
-        "sort_order": 4,
-        "enabled": true,
-        "requires_feature": null,
-        "out_of_hours_only": false,
-        "flow": null,
-        "intent": null
-      },
-      {
-        "id": "menu_support",
-        "title": " Customer Support ",
-        "description": "Get technical help",
-        "section": "careers & help",
-        "icon": "🛠️",
-        "sort_order": 5,
-        "enabled": true,
-        "requires_feature": null,
-        "out_of_hours_only": false,
-        "flow": "raise_ticket",
-        "intent": null
-      },
-      {
-        "id": "menu_talk_human",
-        "title": "Book a Callback",
-        "description": "Have us call you back",
-        "section": "talk to us",
-        "icon": "📞",
         "sort_order": 6,
         "enabled": true,
         "requires_feature": null,
         "out_of_hours_only": false,
         "flow": null,
         "intent": null
+      },
+      {
+        "id": "menu_complaint",
+        "title": "Raise a Complaint",
+        "description": "Tell us what went wrong",
+        "section": "Support",
+        "icon": "📝",
+        "sort_order": 3,
+        "enabled": true,
+        "requires_feature": "complaints",
+        "out_of_hours_only": false,
+        "flow": "raise_ticket",
+        "intent": null
+      },
+      {
+        "id": "menu_human",
+        "title": "Request Callback",
+        "description": "connect with our team",
+        "section": "Support",
+        "icon": "📞",
+        "sort_order": 5,
+        "enabled": true,
+        "requires_feature": "human_handover",
+        "out_of_hours_only": false,
+        "flow": "book_callback",
+        "intent": null
       }
+    ]
+  },
+  "prompt": {
+    "keywords": [
+      "software",
+      "development",
+      "technical",
+      "it",
+      "technology",
+      "solution",
+      "service",
+      "website",
+      "mobile app",
+      "cloud",
+      "support",
+      "maintenance"
     ]
   }
 }

@@ -134,7 +134,7 @@ export function ComplaintsPanel({ tenantId }: { tenantId: string }) {
         </Alert>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
         <Card className="overflow-hidden">
           <CardHeader title="Tickets" icon={<MessageSquareWarning className="h-4 w-4" />} />
           {state.loading && !complaints.length ? (

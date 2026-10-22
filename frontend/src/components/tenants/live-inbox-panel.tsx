@@ -112,7 +112,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Live inbox"
         description="Conversations the bot has handed over, or that a person has taken over. Replying pauses the bot until you resolve."
@@ -147,13 +147,20 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
       />
 
       {action.error && (
-        <Alert tone="danger" title="Action failed" className="mb-4">
+        <Alert tone="danger" title="Action failed" className="mb-4 shrink-0">
           {action.error}
         </Alert>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
-        <Card className="overflow-hidden">
+      {/*
+        Two panes, always side by side. Both grid tracks are `minmax(0, …)` so
+        a long message can never stretch the transcript column past the page,
+        and the single `minmax(0, 1fr)` row keeps both cards exactly as tall as
+        the pane — the queue and the transcript scroll inside them, the page
+        does not.
+      */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,13rem)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-4 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <CardHeader title="Queue" icon={<Inbox className="h-4 w-4" />} />
           {state.loading && !queue.length ? (
             <LoadingBlock label="Loading conversations…" />
@@ -164,9 +171,9 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
               </Alert>
             </CardBody>
           ) : queue.length === 0 ? (
-            <EmptyState title="Nothing waiting" description="No customer conversations for this tenant yet." />
+            <EmptyState className="flex-1" title="Nothing waiting" description="No customer conversations for this tenant yet." />
           ) : (
-            <ul className="max-h-[70vh] divide-y divide-surface-line overflow-y-auto scroll-thin">
+            <ul className="min-h-0 flex-1 divide-y divide-surface-line overflow-y-auto overflow-x-hidden scroll-overlay">
               {queue.map((item) => (
                 <li key={item.wa_id}>
                   <button
@@ -202,9 +209,10 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
           )}
         </Card>
 
-        <Card className="flex min-h-[24rem] flex-col">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {!selected || !current ? (
             <EmptyState
+              className="flex-1"
               title="Pick a conversation"
               description="Select a customer on the left to read the transcript and reply."
             />
@@ -232,7 +240,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
                 }
               />
 
-              <CardBody className="flex-1 space-y-3 overflow-y-auto scroll-thin">
+              <CardBody className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden break-anywhere scroll-overlay">
                 {thread.loading ? (
                   <LoadingBlock label="Loading transcript…" />
                 ) : thread.error ? (
@@ -248,7 +256,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
                       <div key={turn.id} className="space-y-1.5">
                         {stripRoute(turn.message) && (
                           <div className="flex justify-start">
-                            <div className="max-w-[80%] rounded-xl bg-surface-panel px-3 py-2 text-sm text-slate-200 ring-1 ring-inset ring-surface-line">
+                            <div className="min-w-0 max-w-[80%] rounded-xl bg-surface-panel px-3 py-2 text-sm text-slate-200 ring-1 ring-inset ring-surface-line">
                               {stripRoute(turn.message)}
                               <span className="mt-1 block text-2xs text-slate-600">
                                 {turn.created_at}
@@ -260,7 +268,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
                           <div className="flex justify-end">
                             <div
                               className={cn(
-                                'max-w-[80%] rounded-xl px-3 py-2 text-sm ring-1 ring-inset',
+                                'min-w-0 max-w-[80%] rounded-xl px-3 py-2 text-sm ring-1 ring-inset',
                                 turn.route === 'agent'
                                   ? 'bg-accent-600 text-white ring-accent-600'
                                   : 'bg-accent-50 text-accent-900 ring-accent-200',
@@ -299,7 +307,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
       </div>
 
       {selected && (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex shrink-0 flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-400">
             <Users className="h-3.5 w-3.5" />
             Assign to
@@ -363,7 +371,7 @@ function Composer({
   }
 
   return (
-    <div className="border-t border-surface-line p-4">
+    <div className="shrink-0 border-t border-surface-line p-4">
       {error && <p className="mb-2 text-xs text-rose-400">{error}</p>}
       {pending && (
         <div className="mb-2">

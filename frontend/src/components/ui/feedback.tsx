@@ -49,14 +49,16 @@
     description,
     action,
     icon,
+    className,
   }: {
     title: string
     description?: ReactNode
     action?: ReactNode
     icon?: ReactNode
+    className?: string
   }) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+      <div className={cn('flex flex-col items-center justify-center gap-3 px-6 py-14 text-center', className)}>
         {icon && <div className="text-slate-600">{icon}</div>}
         <div>
           <p className="text-sm font-medium text-slate-200">{title}</p>

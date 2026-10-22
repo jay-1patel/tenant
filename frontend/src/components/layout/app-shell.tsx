@@ -13,6 +13,13 @@ import { Button } from '@/components/ui/button'
 import { VerticalGlyph } from '@/components/vertical-icon'
 
 /**
+ * Views with a split pane own the full height of the content area. The panes
+ * scroll on their own, so the window itself never grows a scrollbar and the
+ * list and the transcript stay side by side at a fixed height.
+ */
+const FLUSH_VIEWS = new Set(['chat-history', 'inbox'])
+
+/**
  * The sidebar is built per tenant rather than hard-coded: `buildTenantNav`
  * weighs the tenant's vertical, its feature flags and the signed-in admin's
  * permissions. See `@/lib/navigation`.
@@ -44,6 +51,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const tenantScoped = Boolean(route.tenantId)
   const locked = isOnboardingLocked(identity)
   const isSuperAdmin = identity?.role === 'super_admin'
+  const flush = FLUSH_VIEWS.has(route.view)
   // The header shows the tenant's own brand for admins and sub admins. Super
   // admins (who span tenants) keep the generic product mark instead.
   const chromeTenantId =
@@ -404,12 +412,14 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
       <main
         className={cn(
-          'min-w-0 flex-1 overflow-y-auto bg-surface scroll-thin',
-          navOpen && 'overflow-hidden lg:overflow-y-auto',
+          'min-w-0 flex-1 bg-surface scroll-thin',
+          flush
+            ? 'flex flex-col overflow-hidden'
+            : cn('overflow-x-hidden overflow-y-auto', navOpen && 'overflow-hidden lg:overflow-y-auto'),
         )}
       >
         {/* Small / medium: a sticky top bar with the hamburger and the brand. */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-surface-line bg-white px-4 lg:hidden">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-surface-line bg-white px-4 lg:hidden">
           <button
             type="button"
             onClick={() => setNavOpen(true)}
@@ -433,7 +443,14 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           </div>
         </header>
 
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+        <div
+          className={cn(
+            'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8',
+            flush && 'flex min-h-0 w-full flex-1 flex-col',
+          )}
+        >
+          {children}
+        </div>
       </main>
     </div>
   )

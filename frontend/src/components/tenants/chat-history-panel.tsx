@@ -65,7 +65,7 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
   const totalTurns = (state.data ?? []).length
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Chat history"
         description="Every recorded exchange with this tenant's customers — what the bot answered and what agents said."
@@ -109,8 +109,14 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
-        <Card className="overflow-hidden">
+      {/*
+        Two panes, always side by side. Both grid tracks are `minmax(0, …)` so
+        a long message can never stretch the transcript column past the page,
+        and the single `minmax(0, 1fr)` row keeps both cards exactly as tall as
+        the pane — the lists scroll inside them, the page does not.
+      */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,13rem)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-4 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <CardHeader title="Conversations" icon={<History className="h-4 w-4" />} />
           {state.loading && !threads.length ? (
             <LoadingBlock label="Loading history…" />
@@ -121,9 +127,9 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
               </Alert>
             </CardBody>
           ) : threads.length === 0 ? (
-            <EmptyState title="No history" description="Nothing matches this window." />
+            <EmptyState className="flex-1" title="No history" description="Nothing matches this window." />
           ) : (
-            <ul className="max-h-[70vh] divide-y divide-surface-line overflow-y-auto scroll-thin">
+            <ul className="min-h-0 flex-1 divide-y divide-surface-line overflow-y-auto overflow-x-hidden scroll-overlay">
               {threads.map((thread) => (
                 <li key={thread.waId}>
                   <button
@@ -150,9 +156,10 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
           )}
         </Card>
 
-        <Card className="flex min-h-[24rem] flex-col">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {!active ? (
             <EmptyState
+              className="flex-1"
               title="Pick a conversation"
               description="Select a customer to read the full transcript."
               icon={<MessageSquare className="h-6 w-6" />}
@@ -164,14 +171,14 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
                 description={`${active.waId} · ${pluralise(active.turns.length, 'turn')} in this window`}
                 icon={<Bot className="h-4 w-4" />}
               />
-              <CardBody className="flex-1 space-y-3 overflow-y-auto scroll-thin">
+              <CardBody className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden break-anywhere scroll-overlay">
                 {[...active.turns]
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
                   .map((turn) => (
                     <div key={turn.id} className="space-y-1.5">
                       {stripRoute(turn.message) && (
                         <div className="flex justify-start">
-                          <div className="max-w-[80%] rounded-xl bg-surface-panel px-3 py-2 text-sm text-slate-200 ring-1 ring-inset ring-surface-line">
+                          <div className="min-w-0 max-w-[80%] rounded-xl bg-surface-panel px-3 py-2 text-sm text-slate-200 ring-1 ring-inset ring-surface-line">
                             {stripRoute(turn.message)}
                             <span className="mt-1 block text-2xs text-slate-600">{formatDate(turn.created_at)}</span>
                           </div>
@@ -181,7 +188,7 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
                         <div className="flex justify-end">
                           <div
                             className={cn(
-                              'max-w-[80%] rounded-xl px-3 py-2 text-sm ring-1 ring-inset',
+                              'min-w-0 max-w-[80%] rounded-xl px-3 py-2 text-sm ring-1 ring-inset',
                               turn.route === 'agent'
                                 ? 'bg-accent-600 text-white ring-accent-600'
                                 : 'bg-accent-50 text-accent-900 ring-accent-200',

@@ -31,6 +31,40 @@
   button {
     font: inherit;
   }
+
+  /*
+   * Overlay scrollbars, applied everywhere.
+   *
+   * The track is transparent and the thumb is a rounded pill floating over
+   * the content, so a scrolling pane never shows a boxed-in browser scrollbar
+   * and the pane keeps its full width. Firefox uses the standard properties,
+   * WebKit/Blink the pseudo elements.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(86, 76, 109, 0.35) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(86, 76, 109, 0.28);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(86, 76, 109, 0.5);
+  }
 }
 
 @layer components {
@@ -45,5 +79,34 @@
   .scroll-thin {
     scrollbar-width: thin;
     scrollbar-color: #c9c3d6 transparent;
+  }
+
+  /*
+   * A pane that scrolls on its own: the thumb floats over the content and
+   * scrolling stops at the pane's edge instead of chaining to the page.
+   */
+  .scroll-overlay {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(86, 76, 109, 0.35) transparent;
+    overscroll-behavior: contain;
+  }
+
+  .scroll-overlay::-webkit-scrollbar-thumb {
+    background-color: rgba(86, 76, 109, 0.28);
+  }
+
+  .scroll-overlay:hover::-webkit-scrollbar-thumb,
+  .scroll-overlay:focus-within::-webkit-scrollbar-thumb {
+    background-color: rgba(86, 76, 109, 0.5);
+  }
+
+  /*
+   * Long, unbreakable runs — URLs, phone numbers, product codes — must wrap
+   * instead of stretching their column. `anywhere` also shrinks the element's
+   * minimum width, which is what keeps a grid column from blowing out.
+   */
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }

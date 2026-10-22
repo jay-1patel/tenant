@@ -235,7 +235,7 @@ export function AdminChatPanel({ tenantId }: { tenantId: string }) {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
         <Card className="overflow-hidden">
           <CardHeader title="People" icon={<Users className="h-4 w-4" />} />
           {loading ? (

@@ -12,7 +12,7 @@ export function PageHeader({
   meta?: ReactNode
 }) {
   return (
-    <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
+    <header className="mb-7 flex shrink-0 flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
         <h1 className="text-xl font-semibold text-slate-100">{title}</h1>
         {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">{description}</p>}
