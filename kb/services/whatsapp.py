@@ -13,9 +13,9 @@ Key distinction:
 import json
 import os
 import re
+import base64
 from typing import List, Dict, Optional
 import httpx
-import httpx  # FIX: Missing import for legacy sync functions
 
 from ..database import get_db, get_db_context, is_session_open, update_session_outbound
 from routing.config import (
@@ -281,6 +281,33 @@ async def send_text_message(contact_no: str, text: str) -> bool:
     return all_ok
 
 
+def _brochure_pdf_allowed(contact_no: str) -> bool:
+    """Check if document/PDF delivery is enabled for the recipient's tenant."""
+    try:
+        from shared.tenancy.resolver import resolve_tenant_for_user
+        from shared.tenancy.loader import get_tenant_profile
+        tid = resolve_tenant_for_user(contact_no)
+        profile = get_tenant_profile(tid)
+        if profile and profile.features:
+            return bool(getattr(profile.features, "brochure_pdf", True))
+    except Exception:
+        pass
+    return True
+
+
+async def _send_document_media(contact_no: str, media_url: str, caption: str = None) -> bool:
+    """Send a document (PDF) directly via WhatsApp API."""
+    try:
+        from routing.whatsapp import send_whatsapp_message, _resolve_media_url
+        resolved = resolve_public_media_url(media_url) or _resolve_media_url(media_url)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: send_whatsapp_message(contact_no, resolved, msg_type="document"))
+    except Exception as e:
+        logger.error(f"_send_document_media failed: {e}")
+        return False
+
+
 async def send_media_message(contact_no: str, media_type: str, media_url: str, caption: str = None) -> bool:
     """
     Send media message (image/video/document) using NEW API.
@@ -306,7 +333,8 @@ async def send_media_message(contact_no: str, media_type: str, media_url: str, c
         logger.info(f"MEDIA_SEND_DISABLED | to={contact_no} | type={media_type} | url={str(media_url)[:120]}")
         return False
 
-    return await _send_document_media(contact_no, media_url, caption=None)
+    return await _send_document_media(contact_no, media_url, caption=caption)
+
 
 
 async def send_button_message(
@@ -838,17 +866,27 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
         if len(parts) >= 5:
             subdir, stored_name = parts[3], parts[4]
             local_path = os.path.join(UPLOAD_DIR, subdir, stored_name)
+    elif media_url.startswith("/uploaded_files/"):
+        rel_sub = media_url[len("/uploaded_files/"):].lstrip("/\\")
+        potential = os.path.join(UPLOAD_DIR, rel_sub)
+        if os.path.isfile(potential):
+            local_path = potential
+            stored_name = os.path.basename(potential)
     elif os.path.isfile(media_url):
         local_path = media_url
         stored_name = os.path.basename(media_url)
     else:
-        potential = os.path.join(UPLOAD_DIR, media_url.lstrip("/"))
+        potential = os.path.join(UPLOAD_DIR, media_url.lstrip("/\\"))
         if os.path.isfile(potential):
             local_path = potential
             stored_name = os.path.basename(potential)
 
     if stored_name:
         pass  # media table removed; local path resolution handled below
+
+    if (media_url.startswith("/media/serve/") or media_url.startswith("/uploaded_files/")) and config.PUBLIC_BASE_URL:
+        base = config.PUBLIC_BASE_URL.rstrip("/")
+        return f"{base}{media_url}"
 
     if local_path and os.path.isfile(local_path):
         # FIX: Use native file extension checking instead of undefined variables
@@ -858,14 +896,11 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
         is_image = file_ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg")
         is_pdf = file_ext == ".pdf"  # FIX: Direct file extension check, no undefined variable
 
-        # Only upload images and PDFs to external services
+        # Only upload images and PDFs to external services as fallback
         if is_image or is_pdf:
             uploaded = _upload_image_file(local_path)
             if uploaded:
                 return uploaded
-
-    if media_url.startswith("/media/serve/") and config.PUBLIC_BASE_URL:
-        return f"{config.PUBLIC_BASE_URL}{media_url}"
 
     return None
 
@@ -1058,9 +1093,15 @@ def send_audio(to: str, audio_url: str) -> bool:
 
 
 def send_document(to: str, doc_url: str, filename: str = None) -> bool:
-    """Legacy wrapper — direct document sends are disabled for the bot."""
-    logger.info(f"MEDIA_SEND_DISABLED | to={to} | type=document | url={str(doc_url)[:120]}")
-    return False
+    """Send document (PDF) directly via WhatsApp API."""
+    try:
+        from routing.whatsapp import send_whatsapp_message, _resolve_media_url
+        resolved = resolve_public_media_url(doc_url) or _resolve_media_url(doc_url)
+        logger.info(f"SEND_DOCUMENT | to={to} | filename={filename} | url={resolved}")
+        return send_whatsapp_message(to, resolved, msg_type="document")
+    except Exception as e:
+        logger.error(f"send_document failed: {e}")
+        return False
 
 
 def send_sticker(to: str, sticker_url: str) -> bool:
@@ -1955,18 +1996,36 @@ def make_kb_response(answer: str, media_url: str = None) -> dict:
 
 def send_document_with_caption(to: str, document_url: str, filename: str, 
                              caption: str = "") -> bool:
-    """Send a document with a caption as an interactive message."""
+    """Send a document with a caption as an interactive message, with direct document fallback."""
+    from routing.whatsapp import _resolve_media_url
+    resolved_url = resolve_public_media_url(document_url) or _resolve_media_url(document_url)
     header_media = {
         "type": "document",
-        "document": {"link": document_url, "filename": filename},
+        "document": {"link": resolved_url, "filename": filename},
     }
     
-    # Send with caption
+    # Send with caption and return button
     button = build_button(id="main_menu", title="Main Menu")
-    return send_interactive_buttons(
+    ok = send_interactive_buttons(
         to=to,
         body_text=caption or "Please find the requested brochure attached.",
         buttons=[button],
         header_media=header_media,
         footer_text=" ",
     )
+    if not ok:
+        logger.info(f"Interactive document send fallback to direct document for {to}")
+        sent_doc = send_document(to, resolved_url, filename=filename)
+        if caption:
+            from .whatsapp import send_text_message
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(send_text_message(to, caption))
+                else:
+                    loop.run_until_complete(send_text_message(to, caption))
+            except Exception:
+                pass
+        return sent_doc
+    return ok

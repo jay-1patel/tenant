@@ -195,6 +195,14 @@ class Brochure:
         query_words = set(re.split(r'[\s\-_]+', query_lower))
         query_words.discard('')  # Remove empty strings
         
+        # Entity-level project matching (e.g. Arbour, Dahlias, Privana, Midtown)
+        filename_tokens = set(re.split(r'[\-_\s.]+', (self.filename or self.name or "").lower()))
+        generic_tokens = {'dlf', 'brochure', 'pdf', 'project', 'deck', 'luxury', 'residences', 'the', 'portfolio', 'super', 'new', 'general', 'info'}
+        specific_tokens = filename_tokens - generic_tokens
+        specific_hits = query_words.intersection(specific_tokens)
+        if specific_hits:
+            return 0.95
+
         matching_keywords = query_words.intersection(set(self.keywords))
         
         if matching_keywords:
