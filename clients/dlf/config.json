@@ -89,9 +89,6 @@
       }
     ]
   },
-<<<<<<< HEAD
-=======
-
   "menu": {
     "key": "kb_main",
     "header": "DLF Limited",
@@ -290,8 +287,6 @@
       "success_message": "🆘 *Your request has been logged with DLF Customer Relationship Secretariat.*\n\nYour Service Ticket ID has been generated. A dedicated relationship executive will assist you with your existing unit documentation, possession schedule, or query.\n• Helpline: +91 124 4334200 / 1800 103 3534\n• Email: customercare@dlf.in"
     }
   ],
-
->>>>>>> 1d91ba7371d3d978294fac9ede97532f4845d3da
   "guardrails": {
     "never_state": [
       "guaranteed speculative appreciation or unverified resale numbers",
@@ -312,12 +307,15 @@
       "title dispute",
       "arbitration"
     ],
-<<<<<<< HEAD
-    "escalation_message": "Let me connect you with our team.",
+    "escalation_message": "This inquiry is being connected directly to our Senior Customer Relationship Director.",
     "handoff_keywords": [
       "human",
       "agent",
-      "person"
+      "sales manager",
+      "director",
+      "urgent",
+      "complaint",
+      "talk to advisor"
     ],
     "forbidden_terms": [
       "add to cart",
@@ -905,9 +903,4 @@
       "enabled": true
     }
   ]
-=======
-    "escalation_message": "This inquiry is being connected directly to our Senior Customer Relationship Director.",
-    "handoff_keywords": ["human", "agent", "sales manager", "director", "urgent", "complaint", "talk to advisor"]
-  }
->>>>>>> 1d91ba7371d3d978294fac9ede97532f4845d3da
 }

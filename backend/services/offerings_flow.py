@@ -274,14 +274,24 @@ def product_card(product: dict, vertical: str = "generic") -> str:
             lines.append(f"🗓️ *Duration:* {dur}")
     elif vertical == "real_estate":
         loc = attrs.get("location")
+        if not loc:
+            parts = [p for p in (attrs.get("locality"), attrs.get("city")) if p]
+            if parts:
+                loc = ", ".join(parts)
         if loc:
             lines.append(f"📍 *Location:* {loc}")
-        config = attrs.get("configuration") or attrs.get("bhk")
+        config = attrs.get("configuration") or attrs.get("configurations") or attrs.get("bhk") or attrs.get("property_type")
         if config:
             lines.append(f"🏠 *Configuration:* {config}")
-        possession = attrs.get("possession")
+        area = attrs.get("carpet_area") or attrs.get("area") or attrs.get("leasable_area")
+        if area:
+            lines.append(f"📐 *Area:* {area}")
+        possession = attrs.get("possession") or attrs.get("status")
         if possession:
             lines.append(f"🔑 *Possession:* {possession}")
+        rera = attrs.get("rera_id") or attrs.get("rera")
+        if rera:
+            lines.append(f"📜 *RERA:* {rera}")
     elif vertical == "banking":
         interest = attrs.get("interest_rate") or attrs.get("rate")
         if interest:
@@ -416,10 +426,23 @@ async def send_product_details(wa_id: str, product: dict, tenant_id: str = None)
     # If the product carries an attached PDF brochure document, send it!
     media_url = product.get("media_url")
     media_type = (product.get("media_type") or "").lower()
-    if media_url and ("pdf" in media_type or media_url.lower().endswith(".pdf")):
+    attrs = product.get("attrs_json") or {}
+    if isinstance(attrs, str):
         try:
-            filename = f"{product.get('name')}.pdf"
-            await sender.send_document_message(wa_id, media_url, filename=filename)
+            import json as _json
+            attrs = _json.loads(attrs)
+        except Exception:
+            attrs = {}
+    doc_url = None
+    if media_url and ("pdf" in media_type or media_url.lower().endswith(".pdf")):
+        doc_url = media_url
+    elif attrs.get("brochure_url"):
+        doc_url = attrs.get("brochure_url")
+
+    if doc_url:
+        try:
+            filename = f"{product.get('name')}_Brochure.pdf"
+            await sender.send_document_message(wa_id, doc_url, filename=filename)
         except Exception as e:
             logger.debug("could not send product document for %s: %s", wa_id, e)
 
