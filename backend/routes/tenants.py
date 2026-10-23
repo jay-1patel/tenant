@@ -112,6 +112,13 @@ class ActiveTestTenantRequest(BaseModel):
     tenant_id: Optional[str] = None
 
 
+class UrlAutoOnboardRequest(BaseModel):
+    url: str
+    tenant_id: Optional[str] = None
+    vertical: Optional[str] = None
+    auto_publish: bool = True
+
+
 def _admin_only(principal: dict) -> str:
     """Only admins may mint tokens, rebind phone ids, or set secrets."""
     if principal.get("type") != "admin":
@@ -164,6 +171,62 @@ def set_current_active_test_tenant(
         tid, current_admin.get("username"),
     )
     return {"ok": True, "active_test_tenant": tid}
+
+
+@router.post("/auto-onboard-preview")
+def auto_onboard_preview(
+    body: UrlAutoOnboardRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Website URL is required")
+    try:
+        from services.url_scraper import WebScraperCrawler, UrlAutoOnboarder, slugify
+        crawler = WebScraperCrawler(base_url=url, max_pages=8)
+        crawl_res = crawler.crawl()
+        if not crawl_res.get("pages"):
+            raise HTTPException(status_code=400, detail="Could not reach or crawl website. Please check the URL.")
+        onboarder = UrlAutoOnboarder(tenant_id=body.tenant_id, actor=current_admin)
+        extracted = onboarder.extract_bifurcation(crawl_res)
+        brand = extracted.get("brand", {})
+        domain = crawl_res.get("domain", "")
+        suggested_id = body.tenant_id or slugify(brand.get("name") or domain)
+        return {
+            "ok": True,
+            "url": crawl_res.get("root_url"),
+            "domain": domain,
+            "pages_crawled": [p.get("url") for p in crawl_res.get("pages", [])],
+            "suggested_tenant_id": suggested_id,
+            "extracted": extracted,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Auto-onboard preview failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Website analysis failed: {exc}")
+
+
+@router.post("/auto-onboard-execute")
+def auto_onboard_execute(
+    body: UrlAutoOnboardRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Website URL is required")
+    try:
+        from services.url_scraper import UrlAutoOnboarder
+        onboarder = UrlAutoOnboarder(tenant_id=body.tenant_id, actor=current_admin)
+        result = onboarder.execute_onboarding(
+            url=url,
+            target_tenant_id=body.tenant_id,
+            auto_publish=body.auto_publish,
+        )
+        return {"ok": True, "result": result}
+    except Exception as exc:
+        logger.error("Auto-onboard execute failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Auto-onboarding failed: {exc}")
 
 
 @router.post("")
@@ -546,6 +609,29 @@ def _draft_changes_menu_only(draft, live) -> bool:
         return False
     changed = {key for key in set(draft) | set(live) if draft.get(key) != live.get(key)}
     return changed <= {"menu", "intents"}
+
+
+@router.post("/{tenant_id}/scrape-website")
+def scrape_website_for_tenant(
+    tenant_id: str,
+    body: UrlAutoOnboardRequest,
+    principal: dict = Depends(require_tenant_access()),
+):
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Website URL is required")
+    try:
+        from services.url_scraper import UrlAutoOnboarder
+        onboarder = UrlAutoOnboarder(tenant_id=tenant_id, actor=principal)
+        result = onboarder.execute_onboarding(
+            url=url,
+            target_tenant_id=tenant_id,
+            auto_publish=body.auto_publish,
+        )
+        return {"ok": True, "result": result}
+    except Exception as exc:
+        logger.error("Scrape website failed for tenant %s: %s", tenant_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Website crawl and sync failed: {exc}")
 
 
 @router.post("/{tenant_id}/publish")

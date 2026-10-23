@@ -6,12 +6,14 @@ import {
   Building2,
   CalendarClock,
   Check,
+  Globe,
   ImageIcon,
   MessageSquareText,
   Rocket,
   ShieldAlert,
   Sparkles,
   Webhook,
+  Zap,
 } from 'lucide-react'
 import {
   applyVertical,
@@ -94,6 +96,93 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
     [stepId, draft, tenantIdTaken],
   )
 
+  const [crawlUrl, setCrawlUrl] = useState('')
+  const [crawling, setCrawling] = useState(false)
+  const [crawlSummary, setCrawlSummary] = useState<{
+    offeringsCount: number
+    imagesCount: number
+    faqsCount: number
+    domain: string
+    vertical: string
+  } | null>(null)
+
+  const handleAutoExtract = async () => {
+    if (!crawlUrl.trim()) {
+      toast.push('Please enter a website URL (e.g. https://example.com)', 'error')
+      return
+    }
+    setCrawling(true)
+    setCrawlSummary(null)
+    try {
+      toast.push(`Crawling website ${crawlUrl}...`)
+      const res = await tenantsApi.autoOnboardPreview(crawlUrl.trim(), draft.tenantId || undefined)
+      if (res && res.extracted) {
+        const ext = res.extracted
+        const b = ext.brand || {}
+        const bh = ext.business_hours || {}
+        const v = ext.vertical || 'generic'
+        patch({
+          companyName: b.name || draft.companyName,
+          displayName: b.name || draft.displayName,
+          tenantId: draft.tenantId || res.suggested_tenant_id || slugify(b.name || 'tenant'),
+          vertical: v,
+          tagline: b.tagline || draft.tagline,
+          supportEmail: b.support_email || draft.supportEmail,
+          supportPhone: b.support_phone || draft.supportPhone,
+          website: b.website || res.url || draft.website,
+          logoUrl: b.logo_url || draft.logoUrl,
+          greeting: ext.welcome_message || `Welcome to ${b.name || 'our service'}! How can I help you today?`,
+          openTime: bh.open || draft.openTime,
+          closeTime: bh.close || draft.closeTime,
+          timezone: bh.timezone || draft.timezone,
+          openDays: Array.isArray(bh.open_days) ? bh.open_days : draft.openDays,
+        })
+        const offList = ext.offerings || []
+        const offCount = offList.length
+        const imgCount = offList.filter((o: any) => Boolean(o.media_url)).length
+        const faqCount = (ext.faqs || []).length
+        setCrawlSummary({
+          offeringsCount: offCount,
+          imagesCount: imgCount,
+          faqsCount: faqCount,
+          domain: res.domain || crawlUrl,
+          vertical: v,
+        })
+        toast.push(`Extracted details for ${b.name || res.domain}! ${offCount} offerings (${imgCount} with photos) and ${faqCount} FAQs ready.`)
+      }
+    } catch (err) {
+      toast.push((err as Error).message || 'Extraction failed', 'error')
+    } finally {
+      setCrawling(false)
+    }
+  }
+
+  const handleDirectLaunch = async () => {
+    if (!crawlUrl.trim()) {
+      toast.push('Please enter a website URL', 'error')
+      return
+    }
+    setCrawling(true)
+    try {
+      toast.push(`Autonomous Launch: crawling & configuring chatbot from ${crawlUrl}...`)
+      const res = await tenantsApi.autoOnboardExecute(
+        crawlUrl.trim(),
+        draft.tenantId.trim() || undefined,
+        true,
+      )
+      if (res && res.result) {
+        const tid = res.result.tenant_id
+        toast.push(`🎉 Chatbot launched for ${res.result.brand?.name || tid}! All products & FAQs are live.`)
+        reload()
+        navigate(`/tenants/${encodeURIComponent(tid)}/overview`)
+      }
+    } catch (err) {
+      toast.push((err as Error).message || 'Autonomous Launch failed', 'error')
+    } finally {
+      setCrawling(false)
+    }
+  }
+
   /** Load the selected tenant's resolved profile into the wizard draft. */
   const pickTenant = async (tenantId: string) => {
     const tenant = tenants.find((t) => t.id === tenantId)
@@ -167,6 +256,74 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
             : 'Pick a tenant the super admin registered, then complete it from WhatsApp onwards. Your submission goes to a super admin for approval before anything goes live.'
         }
       />
+
+      {/* 🚀 Autonomous Website URL Auto-Onboarder */}
+      <Card className="mb-6 border-accent-500/40 bg-accent-950/20 shadow-md">
+        <CardBody className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-500/20 text-accent-400">
+                <Globe className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                  Instant Auto-Onboard from Website URL
+                  <Badge tone="accent">Zero Manual Work</Badge>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  No manual typing or file uploads. Enter a website URL — our AI automatically crawls the site, extracts company info, catalog/offerings, and FAQs.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 mt-1">
+              <div className="relative flex-1">
+                <Input
+                  placeholder="e.g. https://example.com or client website"
+                  value={crawlUrl}
+                  onChange={(e) => setCrawlUrl(e.target.value)}
+                  disabled={crawling}
+                  className="w-full text-xs"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={crawling}
+                  onClick={handleAutoExtract}
+                  icon={<Sparkles className="h-3.5 w-3.5 text-accent-400" />}
+                >
+                  Auto-Fill Form
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={crawling}
+                  onClick={handleDirectLaunch}
+                  icon={<Zap className="h-3.5 w-3.5" />}
+                >
+                  1-Click Launch Bot
+                </Button>
+              </div>
+            </div>
+
+            {crawlSummary && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-accent-500/20 text-xs text-accent-300">
+                <BadgeCheck className="h-4 w-4 text-emerald-400" />
+                <span>Extracted from <strong>{crawlSummary.domain}</strong>:</span>
+                <Badge tone="neutral">Vertical: {crawlSummary.vertical}</Badge>
+                <Badge tone="success">{crawlSummary.offeringsCount} Offerings</Badge>
+                {crawlSummary.imagesCount > 0 && (
+                  <Badge tone="accent">{crawlSummary.imagesCount} Photos Extracted</Badge>
+                )}
+                <Badge tone="neutral">{crawlSummary.faqsCount} FAQs Indexed</Badge>
+                <span className="text-slate-400 ml-auto">All fields pre-filled below!</span>
+              </div>
+            )}
+          </div>
+        </CardBody>
+      </Card>
 
       <ol className="mb-7 flex flex-wrap gap-1.5">
         {steps.map((s, index) => {

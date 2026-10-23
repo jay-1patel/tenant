@@ -28,7 +28,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, File, UploadFile, Form
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,11 @@ from database import (
     save_product,
     update_product,
 )
-from backend.deps.tenant_access import _require_read_access, _require_write_access
+from routes.auth import get_current_admin, has_permission, require_tenant_access, security
+try:
+    from deps.tenant_access import _require_read_access, _require_write_access
+except ImportError:
+    from backend.deps.tenant_access import _require_read_access, _require_write_access
 from shared.tenancy import records as record_schema
 
 logger = logging.getLogger("offerings")

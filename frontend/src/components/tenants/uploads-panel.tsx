@@ -4,6 +4,7 @@ import {
   FolderUp,
   Download,
   Eye,
+  Globe,
   RefreshCw,
   Trash2,
   Upload,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
+import { tenantsApi } from '@/lib/tenants'
 import {
   FILE_MODULES,
   UPLOAD_ACCEPT,
@@ -68,6 +70,31 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   const [busyName, setBusyName] = useState<string | null>(null)
   const [bifurcating, setBifurcating] = useState(false)
   const [bifurcationResult, setBifurcationResult] = useState<BifurcationResult | null>(null)
+
+  // Website Scraper state
+  const [crawlUrl, setCrawlUrl] = useState('')
+  const [crawling, setCrawling] = useState(false)
+  const [crawlResult, setCrawlResult] = useState<any | null>(null)
+
+  const onCrawlWebsite = async () => {
+    if (!crawlUrl.trim()) {
+      toast.push('Please enter a website URL (e.g. https://example.com)', 'error')
+      return
+    }
+    setCrawling(true)
+    setCrawlResult(null)
+    try {
+      toast.push(`Crawling website ${crawlUrl}...`)
+      const res = await tenantsApi.scrapeWebsite(tenantId, crawlUrl.trim(), true)
+      setCrawlResult(res.result)
+      toast.push(`Website crawled & ingested! Created ${res.result?.offerings_created ?? 0} offerings and ${res.result?.faqs_created ?? 0} FAQs.`)
+      state.reload()
+    } catch (err) {
+      toast.push((err as Error).message || 'Website crawl failed', 'error')
+    } finally {
+      setCrawling(false)
+    }
+  }
 
   // Knowledge Gap Analytics State
   const [showResolvedGaps, setShowResolvedGaps] = useState(false)
@@ -271,6 +298,51 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         className="hidden"
         onChange={(e) => void onAutoBatchFiles(e.target.files)}
       />
+
+      {/* 🌐 Autonomous Website Ingestion (Zero Uploads) */}
+      <Card className="mb-6 border-accent-500/40 bg-accent-950/20 shadow-sm">
+        <CardHeader
+          title="Instant Website Scraper & Auto-Ingestion (Zero Uploads)"
+          icon={<Globe className="h-4 w-4 text-accent-400" />}
+        />
+        <CardBody className="space-y-3">
+          <p className="text-xs text-slate-300">
+            Don't have files to upload? Enter your official company or product website URL.
+            Our crawler will automatically extract products/offerings, policies, and FAQs directly into this bot with full vector search:
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              placeholder="e.g. https://dlf.in or https://company.com"
+              value={crawlUrl}
+              onChange={(e) => setCrawlUrl(e.target.value)}
+              disabled={crawling}
+              className="flex-1 text-xs"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Sparkles className="h-4 w-4" />}
+              loading={crawling}
+              onClick={onCrawlWebsite}
+            >
+              Crawl & Auto-Populate Bot
+            </Button>
+          </div>
+
+          {crawlResult && (
+            <div className="mt-3 rounded-md border border-emerald-500/30 bg-surface-base/80 p-3 text-xs text-emerald-300 flex flex-wrap items-center gap-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              <span>Website <strong>{crawlResult.website_url}</strong> ingested successfully!</span>
+              <Badge tone="success">{crawlResult.offerings_created} Catalog Items Created</Badge>
+              {crawlResult.offerings_with_images_count > 0 && (
+                <Badge tone="accent">{crawlResult.offerings_with_images_count} Product Images Cached</Badge>
+              )}
+              <Badge tone="neutral">{crawlResult.faqs_created} FAQs Indexed</Badge>
+              <span className="text-slate-400">Pages visited: {crawlResult.pages_crawled?.length || 0}</span>
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       {/* Zero-Touch Document Intake Card */}
       <Card className="mb-6 border-accent-500/30 bg-accent-950/20">

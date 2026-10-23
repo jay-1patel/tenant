@@ -105,40 +105,85 @@ def _extract_page_assets(
     return page_images
 
 
+
+# Vertical-specific attrs schema: tells the LLM exactly which fields to extract per industry
+_VERTICAL_ATTRS_SCHEMA = {
+    "real_estate": (
+        "city, location/area, configuration (e.g. '3 BHK'), carpet_area (sq ft), "
+        "built_up_area, total_floors, floor_number, possession_date (e.g. 'Dec 2025'), "
+        "rera_id, property_type (Apartment/Villa/Plot/Commercial), "
+        "amenities (comma-separated list), facing (East/North/etc), parking"
+    ),
+    "tours_travel": (
+        "destination, duration (e.g. '5N/6D'), departure_city, inclusions "
+        "(hotel, meals, transport), exclusions, itinerary_summary, group_size, "
+        "validity, departure_dates"
+    ),
+    "banking": (
+        "interest_rate (p.a.), loan_tenure, min_loan_amount, max_loan_amount, "
+        "eligibility (salaried/self-employed/both), processing_fee, "
+        "prepayment_charges, collateral_required"
+    ),
+    "finance": (
+        "fund_category, risk_profile (Low/Medium/High), expected_returns, "
+        "lock_in_period, min_investment, tax_benefit (yes/no), "
+        "fund_manager, asset_class"
+    ),
+    "it_software": (
+        "tech_stack, service_type (Web/Mobile/AI/Cloud/Consulting), "
+        "project_duration_estimate, team_size, delivery_model (Fixed/T&M/Retainer), "
+        "domain_expertise"
+    ),
+    "ecommerce": (
+        "brand, sku, weight, dimensions, material, color_options, "
+        "warranty_period, in_stock (yes/no), shipping_info"
+    ),
+}
+
 def build_bifurcation_prompt(vertical: str, page_text: str, default_category: str = "") -> Tuple[str, str]:
-    system_prompt = f"""You are an advanced document ingestion and data bifurcation engine for a multi-tenant business platform ({vertical} vertical).
+    attrs_schema = _VERTICAL_ATTRS_SCHEMA.get(
+        vertical,
+        "any relevant structured attributes specific to this industry"
+    )
+    system_prompt = f"""You are an advanced document ingestion and data bifurcation engine for a multi-tenant business platform.
+VERTICAL: {vertical}
+
 Your task is to analyze the provided page text from a company document / brochure and strictly BIFURCATE the content into 5 distinct categories:
 
 1. "products":
    - Distinct catalog offerings, properties, apartments, packages, services, or loans.
+   - For vertical "{vertical}", extract these attrs fields: {attrs_schema}
    - Each product must have:
-     • "name": specific offering name
-     • "category": category or segment (e.g. "Luxury High-Rise", "Domestic Tour", "Home Loan")
+     • "name": specific offering name (e.g. "Skyline Heights 3BHK", "Goa Beach Tour 5D/4N")
+     • "category": segment/type (e.g. "Luxury Apartment", "Domestic Tour", "Home Loan")
      • "price": price or starting rate (e.g. "₹4.85 Cr", "₹32,000", "8.40% p.a.", "On Request")
-     • "short_description": 1-2 sentence highlight (<= 150 chars) for WhatsApp
-     • "description": full overview
-     • "attrs": dict of vertical specs (for real_estate: city, location, configuration, carpet_area, possession, rera_id, amenities; for travel: destination, duration, itinerary, inclusions; for banking: interest_rate, eligibility, tenure).
+     • "short_description": 1-2 sentence highlight (<= 150 chars) for WhatsApp display
+     • "description": full multi-sentence overview
+     • "attrs": dict using the vertical-specific field list above — only include fields that appear in the text
 
 2. "faqs":
-   - Explicit or implied Frequently Asked Questions, policies, common buyer inquiries, rules, procedures, or eligibility criteria.
-   - Format: array of {{"question": "Clear question", "answer": "Comprehensive, factual answer"}}.
+   - Explicit or implied Frequently Asked Questions, policies, buyer inquiries, eligibility criteria, procedures.
+   - Format: [{{"question": "...", "answer": "..."}}]
+   - Examples for {vertical}: payment schedules, RERA compliance, booking process, cancellation policy
 
 3. "kb_chunks":
-   - Narrative background information, company overview, mission/vision, architectural technologies, safety standards, corporate policies, terms & conditions.
-   - Format: array of {{"title": "Section title", "content": "Full narrative text"}}.
+   - Narrative background: company overview, mission, project highlights, safety standards, terms & conditions, disclaimers.
+   - Format: [{{"title": "Section heading", "content": "Full paragraph text"}}]
 
 4. "menu_suggestions":
-   - Primary high-level service pillars suitable for WhatsApp quick-reply buttons (strictly <= 20 chars).
-   - Format: array of {{"title": "Button Title (<=20 chars)", "category": "Category name"}}.
+   - Top 3-5 service/category pillars as WhatsApp quick-reply buttons. STRICTLY <= 20 characters each.
+   - Format: [{{"title": "🏢 View Properties", "category": "Properties"}}]
+   - For real_estate examples: "🏢 View Properties", "📞 Site Visit", "💰 Price List"
+   - For tours examples: "🎒 Tour Packages", "📅 Book a Trip", "🗺️ Destinations"
 
 5. "business_info":
-   - Any detected corporate contact details, developer license, RERA ID, GST number, office address, customer support phone, email, or operating hours.
-   - Format: {{"phone": "", "email": "", "address": "", "rera_id": "", "gstin": "", "hours": ""}}.
+   - Corporate contact details, license numbers, office address, support phone, email, hours.
+   - Format: {{"phone": "", "email": "", "address": "", "rera_id": "", "gstin": "", "hours": "", "website": "", "company_name": ""}}
 
 CRITICAL INSTRUCTIONS:
-- If a category is not present on this page, return an empty array [] or empty object {{}}.
-- Do not invent data; extract only what is stated or strongly implied by the page.
-- Return ONLY valid JSON conforming to the schema. No markdown conversational text.
+- Extract ONLY what is explicitly stated or strongly implied in the text. Never invent data.
+- If a bucket has no content on this page, return [] or {{}}.
+- Return ONLY valid JSON. No markdown, no explanation text outside the JSON.
 
 Expected JSON format:
 {{

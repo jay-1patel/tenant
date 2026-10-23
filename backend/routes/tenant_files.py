@@ -73,6 +73,25 @@ def _require(perm: str):
     return dependency
 
 
+
+def _resolve_tenant_db_id(tenant_id: str):
+    """Convert a slug like 'dlf' to the numeric DB id (e.g. 11) that
+    list_admin_files / get_admin_file use for querying.
+    Falls back to the original value if not found (numeric strings still work).
+    """
+    try:
+        from shared.tenancy import store
+        rec = store.get_tenant(tenant_id)
+        if rec and rec.get("id") is not None:
+            return rec["id"]
+    except Exception:
+        pass
+    # Already numeric?
+    if str(tenant_id).isdigit():
+        return int(tenant_id)
+    return tenant_id
+
+
 def _resolve_uploader(
     request: Request,
     principal: dict,
@@ -109,7 +128,8 @@ def list_tenant_files(
     search: str = Query(None),
     principal: dict = Depends(_require("view_files")),
 ):
-    files = list_admin_files(tenant_id=tenant_id)
+    db_tenant_id = _resolve_tenant_db_id(tenant_id)
+    files = list_admin_files(tenant_id=db_tenant_id)
     if module:
         files = [f for f in files if f.get("module") == module]
     if search:
@@ -210,15 +230,18 @@ async def auto_bifurcate_existing_files(
     target_filenames = body.get("filenames")  # None means all files for tenant
     auto_publish = body.get("auto_publish", True)
 
-    tenant_files = list_admin_files(tenant_id=tenant_id)
+    # Resolve slug → numeric DB id so list_admin_files can find the rows
+    db_tenant_id = _resolve_tenant_db_id(tenant_id)
+    tenant_files = list_admin_files(tenant_id=db_tenant_id)
     if target_filenames:
         target_set = set(target_filenames)
         tenant_files = [f for f in tenant_files if f.get("name") in target_set]
 
     if not tenant_files:
-        raise HTTPException(status_code=404, detail="No matching uploaded files found to bifurcate")
+        raise HTTPException(status_code=404, detail=f"No uploaded files found for tenant '{tenant_id}' (db_id={db_tenant_id})")
 
     files_payload = []
+    missing = []
     for tf in tenant_files:
         fname = tf.get("name")
         fpath = _find_uploaded_file(fname)
@@ -231,8 +254,17 @@ async def auto_bifurcate_existing_files(
                     "media_type": _guess_media_type(fname),
                 })
 
+        else:
+            missing.append(fname)
+            logger.warning("File '%s' not found on disk (tenant=%s)", fname, tenant_id)
+
     if not files_payload:
-        raise HTTPException(status_code=400, detail="Could not read content from existing files on disk")
+        all_names = [tf.get("name") for tf in tenant_files]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Files are registered in the database but could not be read from disk: {all_names}. "
+                   f"They may have been deleted manually from the server. Please re-upload them.",
+        )
 
     try:
         from services.auto_bifurcator import AutoBifurcator

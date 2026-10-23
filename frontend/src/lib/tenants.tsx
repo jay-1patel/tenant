@@ -126,6 +126,29 @@ export const tenantsApi = {
 
   smoke: (id: string) =>
     api.get<SmokeReport>(`/api/admin/tenants/${encodeURIComponent(id)}/smoke`),
+
+  autoOnboardPreview: (url: string, tenantId?: string) =>
+    api.post<{
+      ok: boolean
+      url: string
+      domain: string
+      pages_crawled: string[]
+      suggested_tenant_id: string
+      extracted: any
+    }>('/api/admin/tenants/auto-onboard-preview', { url, tenant_id: tenantId }),
+
+  autoOnboardExecute: (url: string, tenantId?: string, autoPublish = true) =>
+    api.post<{ ok: boolean; result: any }>('/api/admin/tenants/auto-onboard-execute', {
+      url,
+      tenant_id: tenantId,
+      auto_publish: autoPublish,
+    }),
+
+  scrapeWebsite: (id: string, url: string, autoPublish = true) =>
+    api.post<{ ok: boolean; result: any }>(
+      `/api/admin/tenants/${encodeURIComponent(id)}/scrape-website`,
+      { url, auto_publish: autoPublish },
+    ),
 }
 
 // ── context ────────────────────────────────────────────────────────────────
