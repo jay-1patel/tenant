@@ -102,16 +102,21 @@ async def simulate_message(request: SimulatorRequest):
 
     if request.tenant_id:
         try:
-            from database import set_request_tenant
+            from database import set_request_tenant, get_db_context
             from backend.services import state_manager as sm
             set_request_tenant(request.tenant_id)
             sm.set_tenant(wa_id, request.tenant_id)
+            with get_db_context() as conn:
+                try:
+                    conn.execute("UPDATE user_states SET tenant_id=? WHERE wa_id=?", (request.tenant_id, wa_id))
+                except Exception:
+                    pass
         except Exception as exc:
             logger.debug(f"Could not stamp simulator tenant: {exc}")
 
     resolved_type = _ensure_user_type(wa_id, request.user_type)
 
-    result = await process_incoming_message(wa_id, message)
+    result = await process_incoming_message(wa_id, message, tenant_id=request.tenant_id)
 
     result["user_type"] = resolved_type
     return result
@@ -129,6 +134,15 @@ async def reset_conversation(request: SimulatorRequest):
 
     wa_id = (request.wa_id or "").strip() or "test-user-001"
     logger.info(f"TEST_SIMULATOR_RESET | wa_id={wa_id}")
+
+    try:
+        try:
+            from services import flow_runner
+        except ImportError:
+            from backend.services import flow_runner
+        flow_runner.clear_flow(wa_id)
+    except Exception:
+        pass
 
     with get_db_context() as conn:
         conn.execute("DELETE FROM user_states WHERE wa_id=?", (wa_id,))

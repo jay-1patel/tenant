@@ -79,6 +79,9 @@ BUTTONS: dict[str, str] = {
     "menu_specialities": "🏥 Specialities",
     "menu_appointment": "📅 Book Appointment",
     "menu_offerings": "📋 Offerings",
+    # Real Estate
+    "menu_properties": "🏢 View Properties",
+    "menu_site_visit": "🚗 Site Visit",
     # Banking
     "menu_products": "🏦 Banking Products",
     "menu_cards": "💳 Cards",
@@ -125,6 +128,8 @@ BUTTONS: dict[str, str] = {
 }
 
 BUTTON_FEATURE_REQUIREMENTS: dict[str, str] = {
+    "menu_properties": "offerings",
+    "menu_site_visit": "callback",
     "menu_view_cart": "cart",
     "track_order": "track_order",
     "menu_catalogue": "brochure_pdf",
@@ -735,7 +740,34 @@ def get_contextual_buttons(
             picked_ids = ["menu_services", "menu_callback", "menu_technologies"]
         picked_ids.append("main_menu")
 
-    # 6. E-Commerce Vertical
+    # 6. Real Estate Vertical
+    elif vertical == "real_estate":
+        if any(k in q for k in ("property", "properties", "flat", "flats", "apartment", "apartments", "villa", "villas", "penthouse", "bhk", "sqft", "project", "projects", "commercial", "office", "retail")):
+            picked_ids.append("menu_properties")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_site_visit")
+        elif any(k in q for k in ("visit", "site visit", "tour", "appointment", "schedule", "inspect", "viewing")):
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_site_visit")
+            picked_ids.append("menu_properties")
+        elif any(k in q for k in ("price", "cost", "pricing", "rate", "cost sheet", "payment", "down payment", "emi")):
+            picked_ids.append("menu_properties")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+        elif any(k in q for k in ("brochure", "floor plan", "layout", "master plan", "pdf")):
+            if profile and profile.features.is_on("brochure_pdf"):
+                picked_ids.append("menu_brochure")
+            picked_ids.append("menu_properties")
+        elif any(k in q for k in ("callback", "call", "advisor", "consult", "contact")):
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        else:
+            picked_ids = ["menu_properties", "menu_site_visit", "menu_callback"]
+        picked_ids.append("main_menu")
+
+    # 7. E-Commerce Vertical
     elif vertical == "ecommerce":
         if any(k in q for k in ("cart", "checkout", "buy", "basket")):
             if profile and profile.features.is_on("cart"):

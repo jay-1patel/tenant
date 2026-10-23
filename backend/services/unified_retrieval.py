@@ -8,6 +8,7 @@ This module implements a two-tier retrieval strategy:
 """
 
 import logging
+import re
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 
@@ -17,6 +18,9 @@ logger = logging.getLogger("unified_retrieval")
 PRIMARY_CONFIDENCE_THRESHOLD = 0.30  # Minimum CE score to consider primary sufficient
 MIN_RESULTS_REQUIRED = 2  # Minimum number of results needed from primary
 MAX_COMBINED_CONTEXT_CHUNKS = 8  # Max chunks to pass to LLM
+FAQ_CONTEXT_MIN_SCORE = 0.25
+KB_CONTEXT_MIN_SCORE = 0.35
+MAX_GROUNDED_CONTEXT_CHARS = 12000
 
 
 @dataclass
@@ -29,7 +33,7 @@ class RetrievalResult:
 
 async def search_faq_index(query: str, k: int = 20, tenant_id: Optional[str] = None) -> RetrievalResult:
     """Search FAQ hybrid index (FAISS + BM25 + rerank), scoped to one tenant"""
-    from backend.faq.service import faq_index, _clean_faq_chunk
+    from backend.faq.service import faq_index
 
     if not faq_index.is_built:
         logger.warning("FAQ index not built, attempting build")
@@ -47,9 +51,8 @@ async def search_faq_index(query: str, k: int = 20, tenant_id: Optional[str] = N
         chunks = []
         best_score = 0.0
         for chunk_text, metadata, score in results:
-            cleaned = _clean_faq_chunk(chunk_text)
             chunks.append({
-                "text": cleaned,
+                "text": str(chunk_text or "").strip(),
                 "metadata": metadata,
                 "score": float(score)
             })
@@ -69,6 +72,8 @@ async def search_kb_index(query: str, k: int = 20, tenant_id: Optional[str] = No
         from kb.services.rag import search_kb_faiss
         from database import get_db_context
 
+        if not tenant_id:
+            return RetrievalResult(source="kb", chunks=[], best_score=0.0)
         hits = search_kb_faiss(query, limit=k, tenant_id=tenant_id)
         if not hits:
             return RetrievalResult(source="kb", chunks=[], best_score=0.0)
@@ -84,11 +89,16 @@ async def search_kb_index(query: str, k: int = 20, tenant_id: Optional[str] = No
             # Fetch full chunk text from database
             with get_db_context() as conn:
                 row = conn.execute(
-                    "SELECT chunks_json FROM knowledge_base WHERE id=?", (doc_id,)
+                    "SELECT chunks_json, tenant_id FROM knowledge_base WHERE id=?", (doc_id,)
                 ).fetchone()
             
             if row and row[0]:
                 import json as _json
+                from shared.tenancy import store
+                record = store.get_tenant(str(tenant_id)) if tenant_id else None
+                allowed_tenants = {str(tenant_id or ""), str((record or {}).get("id") or ""), str((record or {}).get("slug") or "")}
+                if str(row[1] or "") not in allowed_tenants:
+                    continue
                 chunks_data = _json.loads(row[0])
                 if isinstance(chunk_index, int) and 0 <= chunk_index < len(chunks_data):
                     chunk_text = chunks_data[chunk_index]
@@ -158,22 +168,152 @@ def _merge_and_rerank(primary: RetrievalResult, secondary: RetrievalResult, quer
 
 def _format_combined_context(chunks: List[Dict]) -> str:
     """Format merged chunks into context string for LLM"""
-    if not chunks:
-        return "No relevant information found in knowledge bases."
-    
     context_parts = []
     for chunk in chunks:
         source = chunk.get("retrieval_source", "unknown")
         score = chunk.get("score", 0)
         text = chunk.get("text", "")
         metadata = chunk.get("metadata", {})
-        source_file = metadata.get("source_file") or metadata.get("doc_id", "unknown")
-        
+        source_file = metadata.get("source_file") or metadata.get("doc_id", "tenant data")
         context_parts.append(
             f"[source={source} | score={score:.3f} | file={source_file}]\n{text}"
         )
-    
     return "\n\n---\n\n".join(context_parts)
+
+
+def _normalize_match(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _profile_context(query: str, tenant_id: str) -> str:
+    """Return only the tenant profile answer linked to a matched menu/intent."""
+    try:
+        from shared.tenancy.loader import get_tenant_profile
+        from shared.tenancy.intent_match import match_by_rules
+
+        profile = get_tenant_profile(tenant_id)
+        active = profile.active_intents()
+        matched_intent = match_by_rules(query, active)
+        intent_name = matched_intent[0] if matched_intent else None
+        normalized_query = _normalize_match(query)
+        matched_button = None
+        for button in profile.menu.visible_buttons(profile.features):
+            title = _normalize_match(button.title)
+            intent_alias = _normalize_match(button.intent or "")
+            button_alias = _normalize_match(button.id)
+            if any(alias and (alias == normalized_query or alias.rstrip("s") == normalized_query.rstrip("s"))
+                   for alias in (title, intent_alias, button_alias)):
+                matched_button = button
+                if button.intent:
+                    intent_name = button.intent
+                break
+
+        intent = next((item for item in active if item.name == intent_name), None)
+        has_description = bool(matched_button and (matched_button.description or "").strip())
+        has_answer = bool(intent and (intent.answer or "").strip())
+        if not has_description and not has_answer:
+            return ""
+
+        parts = []
+        if matched_button:
+            parts.append(f"Tenant menu option: {matched_button.title}")
+            if has_description:
+                parts.append(f"Tenant-provided menu description: {matched_button.description.strip()}")
+        if has_answer:
+            parts.append(f"Tenant profile answer ({intent.name}):\n{intent.answer.strip()}")
+        return "[source=tenant_profile]\n" + "\n".join(parts)
+    except Exception as exc:
+        logger.debug("Tenant profile context unavailable for %s: %s", tenant_id, exc)
+        return ""
+
+
+async def build_grounded_context(
+    query: str,
+    tenant_id: str,
+    *,
+    profile_answer: str = "",
+    intent_name: str = "",
+    k: int = 5,
+) -> Tuple[str, Dict]:
+    """Retrieve relevant tenant profile, FAQ, and KB evidence for one answer."""
+    import asyncio
+
+    tid = str(tenant_id or "").strip()
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            tid = str(resolve_default_tenant())
+        except Exception:
+            return "", {"sources": [], "tenant_id": ""}
+
+    faq_result, kb_result = await asyncio.gather(
+        search_faq_index(query, k=k, tenant_id=tid),
+        search_kb_index(query, k=k, tenant_id=tid),
+    )
+    try:
+        from backend.faq.service import _detect_destination, _is_conflicting_dest_chunk
+        target_dest = _detect_destination(query)
+    except Exception:
+        target_dest = None
+        _is_conflicting_dest_chunk = None
+
+    chunks = []
+    for chunk in faq_result.chunks:
+        text = chunk.get("text", "")
+        if not text.strip() or chunk.get("score", 0) < FAQ_CONTEXT_MIN_SCORE:
+            continue
+        if target_dest and _is_conflicting_dest_chunk and _is_conflicting_dest_chunk(text, chunk.get("metadata", {}), target_dest):
+            continue
+        chunks.append({**chunk, "retrieval_source": "tenant_faq"})
+    for chunk in kb_result.chunks:
+        text = chunk.get("text", "")
+        if not text.strip() or chunk.get("score", 0) < KB_CONTEXT_MIN_SCORE:
+            continue
+        if target_dest and _is_conflicting_dest_chunk and _is_conflicting_dest_chunk(text, chunk.get("metadata", {}), target_dest):
+            continue
+        chunks.append({**chunk, "retrieval_source": "tenant_kb"})
+
+    profile_context = _profile_context(query, tid)
+    if profile_answer and profile_answer.strip():
+        label = f" ({intent_name.strip()})" if intent_name else ""
+        supplied = f"Tenant-provided profile content{label}:\n{profile_answer.strip()}"
+        profile_context = "[source=tenant_profile_answer]\n" + supplied + (
+            "\n\n" + profile_context if profile_context else ""
+        )
+    elif not profile_context and intent_name:
+        profile_context = _profile_context(intent_name, tid)
+
+    context_parts = [profile_context] if profile_context else []
+    context_parts.extend(_format_combined_context(chunks).split("\n\n---\n\n") if chunks else [])
+    context = "\n\n---\n\n".join(part for part in context_parts if part)
+    if len(context) > MAX_GROUNDED_CONTEXT_CHARS:
+        context = context[:MAX_GROUNDED_CONTEXT_CHARS]
+
+    accepted_faq = [c for c in chunks if c["retrieval_source"] == "tenant_faq"]
+    accepted_kb = [c for c in chunks if c["retrieval_source"] == "tenant_kb"]
+    metadata = {
+        "tenant_id": tid,
+        "sources": (["tenant_profile"] if profile_context else [])
+        + (["tenant_faq"] if accepted_faq else [])
+        + (["tenant_kb"] if accepted_kb else []),
+        "faq_count": len(accepted_faq),
+        "kb_count": len(accepted_kb),
+        "faq_best_score": max((c.get("score", 0) for c in accepted_faq), default=0.0),
+        "kb_best_score": max((c.get("score", 0) for c in accepted_kb), default=0.0),
+        "faq_best_metadata": accepted_faq[0].get("metadata", {}) if accepted_faq else {},
+        "source_hits": [
+            {"source": c["retrieval_source"], "score": c.get("score", 0), "metadata": c.get("metadata", {})}
+            for c in chunks
+        ],
+        "evidence": bool(profile_context or accepted_faq or accepted_kb),
+    }
+    return context, metadata
+
+
+def build_grounded_context_sync(query: str, tenant_id: str, **kwargs) -> Tuple[str, Dict]:
+    """Synchronous adapter for the KB brain, which runs in a worker thread."""
+    import asyncio
+    return asyncio.run(build_grounded_context(query, tenant_id, **kwargs))
 
 
 async def unified_retrieve(

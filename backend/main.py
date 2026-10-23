@@ -353,6 +353,15 @@ CHAT_ATTACHMENTS_DIR = os.path.join(UPLOADED_DIR, "chat_attachments")
 os.makedirs(CHAT_ATTACHMENTS_DIR, exist_ok=True)
 app.mount("/api/uploads/chat", StaticFiles(directory=CHAT_ATTACHMENTS_DIR), name="chat-attachments")
 
+# Product images & PDF brochures extracted from catalogs
+PRODUCT_IMAGES_DIR = os.path.join(UPLOADED_DIR, "product_images")
+os.makedirs(PRODUCT_IMAGES_DIR, exist_ok=True)
+app.mount("/api/uploads/product_images", StaticFiles(directory=PRODUCT_IMAGES_DIR), name="product-images")
+
+BROCHURES_DIR = os.path.join(UPLOADED_DIR, "brochures")
+os.makedirs(BROCHURES_DIR, exist_ok=True)
+app.mount("/api/uploads/brochures", StaticFiles(directory=BROCHURES_DIR), name="brochures")
+
 ADMIN_BUILD_DIR = os.path.join(os.path.dirname(__file__), "admin_build")
 
 

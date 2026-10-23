@@ -1,16 +1,18 @@
 {
   "tenant_id": "dlf",
   "vertical": "real_estate",
-  "display_name": "DLF Limited",
+  "display_name": "DLF Limited | Luxury Residences & Commercial",
+
   "brand": {
     "name": "DLF Limited",
-    "bot_name": "DLF Concierge",
-    "tagline": "Your gateway to luxury living across India",
-    "website": "https://www.dlf.in",
+    "bot_name": "DLF Property Advisor",
+    "tagline": "75+ Years of Real Estate Excellence — Luxury Residences, Offices & Retail Malls",
+    "website": "www.dlf.in",
     "support_email": "customercare@dlf.in",
     "support_phone": "+91 124 4334200",
-    "signature": "Warm regards, DLF Team"
+    "signature": "DLF Limited — Building India's Future with Pride."
   },
+
   "features": {
     "cart": false,
     "buy_now": false,
@@ -29,13 +31,10 @@
     "faq": true,
     "kb": true,
     "complaints": true,
-    "campaigns": false,
-    "human_handover": true,
-    "payments": false,
-    "services": false,
-    "products": false,
-    "products_schemes": false
+    "campaigns": true,
+    "human_handover": true
   },
+
   "vocabulary": {
     "item_noun": "properties",
     "item_noun_singular": "property",
@@ -50,47 +49,32 @@
     "brochure_noun": "project brochure",
     "offer_noun": "offer",
     "offer_noun_plural": "offers",
-    "lead_noun": "site visit request",
+    "lead_noun": "site visit",
     "enquiry_label": "Schedule Site Visit",
     "quote_label": "Pricing & Plans",
     "callback_label": "Request a Callback",
     "support_label": "Customer Support",
     "track_label": "Track Application"
   },
+
   "business_hours": {
     "timezone": "Asia/Kolkata",
     "always_open": false,
     "open": "09:30",
-    "close": "18:30",
-    "open_days": [
-      0,
-      1,
-      2,
-      3,
-      4,
-      5
-    ]
+    "close": "19:00",
+    "open_days": [0, 1, 2, 3, 4, 5, 6]
   },
+
   "notifications": {
-    "sales_email": "sales@dlf.in",
+    "sales_email": "homes@dlf.in",
     "support_email": "customercare@dlf.in",
     "brochure_url": "https://www.dlf.in/uploaded_files/kb/DLF_Master_Residential_Portfolio.pdf",
     "brochure_label": "DLF Master Residential Deck (PDF)",
     "channels": [
-      {
-        "type": "email",
-        "to": "homes@dlf.in",
-        "label": "sales"
-      },
-      {
-        "type": "email",
-        "to": "customercare@dlf.in",
-        "label": "support"
-      }
+      { "type": "email", "to": "homes@dlf.in", "label": "sales" },
+      { "type": "email", "to": "customercare@dlf.in", "label": "support" }
     ]
   },
-<<<<<<< HEAD
-=======
 
   "menu": {
     "key": "kb_main",
@@ -291,7 +275,6 @@
     }
   ],
 
->>>>>>> 1d91ba7371d3d978294fac9ede97532f4845d3da
   "guardrails": {
     "never_state": [
       "guaranteed speculative appreciation or unverified resale numbers",
@@ -303,611 +286,10 @@
       "guaranteed speculative appreciation": "Property valuations reflect prevailing market trends and historical performance. We provide official historical capital appreciation rates rather than speculative projections."
     },
     "escalate_keywords": [
-      "rera court",
-      "legal notice",
-      "cancel booking",
-      "refund token",
-      "delayed possession",
-      "consumer court",
-      "title dispute",
-      "arbitration"
+      "rera court", "legal notice", "cancel booking", "refund token", "delayed possession",
+      "consumer court", "title dispute", "arbitration"
     ],
-<<<<<<< HEAD
-    "escalation_message": "Let me connect you with our team.",
-    "handoff_keywords": [
-      "human",
-      "agent",
-      "person"
-    ],
-    "forbidden_terms": [
-      "add to cart",
-      "buy now",
-      "checkout",
-      "shipping charge",
-      "delivery boy",
-      "dispatch"
-    ]
-  },
-  "flows": [
-    {
-      "name": "book_callback",
-      "success_message": "Thank you! Your consultation request has been scheduled with DLF Concierge."
-    },
-    {
-      "name": "get_quote",
-      "success_message": "Thank you! Our specialist will prepare a customized quote and follow up promptly."
-    },
-    {
-      "name": "raise_ticket",
-      "success_message": "Your request has been logged. A support ticket has been created and an executive will assist you."
-    }
-  ],
-  "prompt": {
-    "tone": "reassuring, consultative, and knowledgeable",
-    "industry": "real estate & property development",
-    "listing_type": "properties or projects",
-    "domain_specific_queries": "properties, floor plans, pricing, possession dates, or site visits",
-    "keywords": [
-      "property",
-      "flat",
-      "apartment",
-      "villa",
-      "bhk",
-      "sqft",
-      "possession",
-      "rera",
-      "site visit",
-      "amenities",
-      "floor plan",
-      "price",
-      "emi",
-      "residential",
-      "commercial",
-      "luxury",
-      "penthouse"
-    ]
-  },
-  "menu": {
-    "key": "kb_main",
-    "header": "DLF Limited",
-    "body": "Welcome! How can we assist you today?",
-    "footer": "Select an option or type your query directly",
-    "button_text": "Select Option",
-    "buttons": [
-      {
-        "id": "browse-offerings",
-        "title": "Explore Offerings",
-        "description": "Browse our luxury homes, floors & projects",
-        "section": "Explore",
-        "sort_order": 1,
-        "enabled": true,
-        "intent": "offerings"
-      },
-      {
-        "id": "book-site-visit",
-        "title": "Book Site Visit",
-        "description": "Schedule a visit to our properties",
-        "section": "Assistance",
-        "sort_order": 2,
-        "enabled": true,
-        "flow": "book_callback"
-      },
-      {
-        "id": "request-quote",
-        "title": "Get Quote",
-        "description": "Receive price details and payment plans",
-        "section": "Pricing",
-        "sort_order": 3,
-        "enabled": true,
-        "flow": "get_quote"
-      },
-      {
-        "id": "raise-ticket",
-        "title": "Customer Support",
-        "description": "Raise a query or issue with our team",
-        "section": "Help",
-        "sort_order": 4,
-        "enabled": true,
-        "flow": "raise_ticket"
-      }
-    ]
-  },
-  "intents": [
-    {
-      "name": "inquire-residential",
-      "examples": [
-        "Tell me about DLF luxury homes",
-        "What are the prices for DLF super‑luxury condos?",
-        "Do you have any plotted colonies in Delhi?"
-      ],
-      "keywords": [
-        "residential",
-        "home",
-        "apartment",
-        "condominium",
-        "flat"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "inquire-office",
-      "examples": [
-        "Show me DLF office spaces in Gurugram",
-        "What is the lease rate for a Grade‑A office?",
-        "Do you have IT parks in Hyderabad?"
-      ],
-      "keywords": [
-        "office",
-        "commercial",
-        "IT park",
-        "grade‑a",
-        "workspace"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "inquire-retail",
-      "examples": [
-        "What malls does DLF operate?",
-        "Tell me about DLF Mall of India",
-        "Are there luxury retail spaces available?"
-      ],
-      "keywords": [
-        "mall",
-        "retail",
-        "shopping",
-        "mall of india",
-        "emporio"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "inquire-hospitality",
-      "examples": [
-        "Info on DLF Golf & Country Club",
-        "Do you have lifestyle clubs in Delhi?",
-        "Tell me about The Lodhi hotel"
-      ],
-      "keywords": [
-        "club",
-        "golf",
-        "hospitality",
-        "hotel",
-        "lodhi"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "book-site-visit",
-      "examples": [
-        "Book a site visit",
-        "Schedule a visit",
-        "I want to visit the property"
-      ],
-      "keywords": [
-        "visit",
-        "schedule",
-        "appointment",
-        "site"
-      ],
-      "flow": "book_callback",
-      "enabled": true
-    },
-    {
-      "name": "request-pricing",
-      "examples": [
-        "What is the lease rate for DLF Cybercity Hyderabad?",
-        "Give me pricing for DLF Info City Chandigarh",
-        "How much does space cost in DLF Cybercity Chennai?"
-      ],
-      "keywords": [
-        "price",
-        "rate",
-        "lease",
-        "cost",
-        "quotation"
-      ],
-      "flow": "get_quote",
-      "enabled": true
-    },
-    {
-      "name": "raise-support-ticket",
-      "examples": [
-        "I have an issue with my booking",
-        "Need help with my lease agreement",
-        "Can I change my site‑visit date?"
-      ],
-      "keywords": [
-        "support",
-        "help",
-        "issue",
-        "complaint",
-        "service"
-      ],
-      "flow": "raise_ticket",
-      "enabled": true
-    },
-    {
-      "name": "inquire-pricing",
-      "examples": [
-        "What is the price of DLF Independent Floors?",
-        "Tell me the cost of The Arbour",
-        "How much does a 4 BHK in Privana cost?"
-      ],
-      "keywords": [
-        "price",
-        "cost",
-        "starting",
-        "₹",
-        "rate"
-      ],
-      "flow": "get_quote",
-      "enabled": true
-    },
-    {
-      "name": "schedule-site-visit",
-      "examples": [
-        "I would like to visit DLF Cyber Park",
-        "Book a tour for DLF Downtown Gurugram",
-        "Can I see the One & Two Horizon Center?"
-      ],
-      "keywords": [
-        "visit",
-        "tour",
-        "site visit",
-        "schedule",
-        "appointment"
-      ],
-      "flow": "book_callback",
-      "enabled": true
-    },
-    {
-      "name": "ask-amenities",
-      "examples": [
-        "What amenities does The Arbour offer?",
-        "Tell me about the clubhouse at DLF Privana South",
-        "Do you have sports courts in The Westpark?"
-      ],
-      "keywords": [
-        "amenities",
-        "facilities",
-        "features",
-        "club",
-        "pool"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "request-brochure",
-      "examples": [
-        "Send me the brochure for The Camellias",
-        "I need more details on DLF5 Golf Links",
-        "Can I get a PDF of The Skycourt project?"
-      ],
-      "keywords": [
-        "brochure",
-        "details",
-        "info",
-        "download",
-        "catalog"
-      ],
-      "flow": "get_quote",
-      "enabled": true
-    },
-    {
-      "name": "raise-complaint",
-      "examples": [
-        "I have an issue with my booking",
-        "Need help with my token payment",
-        "Raise a complaint about documentation"
-      ],
-      "keywords": [
-        "complaint",
-        "issue",
-        "problem",
-        "support",
-        "help"
-      ],
-      "flow": "raise_ticket",
-      "enabled": true
-    },
-    {
-      "name": "general-faq",
-      "examples": [
-        "What is the handover process?",
-        "Do you offer green energy options?",
-        "What are the payment terms?"
-      ],
-      "keywords": [
-        "faq",
-        "policy",
-        "process",
-        "question",
-        "help"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "explore-properties",
-      "examples": [
-        "Show me available projects",
-        "What properties are available",
-        "List all listings"
-      ],
-      "keywords": [
-        "explore",
-        "list",
-        "properties",
-        "projects"
-      ],
-      "flow": "offerings",
-      "enabled": true
-    },
-    {
-      "name": "get-price",
-      "examples": [
-        "What is the price of a 3BHK?",
-        "How much does a 4BHK cost?",
-        "Tell me the price range"
-      ],
-      "keywords": [
-        "price",
-        "cost",
-        "costing",
-        "rate"
-      ],
-      "flow": "get_quote",
-      "enabled": true
-    },
-    {
-      "name": "ask-rera",
-      "examples": [
-        "Is this project RERA registered?",
-        "Tell me the RERA number",
-        "Is it compliant with RERA?"
-      ],
-      "keywords": [
-        "rera",
-        "registration",
-        "certification"
-      ],
-      "flow": "raise_ticket",
-      "enabled": true
-    },
-    {
-      "name": "contact-sales",
-      "examples": [
-        "I want to talk to a sales advisor",
-        "Call me",
-        "Contact sales"
-      ],
-      "keywords": [
-        "contact",
-        "sales",
-        "advisor",
-        "call"
-      ],
-      "flow": "raise_ticket",
-      "enabled": true
-    },
-    {
-      "name": "inquire-offering",
-      "examples": [
-        "Tell me about DLF Cybercity Gurugram",
-        "What are the features of One & Two Horizon Center?",
-        "Give me specs for DLF Prime Towers Okhla"
-      ],
-      "keywords": [
-        "details",
-        "information",
-        "specs",
-        "property",
-        "DLF"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "property-booking",
-      "examples": [
-        "I want to buy a house",
-        "How do I book a unit?",
-        "What is the booking process?"
-      ],
-      "keywords": [
-        "book",
-        "property",
-        "purchase"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "payment-plans",
-      "examples": [
-        "What are the payment options?",
-        "Tell me about CLP and PLP",
-        "How much is the booking token?"
-      ],
-      "keywords": [
-        "payment",
-        "plan",
-        "milestone"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "nri-investment",
-      "examples": [
-        "Can NRIs buy property?",
-        "What are the rules for PIOs?",
-        "Do NRIs need RBI approval?"
-      ],
-      "keywords": [
-        "NRI",
-        "investment",
-        "rules"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "golf-club-info",
-      "examples": [
-        "Tell me about DLF Golf & Country Club",
-        "What facilities does the golf club have?",
-        "Is there a night golf option?"
-      ],
-      "keywords": [
-        "golf",
-        "club",
-        "championship"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "mall-info",
-      "examples": [
-        "Where is DLF Mall of India?",
-        "What brands are in DLF Emporio?",
-        "Tell me about CyberHub"
-      ],
-      "keywords": [
-        "mall",
-        "shopping",
-        "location"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "loan-inquiry",
-      "examples": [
-        "Which banks partner with DLF?",
-        "How to apply for a home loan?",
-        "What is the interest rate?"
-      ],
-      "keywords": [
-        "loan",
-        "bank",
-        "finance"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "site-visit-booking",
-      "examples": [
-        "I want to visit a model apartment",
-        "Schedule a site visit",
-        "Book a virtual tour"
-      ],
-      "keywords": [
-        "visit",
-        "schedule",
-        "model",
-        "site"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "membership-inquiry",
-      "examples": [
-        "How to join Club 5?",
-        "What are the club benefits?",
-        "Is there a membership fee?"
-      ],
-      "keywords": [
-        "membership",
-        "club",
-        "benefits"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "schedule-visit",
-      "examples": [
-        "I want to schedule a visit to DLF One Midtown",
-        "Book a site tour for The Dahlias",
-        "Can I see the Alameda floors?"
-      ],
-      "keywords": [
-        "visit",
-        "site visit",
-        "tour",
-        "schedule",
-        "book"
-      ],
-      "flow": "book_callback",
-      "enabled": true
-    },
-    {
-      "name": "project-details",
-      "examples": [
-        "Tell me about The Valley Gardens",
-        "What amenities does Privana South have?",
-        "Give me specs of The Dahlias"
-      ],
-      "keywords": [
-        "details",
-        "information",
-        "specifications",
-        "features",
-        "project"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "loan-options",
-      "examples": [
-        "Which banks finance DLF properties?",
-        "Tell me about home loan options for NRIs",
-        "Can I get a loan for The Arbour?"
-      ],
-      "keywords": [
-        "loan",
-        "home loan",
-        "finance",
-        "bank",
-        "mortgage",
-        "pre-approved"
-      ],
-      "flow": null,
-      "enabled": true
-    },
-    {
-      "name": "booking-process",
-      "examples": [
-        "What is the booking token for independent floors?",
-        "Explain the payment schemes available",
-        "How to book a super luxury unit?"
-      ],
-      "keywords": [
-        "booking",
-        "token",
-        "payment",
-        "process",
-        "scheme",
-        "CLP"
-      ],
-      "flow": null,
-      "enabled": true
-    }
-  ]
-=======
     "escalation_message": "This inquiry is being connected directly to our Senior Customer Relationship Director.",
     "handoff_keywords": ["human", "agent", "sales manager", "director", "urgent", "complaint", "talk to advisor"]
   }
->>>>>>> 1d91ba7371d3d978294fac9ede97532f4845d3da
 }

@@ -46,6 +46,17 @@ def _extract_phone_ids(payload: Dict[str, Any]) -> list[str]:
     return out
 
 
+def _req_tenant() -> Optional[str]:
+    try:
+        from database import get_request_tenant
+        req_t = get_request_tenant()
+        if req_t:
+            return str(req_t).strip()
+    except Exception:
+        pass
+    return None
+
+
 def _active_test_override() -> Optional[str]:
     try:
         from database import get_active_test_tenant
@@ -62,10 +73,12 @@ def _active_test_override() -> Optional[str]:
 
 
 def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
-    """Tenant for an inbound webhook body. Respects active test tenant first, then phone binding."""
-    from . import store  # local import: store needs the backend on sys.path
+    """Tenant for an inbound webhook body. Respects request context, active test tenant, then phone binding."""
+    req = _req_tenant()
+    if req:
+        return req
 
-    # Active test override takes absolute precedence for single-number testing
+    # Active test override takes precedence for single-number testing
     override = _active_test_override()
     if override:
         return override
@@ -93,6 +106,10 @@ def resolve_tenant_from_payload(payload: Dict[str, Any]) -> str:
 
 def resolve_tenant_for_phone(phone_id: str, default: Optional[str] = None) -> str:
     """Tenant for a known phone-number id (test harness, admin simulator)."""
+    req = _req_tenant()
+    if req:
+        return req
+
     override = _active_test_override()
     if override:
         return override
@@ -116,11 +133,16 @@ def resolve_default_tenant() -> str:
     """The tenant an unrecognised request belongs to.
 
     Resolution order:
+      0. ``_req_tenant()`` if request-scoped tenant is active
       1. ``_active_test_override()`` if active test tenant is toggled
       2. ``DEFAULT_TENANT_ID`` from the environment, if that tenant is registered
       3. the single active tenant, when exactly one is registered
       4. the literal default id as a last resort
     """
+    req = _req_tenant()
+    if req:
+        return req
+
     override = _active_test_override()
     if override:
         return override
@@ -149,6 +171,10 @@ def resolve_tenant_for_user(wa_id: str, default: Optional[str] = None) -> str:
     In single-number testing mode, active test tenant override takes absolute
     precedence so testers don't get trapped in stale tenant states.
     """
+    req = _req_tenant()
+    if req:
+        return req
+
     override = _active_test_override()
     if override:
         return override

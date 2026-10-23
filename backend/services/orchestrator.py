@@ -23,7 +23,7 @@ logger = logging.getLogger("orchestrator")
 
 
 async def process_incoming_message(
-    wa_id: str, message: str, *, capture_only: bool = False
+    wa_id: str, message: str, *, capture_only: bool = False, tenant_id: str = None
 ) -> dict:
     """Route a single incoming message through the correct persona workflow.
 
@@ -41,7 +41,7 @@ async def process_incoming_message(
     capture_tokens = begin_capture(capture_only=capture_only)
 
     try:
-        return await _process_captured_message(wa_id, message)
+        return await _process_captured_message(wa_id, message, tenant_id=tenant_id)
     finally:
         end_capture(capture_tokens)
 
@@ -68,7 +68,7 @@ async def _send_b2c_menu(wa_id: str, tenant_id: str = None):
         )
 
 
-async def _process_captured_message(wa_id: str, message: str) -> dict:
+async def _process_captured_message(wa_id: str, message: str, tenant_id: str = None) -> dict:
     # Customer directory: whoever talks to the bot gets a record on their very
     # first message, whichever channel delivered it (Meta webhook, send2 push,
     # or the send2 poller). Keyed on (tenant_id, wa_id) so nobody is duplicated
@@ -76,8 +76,9 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
     # return below, so an agent-handled chat still registers the contact.
     try:
         from database import get_request_tenant, set_request_tenant, _resolve_tenant, touch_customer
-        effective_tenant = get_request_tenant() or _resolve_tenant()
+        effective_tenant = tenant_id or get_request_tenant() or _resolve_tenant()
         set_request_tenant(effective_tenant)
+        tenant_id = effective_tenant
         touch_customer(effective_tenant, wa_id, "")
     except Exception as exc:
         logger.debug(f"Could not touch customer {wa_id}: {exc}")
@@ -117,7 +118,11 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
             from backend.services import intent_answers, flow_runner, service_answers
         from services.whatsapp_sender import send_text_message
 
-        tenant_id = resolve_tenant_for_user(wa_id)
+        if not tenant_id:
+            tenant_id = resolve_tenant_for_user(wa_id)
+        else:
+            from database import set_request_tenant
+            set_request_tenant(tenant_id)
 
         # ── Single-Number Testing Mode: WhatsApp in-chat tenant switcher ──
         msg_lower = (message or "").strip().lower()
@@ -361,13 +366,13 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         # unrelated flow.
         try:
             try:
-                from services import package_flow
+                from services import offerings_flow
             except ImportError:
-                from backend.services import package_flow
-            package_result = await package_flow.handle_package_action(
+                from backend.services import offerings_flow
+            offerings_result = await offerings_flow.handle_offerings_action(
                 wa_id, message, tenant_id=tenant_id,
             )
-            if package_result and package_result.get("handled"):
+            if offerings_result and offerings_result.get("handled"):
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -377,7 +382,7 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
                     "error": None,
                 }
         except Exception as exc:
-            logger.debug(f"package browsing failed for {wa_id}: {exc}")
+            logger.debug(f"offerings browsing failed for {wa_id}: {exc}")
 
         # 2. Check flow trigger for button ID or typed text (e.g. 'book a callback', 'schedule meeting')
         flow_name = (
@@ -483,7 +488,10 @@ async def _process_captured_message(wa_id: str, message: str) -> dict:
         user_type = "b2b"
     else:
         from bots.customer_b2c.workflows import handle_b2c_message
-        result = await handle_b2c_message(wa_id, message, current_state, context)
+        try:
+            result = await handle_b2c_message(wa_id, message, current_state, context, tenant_id=tenant_id)
+        except TypeError:
+            result = await handle_b2c_message(wa_id, message, current_state, context)
         new_state_prefix = "B2C_"
         user_type = "b2c"
 

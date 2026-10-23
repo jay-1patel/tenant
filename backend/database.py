@@ -2669,6 +2669,9 @@ def set_active_test_tenant(tenant_id: Optional[str]) -> None:
 def _resolve_tenant(tenant_id: str = None) -> str:
     if str(tenant_id or "").strip():
         return str(tenant_id).strip()
+    req = get_request_tenant()
+    if req:
+        return str(req).strip()
     active = get_active_test_tenant()
     if active:
         return active
@@ -2677,6 +2680,57 @@ def _resolve_tenant(tenant_id: str = None) -> str:
         return resolve_default_tenant()
     except Exception:
         return os.environ.get("DEFAULT_TENANT_ID", "default")
+
+
+def _resolve_tenant_ids(tenant_id: str = None) -> list:
+    """Return matching tenant identifiers (numeric id, slug, raw string) so that
+    queries match rows regardless of whether tenant_id was stored as integer or text."""
+    raw = str(tenant_id or "").strip()
+    if not raw:
+        req = get_request_tenant()
+        raw = str(req or "").strip()
+    if not raw:
+        active = get_active_test_tenant()
+        raw = str(active or "").strip()
+    if not raw:
+        try:
+            from shared.tenancy.resolver import resolve_default_tenant
+            raw = str(resolve_default_tenant() or "").strip()
+        except Exception:
+            raw = os.environ.get("DEFAULT_TENANT_ID", "default")
+
+    candidates = {raw}
+    if raw.isdigit():
+        candidates.add(int(raw))
+
+    try:
+        from shared.tenancy import store
+        rec = store.get_tenant(raw)
+        if rec:
+            if rec.get("id") is not None:
+                candidates.add(rec["id"])
+                candidates.add(str(rec["id"]))
+            if rec.get("slug"):
+                candidates.add(rec["slug"])
+                candidates.add(rec["slug"].lower())
+    except Exception:
+        try:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT id, slug FROM tenants WHERE id = ? OR slug = ? OR LOWER(slug) = LOWER(?)",
+                    (raw, raw, raw),
+                ).fetchone()
+                if row:
+                    if row["id"] is not None:
+                        candidates.add(row["id"])
+                        candidates.add(str(row["id"]))
+                    if row["slug"]:
+                        candidates.add(row["slug"])
+                        candidates.add(row["slug"].lower())
+        except Exception:
+            pass
+
+    return list(candidates)
 
 
 def save_product(name: str, slug: str, category: str = "general",
@@ -2689,19 +2743,20 @@ def save_product(name: str, slug: str, category: str = "general",
                  bulk_discount_tiers: list = None,
                  attrs_json: dict = None, short_label: str = None,
                  detail_url: str = None, tenant_id: str = None, 
+                 is_active: int = 1,
                  actor: dict = None) -> int:
     with get_db_context() as conn:
         cur = conn.execute(
             """INSERT INTO products (name, slug, category, description, short_description,
                price, mrp, unit, moq, media_url, media_type, ingredients, sort_order, variants_json,
                stock_quantity, nutritional_facts, bulk_discount_tiers, attrs_json, short_label,
-               detail_url, tenant_id, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+               detail_url, is_active, tenant_id, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
             (name, slug, category, description, short_description,
               price, mrp, unit, moq, media_url, media_type, json.dumps(ingredients or []), sort_order,
              json.dumps(variants_json or []),
               stock_quantity, nutritional_facts, json.dumps(bulk_discount_tiers or []),
-             json.dumps(attrs_json or {}), short_label, detail_url, _resolve_tenant(tenant_id)),
+             json.dumps(attrs_json or {}), short_label, detail_url, int(is_active), _resolve_tenant(tenant_id)),
         )
         product_id = cur.lastrowid
         
@@ -2735,27 +2790,33 @@ def save_product(name: str, slug: str, category: str = "general",
 
 
 def get_product(product_id: int, tenant_id: str = None) -> dict:
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ? AND tenant_id = ?",
-            (product_id, _resolve_tenant(tenant_id)),
+            f"SELECT * FROM products WHERE id = ? AND tenant_id IN ({placeholders})",
+            (product_id, *t_ids),
         ).fetchone()
     return _deserialize_product(dict(row)) if row else None
 
 
 def get_product_by_slug(slug: str, tenant_id: str = None) -> dict:
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE slug = ? AND tenant_id = ?",
-            (slug, _resolve_tenant(tenant_id)),
+            f"SELECT * FROM products WHERE slug = ? AND tenant_id IN ({placeholders})",
+            (slug, *t_ids),
         ).fetchone()
     return _deserialize_product(dict(row)) if row else None
 
 
 def list_products(category: str = None, active_only: bool = True, limit: int = 100,
                   tenant_id: str = None) -> list:
-    query = "SELECT * FROM products WHERE tenant_id = ?"
-    params = [_resolve_tenant(tenant_id)]
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
+    query = f"SELECT * FROM products WHERE tenant_id IN ({placeholders})"
+    params = list(t_ids)
     if active_only:
         query += " AND is_active = 1"
     if category:
@@ -2766,6 +2827,89 @@ def list_products(category: str = None, active_only: bool = True, limit: int = 1
     with get_db_context() as conn:
         rows = conn.execute(query, params).fetchall()
     return [_deserialize_product(dict(r)) for r in rows]
+
+
+def count_products(category: str = None, active_only: bool = True, tenant_id: str = None) -> int:
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
+    query = f"SELECT COUNT(*) FROM products WHERE tenant_id IN ({placeholders})"
+    params = list(t_ids)
+    if active_only:
+        query += " AND is_active = 1"
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    with get_db_context() as conn:
+        row = conn.execute(query, params).fetchone()
+        return int(row[0]) if row else 0
+
+
+def list_product_categories(active_only: bool = True, tenant_id: str = None) -> list[str]:
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
+    query = f"SELECT DISTINCT category FROM products WHERE tenant_id IN ({placeholders}) AND category IS NOT NULL"
+    params = list(t_ids)
+    if active_only:
+        query += " AND is_active = 1"
+    query += " ORDER BY category ASC"
+    with get_db_context() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [str(r[0]).strip() for r in rows if r[0] and str(r[0]).strip()]
+
+
+
+def list_staged_products(tenant_id: str = None) -> list:
+    """List draft / unapproved products for a tenant (is_active = 0)."""
+    t_ids = _resolve_tenant_ids(tenant_id)
+    placeholders = ", ".join(["?"] * len(t_ids))
+    query = f"SELECT * FROM products WHERE tenant_id IN ({placeholders}) AND is_active = 0 ORDER BY id DESC"
+    with get_db_context() as conn:
+        rows = conn.execute(query, list(t_ids)).fetchall()
+    return [_deserialize_product(dict(r)) for r in rows]
+
+
+def approve_staged_products(tenant_id: str = None, product_ids: list[int] = None) -> int:
+    """Promote draft products to live catalog (is_active = 1)."""
+    t_ids = _resolve_tenant_ids(tenant_id)
+    t_placeholders = ", ".join(["?"] * len(t_ids))
+    with get_db_context() as conn:
+        if product_ids:
+            p_placeholders = ", ".join(["?"] * len(product_ids))
+            cur = conn.execute(
+                f"""UPDATE products 
+                   SET is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                   WHERE tenant_id IN ({t_placeholders}) AND id IN ({p_placeholders})""",
+                [*list(t_ids), *product_ids],
+            )
+        else:
+            cur = conn.execute(
+                f"""UPDATE products 
+                   SET is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                   WHERE tenant_id IN ({t_placeholders}) AND is_active = 0""",
+                list(t_ids),
+            )
+        return cur.rowcount
+
+
+def delete_staged_products(tenant_id: str = None, product_ids: list[int] = None) -> int:
+    """Delete draft / rejected products."""
+    t_ids = _resolve_tenant_ids(tenant_id)
+    t_placeholders = ", ".join(["?"] * len(t_ids))
+    with get_db_context() as conn:
+        if product_ids:
+            p_placeholders = ", ".join(["?"] * len(product_ids))
+            cur = conn.execute(
+                f"""DELETE FROM products 
+                   WHERE tenant_id IN ({t_placeholders}) AND id IN ({p_placeholders}) AND is_active = 0""",
+                [*list(t_ids), *product_ids],
+            )
+        else:
+            cur = conn.execute(
+                f"""DELETE FROM products 
+                   WHERE tenant_id IN ({t_placeholders}) AND is_active = 0""",
+                list(t_ids),
+            )
+        return cur.rowcount
 
 
 def _row_to_dict(row) -> dict:

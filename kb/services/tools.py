@@ -1,5 +1,7 @@
 import json
 import re
+import inspect
+import threading
 from typing import Any, Callable, Dict, List, Optional
 
 from routing.config import logger
@@ -29,6 +31,13 @@ class Tool:
 class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, Tool] = {}
+        self._tenant = threading.local()
+
+    def set_tenant(self, tenant_id: str = ""):
+        self._tenant.tenant_id = str(tenant_id or "")
+
+    def current_tenant(self) -> str:
+        return str(getattr(self._tenant, "tenant_id", "") or "")
 
     def register(self, tool: Tool):
         self._tools[tool.name] = tool
@@ -50,11 +59,15 @@ class ToolRegistry:
                 schemas.append(tool.to_openai_schema())
         return schemas
 
-    def execute_tool(self, name: str, arguments: Dict) -> Any:
+    def execute_tool(self, name: str, arguments: Dict, tenant_id: str = None) -> Any:
         tool = self._tools.get(name)
         if not tool:
             return {"error": f"Tool '{name}' not found"}
+        effective_tenant = str(tenant_id or self.current_tenant())
         try:
+            parameters = inspect.signature(tool.handler).parameters
+            if "tenant_id" in parameters:
+                arguments = {**arguments, "tenant_id": effective_tenant}
             return tool.execute(**arguments)
         except Exception as e:
             logger.error(f"Tool '{name}' execution failed: {e}")
@@ -64,9 +77,9 @@ class ToolRegistry:
 registry = ToolRegistry()
 
 
-def _search_products(query: str, limit: int = 5) -> str:
+def _search_products(query: str, limit: int = 5, tenant_id: str = "") -> str:
     from ..database import search_products
-    products = search_products(query, limit=limit)
+    products = search_products(query, limit=limit, tenant_id=tenant_id)
     if not products:
         return json.dumps({"found": 0, "message": "No products found matching your query."})
     results = []
@@ -85,9 +98,9 @@ def _search_products(query: str, limit: int = 5) -> str:
     return json.dumps({"found": len(results), "products": results})
 
 
-def _get_product_details(product_name: str) -> str:
+def _get_product_details(product_name: str, tenant_id: str = "") -> str:
     from ..database import search_products
-    products = search_products(product_name, limit=1)
+    products = search_products(product_name, limit=1, tenant_id=tenant_id)
     if not products:
         return json.dumps({"found": False, "message": f"Product '{product_name}' not found."})
     p = products[0]
@@ -138,12 +151,22 @@ def _check_order_status(order_id: str = "", phone_number: str = "") -> str:
     })
 
 
-def _get_faq_answer(question: str) -> str:
+def _get_faq_answer(question: str, tenant_id: str = "") -> str:
     from ..database import get_db_context
+    if not tenant_id:
+        return json.dumps({"found": False, "message": "No tenant-scoped FAQ data available."})
+    try:
+        from shared.tenancy import store
+        tenant = store.get_tenant(str(tenant_id)) or {}
+    except Exception:
+        tenant = {}
+    allowed = {str(tenant_id), str(tenant.get("id") or ""), str(tenant.get("slug") or "")}
+    allowed.discard("")
+    marks = ",".join("?" for _ in allowed)
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT content, source_file FROM faq_dataset WHERE content LIKE ? LIMIT 1",
-            (f"%{question}%",),
+            f"SELECT content, source_file FROM faq_dataset WHERE content LIKE ? AND tenant_id IN ({marks}) LIMIT 1",
+            [f"%{question}%", *sorted(allowed)],
         ).fetchone()
     if row:
         return json.dumps({"found": True, "content": row["content"], "source_file": row["source_file"]})
@@ -167,19 +190,17 @@ def _human_handover(reason: str = "", user_message: str = "") -> str:
     })
 
 
-def _list_categories() -> str:
-    from ..database import get_db_context
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT category FROM products WHERE is_active = 1 ORDER BY category"
-        ).fetchall()
+def _list_categories(tenant_id: str = "") -> str:
+    from ..database import list_products
+    categories = sorted({p.get("category") for p in list_products(active_only=True, limit=1000, tenant_id=tenant_id) if p.get("category")})
+    rows = [(category,) for category in categories]
     categories = [r["category"] for r in rows if r["category"]]
     return json.dumps({"categories": categories, "count": len(categories)})
 
 
-def _get_products_by_category(category: str, limit: int = 10) -> str:
+def _get_products_by_category(category: str, limit: int = 10, tenant_id: str = "") -> str:
     from ..database import get_products_by_category
-    products = get_products_by_category(category, limit=limit)
+    products = get_products_by_category(category, limit=limit, tenant_id=tenant_id)
     if not products:
         return json.dumps({"found": 0, "message": f"No products in category '{category}'."})
     results = []
@@ -192,7 +213,7 @@ def _get_products_by_category(category: str, limit: int = 10) -> str:
     return json.dumps({"found": len(results), "category": category, "products": results})
 
 
-def _calculate_margin(quantity: int = 1, product_id: int = None, product_name: str = "") -> str:
+def _calculate_margin(quantity: int = 1, product_id: int = None, product_name: str = "", tenant_id: str = "") -> str:
     """
     B2B Margin Calculator - Calculate profit, revenue, and margin for distributors.
 
@@ -229,9 +250,9 @@ def _calculate_margin(quantity: int = 1, product_id: int = None, product_name: s
         # Find product
         product = None
         if product_id:
-            product = get_product(product_id)
+            product = get_product(product_id, tenant_id=tenant_id)
         elif product_name:
-            products = search_products(product_name, limit=1)
+            products = search_products(product_name, limit=1, tenant_id=tenant_id)
             if products:
                 product = products[0]
 
@@ -345,12 +366,23 @@ _VARIANT_KEYWORDS = [
 ]
 
 
-def _load_nutrition_products() -> List[Dict]:
-    """Parse the KB nutrition facts document into structured per-product data."""
+def _load_nutrition_products(tenant_id: str = "") -> List[Dict]:
+    """Parse this tenant's KB nutrition facts document into structured data."""
     from ..database import get_db_context
+    if not tenant_id:
+        return []
+    try:
+        from shared.tenancy import store
+        tenant = store.get_tenant(str(tenant_id)) or {}
+    except Exception:
+        tenant = {}
+    allowed = {str(tenant_id), str(tenant.get("id") or ""), str(tenant.get("slug") or "")}
+    allowed.discard("")
+    marks = ",".join("?" for _ in allowed)
     with get_db_context() as conn:
         row = conn.execute(
-            "SELECT content FROM knowledge_base WHERE title LIKE '%Nutrition%' ORDER BY id LIMIT 1"
+            f"SELECT content FROM knowledge_base WHERE title LIKE '%Nutrition%' AND tenant_id IN ({marks}) ORDER BY id LIMIT 1",
+            sorted(allowed),
         ).fetchone()
     if not row or not row["content"]:
         return []
@@ -447,9 +479,9 @@ def _match_nutrition_product(query: str, products: List[Dict]):
     return best, best_score
 
 
-def _get_nutrition_info(product: str = "", quantity: float = None, unit: str = "pieces") -> str:
+def _get_nutrition_info(product: str = "", quantity: float = None, unit: str = "pieces", tenant_id: str = "") -> str:
     from ..database import search_products
-    db_products = search_products(product or "", limit=3)
+    db_products = search_products(product or "", limit=3, tenant_id=tenant_id)
     for p in db_products:
         facts = (p.get("nutritional_facts") or "").strip()
         if facts:
@@ -460,7 +492,7 @@ def _get_nutrition_info(product: str = "", quantity: float = None, unit: str = "
                 "ingredients": p.get("ingredients", []),
             })
 
-    products = _load_nutrition_products()
+    products = _load_nutrition_products(tenant_id)
     if not products:
         return json.dumps({"found": False, "message": "Nutrition data is not available right now."})
 

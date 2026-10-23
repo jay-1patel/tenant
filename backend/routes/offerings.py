@@ -28,7 +28,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,7 @@ from database import (
     save_product,
     update_product,
 )
-from routes.auth import get_current_admin, has_permission, require_tenant_access, security
+from backend.deps.tenant_access import _require_read_access, _require_write_access
 from shared.tenancy import records as record_schema
 
 logger = logging.getLogger("offerings")
@@ -481,3 +481,159 @@ def remove_offering(
         raise HTTPException(status_code=404, detail="Record not found for this tenant")
     delete_product(offering_id, hard=hard, tenant_id=tenant_id, actor=principal)
     return {"status": "deleted" if hard else "deactivated", "id": offering_id}
+
+
+# ── Automated PDF-to-Products Ingestion & Staging ─────────────────────────
+
+class ApproveStagedIn(BaseModel):
+    product_ids: Optional[List[int]] = None
+    approve_all: bool = False
+
+
+@router.post("/ingest-file")
+async def ingest_file(
+    tenant_id: str = Path(..., description="Tenant identifier"),
+    file: UploadFile = File(..., description="PDF/DOCX/TXT/HTML/Image"),
+    default_category: str = Query("", description="Fallback category"),
+    actor: dict | None = Body(None),
+):
+    """Accept any supported document type, extract text & images, run the universal
+    bifurcation pipeline and stage the results.
+    """
+    data = await file.read()
+    # Use the new universal extractor
+    from services.universal_file_bifurcator import process
+    try:
+        text, images = process(data, file.filename, tenant_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Re‑use existing PDF pipeline – it now accepts pre‑extracted images
+    result = await bifurcate_and_ingest_pdf(
+        pdf_bytes=data,
+        filename=file.filename,
+        tenant_id=tenant_id,
+        default_category=default_category,
+        actor=actor,
+        pre_extracted_images=images,
+    )
+    return result
+@router.post("/offerings/ingest-pdf")
+async def ingest_and_bifurcate_pdf(
+    tenant_id: str,
+    file: UploadFile = File(...),
+    category: Optional[str] = Form(""),
+    principal: dict = Depends(_require_write_access("create")),
+):
+    """Universal PDF ingestion: automatically bifurcates content into Products (staged),
+    FAQs, Knowledge Base, Menu Suggestions, and Business Profile."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for ingestion.")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes or len(pdf_bytes) < 100:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty or corrupted.")
+
+    try:
+        from services.universal_pdf_bifurcator import bifurcate_and_ingest_pdf
+    except ImportError:
+        from backend.services.universal_pdf_bifurcator import bifurcate_and_ingest_pdf
+
+    result = await bifurcate_and_ingest_pdf(
+        pdf_bytes=pdf_bytes,
+        filename=file.filename,
+        tenant_id=tenant_id,
+        default_category=category or "",
+        actor=principal,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "PDF bifurcation failed."))
+
+    return result
+
+
+@router.post("/offerings/upload-pdf")
+@router.post("/products/upload-pdf")
+async def upload_pdf_catalog(
+    tenant_id: str,
+    file: UploadFile = File(...),
+    category: Optional[str] = Form(""),
+    principal: dict = Depends(_require_write_access("create")),
+):
+    """Extract products from a catalog PDF into staging (is_active = 0) with vertical schemas and image cropping."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for catalog extraction.")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes or len(pdf_bytes) < 100:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty or corrupted.")
+
+    try:
+        from services.pdf_product_extractor import process_pdf_catalog
+    except ImportError:
+        from backend.services.pdf_product_extractor import process_pdf_catalog
+
+    result = await process_pdf_catalog(
+        pdf_bytes=pdf_bytes,
+        filename=file.filename,
+        tenant_id=tenant_id,
+        default_category=category or "",
+        actor=principal,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "PDF processing failed."))
+
+    return result
+
+
+@router.get("/offerings/staged")
+@router.get("/products/staged")
+def get_staged_products(
+    tenant_id: str,
+    principal: dict = Depends(_require_read_access),
+):
+    """List all draft products waiting for admin review/approval."""
+    from database import list_staged_products
+    staged = list_staged_products(tenant_id=tenant_id)
+    return {
+        "tenant_id": tenant_id,
+        "count": len(staged),
+        "staged_products": staged,
+    }
+
+
+@router.post("/offerings/approve-staged")
+@router.post("/products/approve-staged")
+def approve_staged(
+    tenant_id: str,
+    payload: ApproveStagedIn,
+    principal: dict = Depends(_require_write_access("edit")),
+):
+    """Promote draft staged products to live catalog (is_active = 1)."""
+    from database import approve_staged_products
+    ids = payload.product_ids if not payload.approve_all else None
+    count = approve_staged_products(tenant_id=tenant_id, product_ids=ids)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "approved_count": count,
+    }
+
+
+@router.delete("/offerings/staged")
+@router.delete("/products/staged")
+def discard_staged(
+    tenant_id: str,
+    payload: Optional[ApproveStagedIn] = None,
+    principal: dict = Depends(_require_write_access("delete")),
+):
+    """Discard / delete draft staged products."""
+    from database import delete_staged_products
+    ids = payload.product_ids if (payload and not payload.approve_all) else None
+    count = delete_staged_products(tenant_id=tenant_id, product_ids=ids)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "deleted_count": count,
+    }

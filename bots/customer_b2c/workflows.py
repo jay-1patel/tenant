@@ -136,7 +136,7 @@ async def _llm_synthesize(raw: str, label: str, query: str, tenant_id: str | Non
         return raw
 
 
-async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict) -> dict:
+async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict, tenant_id: str = None) -> dict:
     from services.whatsapp_sender import send_text_message, send_button_message, send_list_menu
     from . import tools, menus
 
@@ -145,12 +145,18 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     context = context or {}
     
     # Resolve tenant_id for this user
-    tenant_id = None
-    try:
-        from shared.tenancy.resolver import resolve_tenant_for_user
-        tenant_id = resolve_tenant_for_user(wa_id)
-    except Exception:
-        pass
+    if not tenant_id:
+        try:
+            from database import get_request_tenant
+            tenant_id = get_request_tenant()
+        except Exception:
+            pass
+    if not tenant_id:
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tenant_id = resolve_tenant_for_user(wa_id)
+        except Exception:
+            pass
 
     # ── Global rule: human handover request wins over anything else ──────────
     if tools.should_escalate(message):
@@ -160,7 +166,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     if state == cfg.B2C_MAIN_MENU_STATE or not state:
         clean_msg = _clean(message)
         if clean_msg in ("main menu", "menu", "start", "hi", "hello", "hey", "show options", "options") or message in ("Main Menu", "main_menu", "menu_main"):
-            menu_data = menus.get_main_menu(wa_id)
+            menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
             
             # Add welcome message for first-time users
             if _is_new_user(wa_id):
@@ -211,7 +217,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
             return {"status": "menu_sent", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Greeting-ish input (typos / letter-spam like "Helooyyy"): show the menu.
         if _is_greeting(message):
-            menu_data = menus.get_main_menu(wa_id)
+            menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
             if menu_data.get("type") == "buttons":
                 await send_button_message(
                     wa_id,
@@ -230,7 +236,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
         # Meaningless / keyboard-mash input: show the menu instead of
         # throwing the noise at the RAG index (which returns unrelated answers).
         if _is_meaningless(message):
-            menu_data = menus.get_main_menu(wa_id)
+            menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
             if menu_data.get("type") == "buttons":
                 await send_button_message(
                     wa_id,
@@ -247,14 +253,14 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
                 )
             return {"status": "meaningless", "new_state": cfg.B2C_MAIN_MENU_STATE}
         # Not a menu button: fall back to the RAG pipeline for general questions.
-        return await _handle_main_selection(wa_id, message, context, cfg)
+        return await _handle_main_selection(wa_id, message, context, cfg, tenant_id=tenant_id)
 
     # ── Complaint: awaiting type ─────────────────────────────────────────────
     if state == cfg.B2C_AWAITING_COMPLAINT_TYPE:
         clean = (message or "").strip().lower()
         if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back", "restart", "start over"):
             # Show menu automatically
-            menu_data = menus.get_main_menu(wa_id)
+            menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
             if menu_data.get("type") == "buttons":
                 await send_button_message(
                     wa_id,
@@ -297,7 +303,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
         if clean in ("cancel", "stop", "exit", "quit", "menu", "main menu", "back"):
             context.pop("complaint_type", None)
             # Show menu automatically
-            menu_data = menus.get_main_menu(wa_id)
+            menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
             if menu_data.get("type") == "buttons":
                 await send_button_message(
                     wa_id,
@@ -343,7 +349,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
         )
         
         # Show menu for re-engagement
-        menu_data = menus.get_main_menu(wa_id)
+        menu_data = menus.get_main_menu(wa_id, tenant_id=tenant_id)
         if menu_data.get("type") == "buttons":
             await send_button_message(
                 wa_id,
@@ -437,7 +443,7 @@ async def handle_b2c_message(wa_id: str, message: str, state: str, context: dict
     return await _fallback_to_rag(wa_id, message, cfg)
 
 
-async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -> dict:
+async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg, tenant_id: str = None) -> dict:
     """Handle a selection made from the B2C main menu.
 
     Returns a fallback to the RAG pipeline when the message is not a menu
@@ -447,12 +453,18 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
     from . import tools, menus
     
     # Resolve tenant_id for this user
-    tenant_id = None
-    try:
-        from shared.tenancy.resolver import resolve_tenant_for_user
-        tenant_id = resolve_tenant_for_user(wa_id)
-    except Exception:
-        pass
+    if not tenant_id:
+        try:
+            from database import get_request_tenant
+            tenant_id = get_request_tenant()
+        except Exception:
+            pass
+    if not tenant_id:
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tenant_id = resolve_tenant_for_user(wa_id)
+        except Exception:
+            pass
 
     sel = _clean(message)
 
@@ -463,6 +475,15 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
             await send_text_message(wa_id, "The new releases PDF could not be delivered right now. Please try again shortly.")
         return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
 
+    if sel in ("products", "b2c_products", "browse", "product", "view products", "menu_products",
+               "properties", "menu_properties", "flats", "villas", "apartments", "menu_packages", "packages"):
+        try:
+            from services import offerings_flow
+            handled = await offerings_flow.handle_offerings_action(wa_id, message, tenant_id=tenant_id)
+            if handled and handled.get("handled"):
+                return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
+        except Exception as e:
+            logger.debug("offerings_flow fallback error: %s", e)
     if sel in ("products", "b2c_products", "browse", "product", "view products", "menu_products"):
         products = tools.list_products()
         if products:
@@ -544,6 +565,15 @@ async def _handle_main_selection(wa_id: str, message: str, context: dict, cfg) -
         answer = await _kb_answer(wa_id, "Show me the items in my cart.", tenant_id)
         await send_text_message(wa_id, answer)
         return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE}
+
+    # Check if message is an interactive offering action (e.g. prod_*, cat_*, book_prod_*)
+    try:
+        from services import offerings_flow
+        handled = await offerings_flow.handle_offerings_action(wa_id, message, tenant_id=tenant_id)
+        if handled and handled.get("handled"):
+            return {"status": "answered", "new_state": cfg.B2C_MAIN_MENU_STATE, "context": {}}
+    except Exception as e:
+        logger.debug("offerings_flow pre-rag error: %s", e)
 
     # Anything else while in the main menu: answer via the RAG pipeline.
     return await _fallback_to_rag(wa_id, message, cfg)
