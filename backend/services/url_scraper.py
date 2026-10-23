@@ -27,7 +27,9 @@ import logging
 import mimetypes
 import os
 import re
+import time
 import urllib.parse
+import urllib.robotparser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -52,6 +54,94 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+# Politeness defaults: seconds between page fetches when robots.txt gives no
+# crawl-delay, and the JS-shell heuristic thresholds below which a statically
+# fetched page is considered client-side rendered and re-fetched via Playwright.
+DEFAULT_CRAWL_DELAY = 1.0
+JS_RENDER_TEXT_THRESHOLD = 800
+JS_SCRIPT_TAG_THRESHOLD = 5
+
+
+def _js_render_enabled(explicit: Optional[bool] = None) -> bool:
+    """JS rendering is on by default; SCRAPER_JS_RENDER=off disables it."""
+    if explicit is not None:
+        return explicit
+    return os.getenv("SCRAPER_JS_RENDER", "auto").strip().lower() not in {"off", "0", "false"}
+
+
+def looks_like_js_shell(html: str) -> bool:
+    """Heuristic: markup with script tags but almost no server-rendered text,
+    typical of a React/Vue/Angular shell that only paints client-side."""
+    if not html:
+        return False
+    stripped = re.sub(r"<script\b.*?</script>", " ", html, flags=re.S | re.I)
+    stripped = re.sub(r"<style\b.*?</style>", " ", stripped, flags=re.S | re.I)
+    stripped = re.sub(r"<[^>]+>", " ", stripped)
+    visible_text = re.sub(r"\s+", " ", stripped).strip()
+    script_tags = len(re.findall(r"<script\b", html, flags=re.I))
+    return len(visible_text) < JS_RENDER_TEXT_THRESHOLD and script_tags >= JS_SCRIPT_TAG_THRESHOLD
+
+
+def render_with_playwright(url: str, timeout: float = 15.0) -> Optional[str]:
+    """Render a JS-heavy page with headless Chromium via Playwright.
+
+    Returns the fully-rendered HTML, or None when Playwright (or its browser)
+    is not installed — the crawler then keeps the static HTML. Optional
+    dependency: pip install playwright && playwright install chromium
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.debug("Playwright not installed; JS rendering skipped for %s", url)
+        return None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(user_agent=USER_AGENT)
+                page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+                page.wait_for_timeout(1200)  # let late XHR content paint
+                return page.content()
+            finally:
+                browser.close()
+    except Exception as e:
+        logger.warning("Playwright render failed for %s: %s", url, e)
+        return None
+
+
+class RobotsTxtPolicy:
+    """robots.txt gate for the crawler.
+
+    Uses the stdlib robotparser. A missing or unreachable robots.txt means
+    'allowed' (standard crawler behaviour); a parse failure also degrades to
+    allowed rather than blocking the crawl.
+    """
+
+    def __init__(self, base_url: str, timeout: float = 8.0):
+        self._parser: Optional[urllib.robotparser.RobotFileParser] = None
+        self.crawl_delay: Optional[float] = None
+        parsed = urllib.parse.urlparse(normalize_url(base_url))
+        robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                resp = client.get(robots_url, headers={"User-Agent": USER_AGENT})
+            if resp.status_code != 200:
+                return
+            parser = urllib.robotparser.RobotFileParser()
+            parser.parse(resp.text.splitlines())
+            self._parser = parser
+            try:
+                self.crawl_delay = parser.crawl_delay(USER_AGENT)
+            except Exception:
+                self.crawl_delay = None
+        except Exception as e:
+            logger.debug("robots.txt fetch failed for %s: %s", robots_url, e)
+
+    def can_fetch(self, url: str) -> bool:
+        if self._parser is None:
+            return True
+        return self._parser.can_fetch(USER_AGENT, url)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PRODUCT_IMAGES_DIR = BASE_DIR / "uploaded_files" / "product_images"
@@ -403,19 +493,44 @@ class UniversalWebExtractor:
 class WebScraperCrawler:
     """Universal multi-page website crawler with image & structured data capture."""
 
-    def __init__(self, base_url: str, max_pages: int = 8, timeout_seconds: float = 12.0):
+    def __init__(
+        self,
+        base_url: str,
+        max_pages: int = 8,
+        timeout_seconds: float = 12.0,
+        respect_robots: bool = True,
+        request_delay: float = DEFAULT_CRAWL_DELAY,
+        enable_js_render: Optional[bool] = None,
+    ):
         self.root_url = normalize_url(base_url)
         self.max_pages = max_pages
         self.timeout = timeout_seconds
+        self.respect_robots = respect_robots
+        self.request_delay = request_delay
+        self.enable_js_render = _js_render_enabled(enable_js_render)
+        self.robots: Optional[RobotsTxtPolicy] = None
         parsed = urllib.parse.urlparse(self.root_url)
         self.domain = parsed.netloc.lower()
         self.visited_urls: Set[str] = set()
+        self.skipped_urls: List[Dict[str, str]] = []
+        self.js_rendered_urls: List[str] = []
+        self._last_fetch_ts: float = 0.0
 
     def _is_same_domain(self, target_url: str) -> bool:
         parsed = urllib.parse.urlparse(target_url)
         return parsed.netloc.lower() in {self.domain, f"www.{self.domain}".replace("www.www.", "www.")}
 
+    def _polite_delay(self) -> None:
+        """Sleep so fetches respect the robots.txt crawl-delay (or the default)."""
+        delay = self.request_delay
+        if self.robots and self.robots.crawl_delay:
+            delay = max(delay, float(self.robots.crawl_delay))
+        elapsed = time.monotonic() - self._last_fetch_ts
+        if elapsed < delay:
+            time.sleep(delay - elapsed)
+
     def _fetch_html(self, client: httpx.Client, url: str) -> Optional[str]:
+        self._polite_delay()
         try:
             resp = client.get(
                 url,
@@ -423,7 +538,27 @@ class WebScraperCrawler:
                 timeout=self.timeout,
                 follow_redirects=True,
             )
+            self._last_fetch_ts = time.monotonic()
+            # Back off once when the server pushes back (429/503), then retry.
+            if resp.status_code in (429, 503):
+                retry_after = resp.headers.get("Retry-After", "")
+                backoff = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else 5.0
+                backoff = min(backoff, 30.0)
+                logger.debug("Backoff %.1fs after %s on %s", backoff, resp.status_code, url)
+                time.sleep(backoff)
+                resp = client.get(
+                    url,
+                    headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                )
+                self._last_fetch_ts = time.monotonic()
             if resp.status_code == 200 and "text/html" in resp.headers.get("content-type", ""):
+                if self.enable_js_render and looks_like_js_shell(resp.text):
+                    rendered = render_with_playwright(url, timeout=self.timeout)
+                    if rendered:
+                        self.js_rendered_urls.append(url)
+                        return rendered
                 return resp.text
         except Exception as e:
             logger.debug("Failed fetching %s: %s", url, e)
@@ -531,11 +666,28 @@ class WebScraperCrawler:
         to_crawl: List[Tuple[str, str]] = [(self.root_url, "home")]
 
         with httpx.Client(timeout=self.timeout) as client:
+            if self.respect_robots:
+                self.robots = RobotsTxtPolicy(self.root_url, timeout=self.timeout)
+                if not self.robots.can_fetch(self.root_url):
+                    logger.warning("ROBOTS_DISALLOW_ROOT | %s", self.root_url)
+                    return {
+                        "root_url": self.root_url,
+                        "domain": self.domain,
+                        "pages_crawled_count": 0,
+                        "pages": [],
+                        "skipped_urls": [{"url": self.root_url, "reason": "robots.txt disallow"}],
+                        "blocked_by_robots": True,
+                    }
+
             while to_crawl and len(crawled_pages) < self.max_pages:
                 curr_url, category = to_crawl.pop(0)
                 if curr_url in self.visited_urls:
                     continue
                 self.visited_urls.add(curr_url)
+
+                if self.respect_robots and not self.robots.can_fetch(curr_url):
+                    self.skipped_urls.append({"url": curr_url, "reason": "robots.txt disallow"})
+                    continue
 
                 html = self._fetch_html(client, curr_url)
                 if not html:
@@ -558,6 +710,8 @@ class WebScraperCrawler:
             "domain": self.domain,
             "pages_crawled_count": len(crawled_pages),
             "pages": crawled_pages,
+            "skipped_urls": self.skipped_urls,
+            "js_rendered_urls": self.js_rendered_urls,
         }
 
 
@@ -885,11 +1039,14 @@ CRITICAL INSTRUCTIONS:
         url: str,
         target_tenant_id: Optional[str] = None,
         auto_publish: bool = True,
+        max_pages: int = 8,
     ) -> Dict[str, Any]:
         """Crawl, extract, cache images, save to DB, compute embeddings, and configure live tenant."""
-        crawler = WebScraperCrawler(base_url=url, max_pages=8)
+        crawler = WebScraperCrawler(base_url=url, max_pages=max_pages)
         crawl_res = crawler.crawl()
 
+        if crawl_res.get("blocked_by_robots"):
+            raise ValueError(f"robots.txt disallows crawling this site: {url}")
         if not crawl_res.get("pages"):
             raise ValueError(f"Could not reach or crawl website: {url}. Please verify URL is accessible.")
 

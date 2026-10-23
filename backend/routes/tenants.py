@@ -26,11 +26,18 @@ import re
 import secrets
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_db_context, record_admin_audit_event
+from database import (
+    delete_crawl_schedule,
+    get_crawl_schedule,
+    mark_crawl_finished,
+    mark_crawl_started,
+    upsert_crawl_schedule,
+)
 from routes.auth import (
     get_current_admin,
     has_permission,
@@ -119,6 +126,14 @@ class UrlAutoOnboardRequest(BaseModel):
     auto_publish: bool = True
 
 
+class CrawlScheduleIn(BaseModel):
+    url: str
+    interval_hours: int = Field(default=24, ge=1, le=24 * 30)
+    max_pages: int = Field(default=8, ge=1, le=25)
+    auto_publish: bool = True
+    is_enabled: bool = True
+
+
 def _admin_only(principal: dict) -> str:
     """Only admins may mint tokens, rebind phone ids, or set secrets."""
     if principal.get("type") != "admin":
@@ -185,6 +200,8 @@ def auto_onboard_preview(
         from services.url_scraper import WebScraperCrawler, UrlAutoOnboarder, slugify
         crawler = WebScraperCrawler(base_url=url, max_pages=8)
         crawl_res = crawler.crawl()
+        if crawl_res.get("blocked_by_robots"):
+            raise HTTPException(status_code=403, detail="This website's robots.txt disallows automated crawling.")
         if not crawl_res.get("pages"):
             raise HTTPException(status_code=400, detail="Could not reach or crawl website. Please check the URL.")
         onboarder = UrlAutoOnboarder(tenant_id=body.tenant_id, actor=current_admin)
@@ -632,6 +649,112 @@ def scrape_website_for_tenant(
     except Exception as exc:
         logger.error("Scrape website failed for tenant %s: %s", tenant_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Website crawl and sync failed: {exc}")
+
+
+# ── Scheduled website re-crawling ─────────────────────────────────────────
+# A schedule stores the tenant's source URL and a refresh interval; the
+# background scheduler in main.py re-runs UrlAutoOnboarder when it is due.
+
+def _run_scheduled_crawl(tenant_id: str, url: str, auto_publish: bool, max_pages: int = 8) -> None:
+    """Blocking crawl run — invoked from a background task's threadpool."""
+    try:
+        mark_crawl_started(tenant_id)
+        from services.url_scraper import UrlAutoOnboarder
+
+        onboarder = UrlAutoOnboarder(
+            tenant_id=tenant_id,
+            actor={"username": "crawl_schedule", "role": "system", "tenant_id": tenant_id},
+        )
+        onboarder.execute_onboarding(
+            url=url,
+            target_tenant_id=tenant_id,
+            auto_publish=auto_publish,
+            max_pages=max_pages,
+        )
+        mark_crawl_finished(tenant_id, "success")
+    except Exception as exc:
+        logger.error("Scheduled crawl failed for tenant %s: %s", tenant_id, exc, exc_info=True)
+        mark_crawl_finished(tenant_id, "failed", str(exc)[:500])
+
+
+@router.get("/{tenant_id}/crawl-schedule")
+def get_tenant_crawl_schedule(
+    tenant_id: str,
+    principal: dict = Depends(require_tenant_access()),
+):
+    return {"ok": True, "tenant_id": tenant_id, "schedule": get_crawl_schedule(tenant_id)}
+
+
+@router.put("/{tenant_id}/crawl-schedule")
+def set_tenant_crawl_schedule(
+    tenant_id: str,
+    body: CrawlScheduleIn,
+    principal: dict = Depends(require_tenant_access()),
+):
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Website URL is required")
+    schedule = upsert_crawl_schedule(
+        tenant_id=tenant_id,
+        url=url,
+        interval_hours=body.interval_hours,
+        max_pages=body.max_pages,
+        auto_publish=body.auto_publish,
+        is_enabled=body.is_enabled,
+    )
+    with get_db_context() as conn:
+        record_admin_audit_event(
+            conn,
+            action="crawl_schedule_saved",
+            actor=principal,
+            resource_type="crawl_schedule",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"url": url[:200], "interval_hours": body.interval_hours},
+        )
+    return {"ok": True, "schedule": schedule}
+
+
+@router.delete("/{tenant_id}/crawl-schedule")
+def remove_tenant_crawl_schedule(
+    tenant_id: str,
+    principal: dict = Depends(require_tenant_access()),
+):
+    deleted = delete_crawl_schedule(tenant_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No crawl schedule exists for this tenant")
+    with get_db_context() as conn:
+        record_admin_audit_event(
+            conn,
+            action="crawl_schedule_deleted",
+            actor=principal,
+            resource_type="crawl_schedule",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+        )
+    return {"ok": True, "deleted": True}
+
+
+@router.post("/{tenant_id}/crawl-schedule/run")
+def run_tenant_crawl_now(
+    tenant_id: str,
+    background_tasks: BackgroundTasks,
+    principal: dict = Depends(require_tenant_access()),
+):
+    """Trigger the tenant's scheduled crawl immediately, in the background."""
+    schedule = get_crawl_schedule(tenant_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Save a crawl schedule first")
+    if schedule.get("last_status") == "running":
+        raise HTTPException(status_code=409, detail="A crawl is already running for this tenant")
+    background_tasks.add_task(
+        _run_scheduled_crawl,
+        tenant_id,
+        schedule["url"],
+        schedule["auto_publish"],
+        schedule["max_pages"],
+    )
+    return {"ok": True, "status": "queued", "url": schedule["url"]}
 
 
 @router.post("/{tenant_id}/publish")

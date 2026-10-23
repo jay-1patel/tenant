@@ -24,3 +24,5 @@ python-multipart==0.0.32
 prometheus-client==0.26.0
 slowapi==0.1.10
 starlette==0.38.6
+# Optional: JS-rendered site crawling (url_scraper falls back to static HTML without it)
+playwright>=1.40.0  # after install, run: playwright install chromium

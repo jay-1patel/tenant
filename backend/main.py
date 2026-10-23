@@ -130,6 +130,11 @@ async def lifespan(app: FastAPI):
     cart_cleanup_task = asyncio.create_task(cart_cleanup_monitor(cart_cleanup_stop_event))
     logger.info("[STARTUP] Cart/checkout TTL cleanup monitor started")
 
+    # Start the scheduled website re-crawl loop (checks tenant_crawl_schedules every 30 min)
+    crawl_stop_event = asyncio.Event()
+    crawl_task = asyncio.create_task(crawl_scheduler_monitor(crawl_stop_event))
+    logger.info("[STARTUP] Website re-crawl scheduler started (30-minute poll)")
+
     # Start the send2.digital inbound polling listener. This is what delivers
     # WhatsApp messages that arrive outside the push webhook; every conversation,
     # including a bare "Hi", is recorded in the customer directory via the
@@ -159,6 +164,12 @@ async def lifespan(app: FastAPI):
             await cart_cleanup_task
         except asyncio.CancelledError:
             pass
+        crawl_stop_event.set()
+        crawl_task.cancel()
+        try:
+            await crawl_task
+        except asyncio.CancelledError:
+            pass
         if incoming_task is not None:
             incoming_stop_event.set()
             incoming_task.cancel()
@@ -181,6 +192,58 @@ async def cart_cleanup_monitor(stop_event: asyncio.Event = None) -> None:
             logger.error(f"CART_CLEANUP_MONITOR_FAIL: {exc}")
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=3600)
+        except asyncio.TimeoutError:
+            continue
+        except asyncio.CancelledError:
+            raise
+
+
+async def crawl_scheduler_monitor(stop_event: asyncio.Event = None) -> None:
+    """Re-crawl tenant websites whose schedule is due.
+
+    Polls tenant_crawl_schedules every 30 minutes. Each due schedule is
+    stamped 'running' before its crawl starts, so a long crawl is not picked
+    up twice, and the crawl itself runs in a worker thread because every
+    step in execute_onboarding is blocking (httpx, LLM calls, image writes).
+    """
+    def _run_crawl(schedule: dict) -> dict:
+        from services.url_scraper import UrlAutoOnboarder
+        onboarder = UrlAutoOnboarder(
+            tenant_id=schedule["tenant_id"],
+            actor={"username": "crawl_scheduler", "role": "system", "tenant_id": schedule["tenant_id"]},
+        )
+        return onboarder.execute_onboarding(
+            url=schedule["url"],
+            target_tenant_id=schedule["tenant_id"],
+            auto_publish=schedule["auto_publish"],
+            max_pages=schedule["max_pages"],
+        )
+
+    while not (stop_event and stop_event.is_set()):
+        try:
+            from database import list_due_crawl_schedules, mark_crawl_finished, mark_crawl_started
+            due = await asyncio.to_thread(list_due_crawl_schedules)
+            for schedule in due:
+                tenant_id = schedule["tenant_id"]
+                try:
+                    mark_crawl_started(tenant_id)
+                    result = await asyncio.to_thread(_run_crawl, schedule)
+                    logger.info(
+                        "CRAWL_SCHEDULE_DONE | tenant=%s | pages=%s | offerings=%s",
+                        tenant_id,
+                        len(result.get("pages_crawled", [])),
+                        result.get("offerings_created"),
+                    )
+                    mark_crawl_finished(tenant_id, "success")
+                except Exception as exc:
+                    logger.error("CRAWL_SCHEDULE_FAIL | tenant=%s | %s", tenant_id, exc, exc_info=True)
+                    mark_crawl_finished(tenant_id, "failed", str(exc)[:500])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error(f"CRAWL_SCHEDULER_MONITOR_FAIL: {exc}")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=1800)
         except asyncio.TimeoutError:
             continue
         except asyncio.CancelledError:
@@ -362,7 +425,13 @@ BROCHURES_DIR = os.path.join(UPLOADED_DIR, "brochures")
 os.makedirs(BROCHURES_DIR, exist_ok=True)
 app.mount("/api/uploads/brochures", StaticFiles(directory=BROCHURES_DIR), name="brochures")
 
-ADMIN_BUILD_DIR = os.path.join(os.path.dirname(__file__), "admin_build")
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_backend_dir)
+_frontend_dist = os.path.join(_project_root, "frontend", "dist")
+if os.path.isdir(_frontend_dist) and os.path.isfile(os.path.join(_frontend_dist, "index.html")):
+    ADMIN_BUILD_DIR = _frontend_dist
+else:
+    ADMIN_BUILD_DIR = os.path.join(_backend_dir, "admin_build")
 
 
 @app.get("/")
