@@ -330,36 +330,64 @@ CRITICAL INSTRUCTIONS:
         return response_json
 
     def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
-        """Call local Ollama first, then Groq or Mistral as fallbacks."""
+        """Call local Ollama first, then Groq or Mistral as fallbacks.
+        Keys are read from routing.config (the app's central config) with
+        os.getenv() as a secondary fallback so the service works in both
+        the production app and standalone test contexts.
+        """
         import requests
+
+        # ── Resolve API keys from routing.config first, then env ──────────────
+        try:
+            from routing import config as _cfg
+            groq_key    = getattr(_cfg, "GROQ_API_KEY", None)    or os.getenv("GROQ_API_KEY", "")
+            groq_url    = getattr(_cfg, "GROQ_API_URL", None)    or "https://api.groq.com/openai/v1/chat/completions"
+            groq_model  = getattr(_cfg, "GROQ_MODEL", None)      or "openai/gpt-oss-120b"
+            mistral_key = getattr(_cfg, "MISTRAL_API_KEY", None) or os.getenv("MISTRAL_API_KEY", "")
+            mistral_url = getattr(_cfg, "MISTRAL_API_URL", None) or "https://api.mistral.ai/v1/chat/completions"
+            mistral_mdl = getattr(_cfg, "MISTRAL_MODEL", None)   or "open-mistral-7b"
+            ollama_base = getattr(_cfg, "OLLAMA_BASE_URL", None) or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            ollama_url  = getattr(_cfg, "OLLAMA_API_URL", None)  or (ollama_base.rstrip("/") + "/api/chat")
+            ollama_mdl  = getattr(_cfg, "OLLAMA_MODEL", None)    or "qwen3:8b"
+        except Exception:
+            groq_key    = os.getenv("GROQ_API_KEY", "")
+            groq_url    = "https://api.groq.com/openai/v1/chat/completions"
+            groq_model  = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+            mistral_key = os.getenv("MISTRAL_API_KEY", "")
+            mistral_url = "https://api.mistral.ai/v1/chat/completions"
+            mistral_mdl = os.getenv("MISTRAL_MODEL", "open-mistral-7b")
+            ollama_url  = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
+            ollama_mdl  = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
-        # 1. Local Ollama (default provider, no hardcoded rules)
+        # 1. Ollama (primary configured provider)
         try:
-            ollama_url = os.getenv("OLLAMA_API_URL")
-            if not ollama_url:
-                base = os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
-                ollama_url = base.rstrip("/") + "/api/chat"
-            ollama_model = os.getenv("OLLAMA_MODEL") or "qwen3:8b"
             payload = {
-                "model": ollama_model,
+                "model": ollama_mdl,
                 "messages": messages,
                 "format": "json",
                 "stream": False,
                 "options": {"temperature": 0.1, "num_ctx": 8192},
             }
+            ollama_headers = {
+                "Content-Type": "application/json",
+                "ngrok-skip-browser-warning": "true",
+            }
             resp = requests.post(
-                ollama_url, json=payload, timeout=float(os.getenv("OLLAMA_TIMEOUT", 180))
+                ollama_url,
+                json=payload,
+                headers=ollama_headers,
+                timeout=float(os.getenv("OLLAMA_TIMEOUT", 180)),
             )
             if resp.status_code == 200:
                 content = resp.json().get("message", {}).get("content", "")
                 parsed = self._extract_json_block(content)
                 if parsed:
-                    logger.info("OLLAMA_BIFURCATION_SUCCESS | model=%s", ollama_model)
+                    logger.info("OLLAMA_BIFURCATION_SUCCESS | model=%s", ollama_mdl)
                     return parsed
                 logger.warning("Ollama returned no usable JSON; trying hosted fallbacks.")
             else:
@@ -367,12 +395,13 @@ CRITICAL INSTRUCTIONS:
         except Exception as e:
             logger.warning("Ollama bifurcation failed: %s", e)
 
-        # 2. Groq (optional)
-        groq_key = os.getenv("GROQ_API_KEY")
+        # 2. Groq (fast hosted inference — uses routing.config key)
         if groq_key:
             try:
                 headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-                for model in ("openai/gpt-oss-120b", "openai/gpt-oss-20b"):
+                for model in (groq_model, "openai/gpt-oss-20b"):
+                    if not model:
+                        continue
                     payload = {
                         "model": model,
                         "messages": messages,
@@ -380,12 +409,7 @@ CRITICAL INSTRUCTIONS:
                         "temperature": 0.2,
                         "max_tokens": 4096,
                     }
-                    resp = requests.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=45,
-                    )
+                    resp = requests.post(groq_url, headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"]
                         parsed = self._extract_json_block(content)
@@ -394,9 +418,32 @@ CRITICAL INSTRUCTIONS:
                             return parsed
             except Exception as e:
                 logger.warning("Groq bifurcation failed: %s", e)
+        else:
+            logger.warning("Groq API key not configured — skipping Groq bifurcation.")
 
-        # 3. Mistral (optional)
-        mistral_key = os.getenv("MISTRAL_API_KEY")
+        # 3. Mistral (fallback — uses routing.config key)
+        if mistral_key:
+            try:
+                headers = {"Authorization": f"Bearer {mistral_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": mistral_mdl,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 4096,
+                }
+                resp = requests.post(mistral_url, headers=headers, json=payload, timeout=45)
+                if resp.status_code == 200:
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    parsed = self._extract_json_block(content)
+                    if parsed:
+                        logger.info("MISTRAL_BIFURCATION_SUCCESS")
+                        return parsed
+            except Exception as e:
+                logger.warning("Mistral bifurcation failed: %s", e)
+        else:
+            logger.warning("Mistral API key not configured — skipping Mistral bifurcation.")
+
+        return None
         if mistral_key:
             try:
                 headers = {"Authorization": f"Bearer {mistral_key}", "Content-Type": "application/json"}

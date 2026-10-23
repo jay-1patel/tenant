@@ -242,7 +242,10 @@ def _provider_specs(system_prompt: str, user_prompt: str) -> List[Dict[str, Any]
     specs.append({
         "name": "ollama",
         "url": ollama_url,
-        "headers": {},
+        "headers": {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+        },
         "timeout": float(os.environ.get("OLLAMA_TIMEOUT", 180)),
         "payload": {
             "model": ollama_model,
