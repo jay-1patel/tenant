@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import string
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -46,6 +47,64 @@ logger = logging.getLogger("auto_bifurcator")
 
 # Target vertical options supported by tenancy schema
 VALID_VERTICALS = set(tenancy_schemas.VERTICALS)
+
+# Brochure modules recognized by brochure_service (destination for
+# brochure/profile/menu/price-list documents)
+BROCHURE_MODULES = {
+    "catalogue",
+    "new_arrival",
+    "product_brochure",
+    "service_brochure",
+    "company_profile",
+    "technical_brochure",
+    "pricing",
+    "customer_case_study",
+    "industry_brochure",
+    "general",
+}
+
+# Document types the LLM/heuristics may assign; brochure-ish types are
+# auto-registered as sendable brochure PDFs for the tenant.
+BROCHURE_DOC_TYPES = {
+    "brochure": "catalogue",
+    "company_profile": "company_profile",
+    "menu": "pricing",
+    "price_list": "pricing",
+    "catalog": "catalogue",
+    "technical_brochure": "technical_brochure",
+    "case_study": "customer_case_study",
+}
+
+# Public file host used to expose brochure PDFs over WhatsApp
+CATBOX_API_URL = os.environ.get("CATBOX_API_URL", "https://catbox.moe/user/api.php")
+
+# ──────────────────────────────────────────────────────────────────────────
+# OCR setup (scanned / image-only PDFs and image files)
+# ──────────────────────────────────────────────────────────────────────────
+try:
+    import pytesseract
+    from PIL import Image
+except ImportError:  # pragma: no cover - OCR optional
+    pytesseract = None
+    Image = None
+
+TESSERACT_CMD = os.environ.get("TESSERACT_CMD") or shutil.which("tesseract")
+if not TESSERACT_CMD:
+    _default_windows_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(_default_windows_path):
+        TESSERACT_CMD = _default_windows_path
+
+if TESSERACT_CMD and pytesseract:
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+    logger.info("OCR enabled | tesseract=%s", TESSERACT_CMD)
+else:
+    logger.warning(
+        "OCR unavailable - scanned/image-only PDFs will yield little or no text. "
+        "Set TESSERACT_CMD to the tesseract executable to enable OCR."
+    )
+
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp")
+MAX_OCR_PAGES = 20
 
 
 def _clean_text(text: str) -> str:

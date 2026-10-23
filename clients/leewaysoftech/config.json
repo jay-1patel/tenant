@@ -64,8 +64,7 @@
   "intents": [
     {
       "name": "technologies",
-      "answer": "• Here's the stack we build with:\n• *Frontend:* React, Angular and Vue\n• *Backend:* Node.js, Python (Django/Flask), PHP and .NET\n• *Mobile:* Flutter, React Native and native iOS/Android\n• *Cloud & DevOps:* AWS, Azure, GCP, Docker, Kubernetes and CI/CD pipelines\n• *Databases:* PostgreSQL, MySQL, MongoDB and Redis\n• Tell us what you're building and we'll match the right stack for it."
-    },
+      "answer": "• Here's the stack we build with:\n• *Frontend Technologies:* React.js, Next.js, Vue.js, Angular, TypeScript and Tailwind CSS\n• *Backend Technologies:* Node.js, Python (FastAPI/Django), Golang, Laravel and .NET Core\n• *AI & Machine Learning:* OpenAI (GPT-4/GPT-5 APIs), LangChain, PyTorch, TensorFlow, Hugging Face, Vertex AI (Google Cloud AI), Azure OpenAI and IBM\n• *Mobile Development:* iOS (Swift), Android (Kotlin), React Native and Flutter\n• *Databases & Data Platforms:* PostgreSQL, MySQL, MongoDB, DynamoDB, Firebase, Snowflake, BigQuery and Redis\n• Tell us what you're building and we'll match the right stack for it."    },
     {
       "name": "projects",
       "answer": "• A snapshot of the work we deliver:\n• *Web platforms:* e-commerce stores, customer portals and internal systems\n• *Mobile apps:* customer and field-force apps for iOS and Android\n• *Enterprise:* CRM/ERP integrations, workflow automation and analytics dashboards\n• *Industries:* retail, healthcare, finance, logistics and education\n• We share client names and detailed case studies only with their written permission — our team can walk you through relevant examples on a call."
