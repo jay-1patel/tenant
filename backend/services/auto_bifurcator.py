@@ -323,27 +323,59 @@ CRITICAL INSTRUCTIONS:
 
         response_json = self._call_llm_json(system_prompt, user_prompt)
         if not response_json:
-            logger.warning("LLM bifurcation returned empty or invalid JSON; applying heuristic fallback")
-            response_json = self._heuristic_bifurcation(doc_summaries)
+            raise RuntimeError(
+                "Bifurcation LLM unavailable: no provider (Ollama/Groq/Mistral) returned valid JSON."
+            )
 
         return response_json
 
     def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
-        """Call Groq (openai/gpt-oss-120b) or Mistral with JSON output."""
-        # 1. Try Groq
+        """Call local Ollama first, then Groq or Mistral as fallbacks."""
+        import requests
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        # 1. Local Ollama (default provider, no hardcoded rules)
+        try:
+            ollama_url = os.getenv("OLLAMA_API_URL")
+            if not ollama_url:
+                base = os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
+                ollama_url = base.rstrip("/") + "/api/chat"
+            ollama_model = os.getenv("OLLAMA_MODEL") or "qwen3:8b"
+            payload = {
+                "model": ollama_model,
+                "messages": messages,
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": 0.1, "num_ctx": 8192},
+            }
+            resp = requests.post(
+                ollama_url, json=payload, timeout=float(os.getenv("OLLAMA_TIMEOUT", 180))
+            )
+            if resp.status_code == 200:
+                content = resp.json().get("message", {}).get("content", "")
+                parsed = self._extract_json_block(content)
+                if parsed:
+                    logger.info("OLLAMA_BIFURCATION_SUCCESS | model=%s", ollama_model)
+                    return parsed
+                logger.warning("Ollama returned no usable JSON; trying hosted fallbacks.")
+            else:
+                logger.warning("Ollama bifurcation HTTP %s; trying hosted fallbacks.", resp.status_code)
+        except Exception as e:
+            logger.warning("Ollama bifurcation failed: %s", e)
+
+        # 2. Groq (optional)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key:
             try:
-                import requests
                 headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-                # Try gpt-oss-120b, then gpt-oss-20b
                 for model in ("openai/gpt-oss-120b", "openai/gpt-oss-20b"):
                     payload = {
                         "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
+                        "messages": messages,
                         "response_format": {"type": "json_object"},
                         "temperature": 0.2,
                         "max_tokens": 4096,
@@ -363,18 +395,14 @@ CRITICAL INSTRUCTIONS:
             except Exception as e:
                 logger.warning("Groq bifurcation failed: %s", e)
 
-        # 2. Try Mistral
+        # 3. Mistral (optional)
         mistral_key = os.getenv("MISTRAL_API_KEY")
         if mistral_key:
             try:
-                import requests
                 headers = {"Authorization": f"Bearer {mistral_key}", "Content-Type": "application/json"}
                 payload = {
                     "model": os.getenv("MISTRAL_MODEL", "open-mistral-7b"),
-                    "messages": [
-                        {"role": "system", "content": system_prompt + "\nOUTPUT ONLY RAW JSON."},
-                        {"role": "user", "content": user_prompt},
-                    ],
+                    "messages": messages,
                     "temperature": 0.2,
                     "max_tokens": 4096,
                 }
@@ -392,30 +420,6 @@ CRITICAL INSTRUCTIONS:
                         return parsed
             except Exception as e:
                 logger.warning("Mistral bifurcation failed: %s", e)
-
-        # 3. Try Local Ollama if available
-        try:
-            import requests
-            ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
-            ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-            payload = {
-                "model": ollama_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "format": "json",
-                "stream": False,
-            }
-            resp = requests.post(ollama_url, json=payload, timeout=60)
-            if resp.status_code == 200:
-                content = resp.json().get("message", {}).get("content", "")
-                parsed = self._extract_json_block(content)
-                if parsed:
-                    logger.info("OLLAMA_BIFURCATION_SUCCESS")
-                    return parsed
-        except Exception as e:
-            logger.debug("Ollama bifurcation check skipped or failed: %s", e)
 
         return None
 
@@ -448,142 +452,6 @@ CRITICAL INSTRUCTIONS:
                 pass
 
         return None
-
-    def _heuristic_bifurcation(self, doc_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Deterministic rule-based fallback when LLM is unavailable."""
-        combined_text = "\n\n".join(d["text"] for d in doc_summaries)
-        display_name = self.tenant_id.replace("-", " ").replace("_", " ").title()
-
-        # Detect email and phone
-        emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", combined_text)
-        phones = re.findall(r"\+?\d[\d -]{8,14}\d", combined_text)
-        support_email = emails[0] if emails else f"support@{self.tenant_id}.com"
-        support_phone = phones[0] if phones else "+91 9800000000"
-
-        # Detect vertical keywords
-        lower_txt = combined_text.lower()
-        vertical = "generic"
-        if any(w in lower_txt for w in ("property", "residence", "bhk", "villa", "floor", "real estate", "rera")):
-            vertical = "real_estate"
-        elif any(w in lower_txt for w in ("tour", "travel", "flight", "destination", "itinerary", "package")):
-            vertical = "tours_travel"
-        elif any(w in lower_txt for w in ("software", "cloud", "saas", "tech", "api", "developer")):
-            vertical = "it_software"
-        elif any(w in lower_txt for w in ("shop", "product", "sku", "delivery", "cart", "discount")):
-            vertical = "ecommerce"
-        elif any(w in lower_txt for w in ("loan", "interest", "finance", "tax", "wealth", "advisory")):
-            vertical = "finance"
-        elif any(w in lower_txt for w in ("clinic", "doctor", "health", "hospital", "patient")):
-            vertical = "healthcare"
-
-        # Extract headings or bullet items as offerings
-        lines = [line.strip() for line in combined_text.splitlines() if line.strip()]
-        offerings = []
-        for i, line in enumerate(lines[:100]):
-            if (line.startswith("#") or line.startswith("*") or line.startswith("-")) and len(line) < 60:
-                clean_name = line.lstrip("#*- ").strip()
-                if len(clean_name) > 3 and not clean_name.lower().startswith("page"):
-                    offerings.append({
-                        "name": clean_name[:60],
-                        "category": "General",
-                        "price": "Contact for pricing",
-                        "short_description": clean_name,
-                        "description": clean_name,
-                        "unit": "unit",
-                        "attrs": {},
-                    })
-            if len(offerings) >= 10:
-                break
-
-        return {
-            "vertical": vertical,
-            "brand": {
-                "name": display_name,
-                "bot_name": f"{display_name} Assistant",
-                "tagline": f"Official WhatsApp Assistant for {display_name}",
-                "website": f"https://www.{self.tenant_id}.com",
-                "support_email": support_email,
-                "support_phone": support_phone,
-                "signature": f"{display_name} — At your service.",
-            },
-            "business_hours": {
-                "timezone": "Asia/Kolkata",
-                "open": "09:30",
-                "close": "18:30",
-                "open_days": [0, 1, 2, 3, 4, 5],
-            },
-            "menu_items": [
-                {
-                    "id": "browse_offerings",
-                    "title": "Explore Offerings"[:24],
-                    "description": "Browse our catalog and products"[:72],
-                    "section": "Explore"[:24],
-                    "action": "offerings",
-                },
-                {
-                    "id": "book_callback",
-                    "title": "Book Consultation"[:24],
-                    "description": "Schedule a phone call with our specialists"[:72],
-                    "section": "Actions"[:24],
-                    "action": "book_callback",
-                },
-                {
-                    "id": "get_quote",
-                    "title": "Pricing & Quotes"[:24],
-                    "description": "Request customized cost estimate"[:72],
-                    "section": "Actions"[:24],
-                    "action": "get_quote",
-                },
-                {
-                    "id": "support",
-                    "title": "Customer Support"[:24],
-                    "description": "Ask questions or get help"[:72],
-                    "section": "Support"[:24],
-                    "action": "faq",
-                },
-            ],
-            "intents": [
-                {
-                    "name": "explore_offerings",
-                    "description": "Browse catalog",
-                    "keywords": ["catalog", "offerings", "products", "services", "list"],
-                    "examples": ["Show me your catalog", "What do you offer?", "Browse offerings"],
-                    "flow": None,
-                },
-                {
-                    "name": "pricing_inquiry",
-                    "description": "Pricing questions",
-                    "keywords": ["price", "cost", "rates", "quote", "charges"],
-                    "examples": ["How much does it cost?", "Can I get a quote?", "What are the rates?"],
-                    "flow": "get_quote",
-                },
-                {
-                    "name": "book_appointment",
-                    "description": "Book consultation or callback",
-                    "keywords": ["callback", "consultation", "appointment", "schedule", "call me"],
-                    "examples": ["Can you call me back?", "Schedule an appointment", "Book a call"],
-                    "flow": "book_callback",
-                },
-            ],
-            "offerings": offerings or [
-                {
-                    "name": f"{display_name} Standard Service",
-                    "category": "General",
-                    "price": "On Request",
-                    "short_description": "Comprehensive customer offering",
-                    "description": "Full specifications provided upon consultation.",
-                    "unit": "package",
-                    "attrs": {},
-                }
-            ],
-            "knowledge_articles": [
-                {
-                    "title": "Company Profile & Information",
-                    "category": "About",
-                    "markdown_content": f"# {display_name}\\n\\n" + combined_text[:3000],
-                }
-            ],
-        }
 
     # ──────────────────────────────────────────────────────────────────────────
     # 3. Auto-Configuration & Application Engine

@@ -702,6 +702,26 @@ def _process_document_background(
                 except Exception as e:
                     logger.warning(f"FAQ index auto-sync failed after background upload {filename}: {e}")
 
+                if os.environ.get("AUTO_BIFURCATE", "1").strip().lower() not in ("0", "false", "no", "off"):
+                    try:
+                        try:
+                            from bifurcate import bifurcate_and_save_chunks
+                        except ImportError:
+                            from backend.bifurcate import bifurcate_and_save_chunks
+                        target_tenant = tenant_id or os.environ.get("DEFAULT_TENANT_ID") or "default"
+                        split = bifurcate_and_save_chunks(
+                            chunks,
+                            target_tenant,
+                            use_llm=os.environ.get("BIFURCATE_USE_LLM", "1").strip().lower()
+                            not in ("0", "false", "no", "off"),
+                        )
+                        logger.info(
+                            "AUTO_BIFURCATION_COMPLETED | %s | tenant=%s | industry=%s | kb=%d faq=%d",
+                            filename, target_tenant, split["industry"], split["kb_chunks"], split["faq_chunks"],
+                        )
+                    except Exception as e:
+                        logger.warning(f"Auto-bifurcation failed after background upload {filename}: {e}")
+
         update_admin_file_status(
             filename,
             status="ready",
