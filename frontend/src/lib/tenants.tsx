@@ -34,6 +34,8 @@ export const tenantsApi = {
     display_name?: string
     waba_phone_id?: string
     status?: string
+    website?: string
+    auto_scrape?: boolean
   }) => api.post<{ ok: boolean; tenant: Tenant }>('/api/admin/tenants', body),
 
   remove: (id: string) => api.del<{ ok: boolean }>(`/api/admin/tenants/${encodeURIComponent(id)}`),

@@ -64,6 +64,8 @@ class TenantCreate(BaseModel):
     display_name: str = ""
     waba_phone_id: str = ""
     status: str = "active"
+    website: str = ""
+    auto_scrape: bool = True
 
     @field_validator("waba_phone_id")
     @classmethod
@@ -249,6 +251,7 @@ def auto_onboard_execute(
 @router.post("")
 def create_tenant(
     body: TenantCreate,
+    background_tasks: BackgroundTasks,
     current_admin: dict = Depends(require_permission("manage_operations")),
 ):
     if current_admin.get("role") != "super_admin":
@@ -275,6 +278,7 @@ def create_tenant(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
+    website_clean = (body.website or "").strip()
     with get_db_context() as conn:
         if conn.execute("SELECT 1 FROM tenants WHERE id = ?", (tid,)).fetchone():
             raise HTTPException(status_code=409, detail=f"tenant '{tid}' already exists")
@@ -287,6 +291,8 @@ def create_tenant(
             status=body.status,
             conn=conn,
         )
+        if website_clean:
+            conn.execute("UPDATE tenants SET domain = ? WHERE id = ? OR slug = ?", (website_clean, tid, tid))
         record_admin_audit_event(
             conn,
             action="tenant_created",
@@ -294,11 +300,26 @@ def create_tenant(
             resource_type="tenant",
             resource_id=tid,
             tenant_id=tid,
-            details={"vertical": body.vertical, "status": body.status},
+            details={"vertical": body.vertical, "status": body.status, "website": website_clean},
         )
     tenancy_cache.purge(tid)
     logger.info("TENANT_CREATED | tenant=%s | vertical=%s | by=%s",
                 tid, body.vertical, current_admin.get("username"))
+
+    if website_clean and body.auto_scrape and website_clean.startswith("http"):
+        def _bg_crawl(target_tid: str, crawl_url: str, actor: dict):
+            try:
+                from services.url_scraper import UrlAutoOnboarder
+                logger.info("Auto-onboarding background crawler starting for %s at %s", target_tid, crawl_url)
+                onboarder = UrlAutoOnboarder(tenant_id=target_tid, actor=actor)
+                res = onboarder.execute_onboarding(url=crawl_url, target_tenant_id=target_tid, auto_publish=True)
+                logger.info("Auto-onboarding background crawler finished for %s: %s offerings, %s faqs",
+                            target_tid, res.get("offerings_seeded", 0), res.get("faqs_seeded", 0))
+            except Exception as e:
+                logger.error("Auto-onboarding background crawler error for %s: %s", target_tid, e, exc_info=True)
+
+        background_tasks.add_task(_bg_crawl, tid, website_clean, current_admin)
+
     return {"ok": True, "tenant": _public_tenant(tenancy_store.get_tenant(tid))}
 
 
@@ -441,6 +462,9 @@ def save_profile_draft(    tenant_id: str,
     merged = merge_drafts(draft, body.snapshot)
     with get_db_context() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        website = (body.snapshot.get("brand") or {}).get("website") or ""
+        if website:
+            conn.execute("UPDATE tenants SET domain = ? WHERE (id = ? OR slug = ?) AND (domain IS NULL OR domain = '')", (website.strip(), tenant_id, tenant_id))
         if principal.get("type") == "admin":
             audit_details: Dict[str, Any] = {
                 "changed_sections": sorted(body.snapshot.keys()),
@@ -583,6 +607,9 @@ def save_intent_draft(
     merged = deep_merge(draft, {"intents": [override]})
     with get_db_context() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
+        website = (body.snapshot.get("brand") or {}).get("website") or ""
+        if website:
+            conn.execute("UPDATE tenants SET domain = ? WHERE (id = ? OR slug = ?) AND (domain IS NULL OR domain = '')", (website.strip(), tenant_id, tenant_id))
         if principal.get("type") == "admin":
             record_admin_audit_event(
                 conn,

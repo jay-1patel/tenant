@@ -14,7 +14,7 @@ import json
 import os
 import re
 import base64
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import httpx
 
 from ..database import get_db, get_db_context, is_session_open, update_session_outbound
@@ -1448,29 +1448,78 @@ def download_media(media_id: str, mime_type: str = None) -> str:
         return ""
 
 
-def _fetch_all_categories() -> list:
-    """Get all unique categories from products and faq_dataset."""
+def _resolve_tenant_ids(conn, tenant_id: Any) -> tuple:
+    """Return (int_id, str_slug) tuple for SQLite queries."""
+    if not tenant_id:
+        return (None, None)
+    tid_int = None
+    tid_str = str(tenant_id)
+    try:
+        tid_int = int(tenant_id)
+    except (ValueError, TypeError):
+        pass
+    
+    try:
+        if tid_int is not None:
+            row = conn.execute("SELECT slug FROM tenants WHERE id = ?", (tid_int,)).fetchone()
+            if row and row[0]:
+                tid_str = str(row[0])
+        else:
+            row = conn.execute("SELECT id FROM tenants WHERE slug = ?", (tid_str,)).fetchone()
+            if row and row[0]:
+                tid_int = int(row[0])
+    except Exception:
+        pass
+    return (tid_int, tid_str)
+
+
+def _fetch_all_categories(tenant_id: Optional[Any] = None) -> list:
+    """Get all unique categories from products and faq_dataset scoped to tenant."""
     from ..database import get_db_context
     categories = set()
     with get_db_context() as conn:
-        rows = conn.execute("SELECT DISTINCT category FROM products WHERE is_active = 1").fetchall()
-        categories.update(r[0] for r in rows)
-        rows = conn.execute("SELECT DISTINCT category FROM faq_dataset").fetchall()
-        categories.update(r[0] for r in rows)
+        if tenant_id:
+            tid_int, tid_str = _resolve_tenant_ids(conn, tenant_id)
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM products WHERE is_active = 1 AND (tenant_id = ? OR tenant_id = ?)",
+                (tid_int, tid_str)
+            ).fetchall()
+            categories.update(r[0] for r in rows if r[0])
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM faq_dataset WHERE tenant_id = ? OR tenant_id = ?",
+                (tid_int, tid_str)
+            ).fetchall()
+            categories.update(r[0] for r in rows if r[0])
+        else:
+            rows = conn.execute("SELECT DISTINCT category FROM products WHERE is_active = 1").fetchall()
+            categories.update(r[0] for r in rows if r[0])
+            rows = conn.execute("SELECT DISTINCT category FROM faq_dataset").fetchall()
+            categories.update(r[0] for r in rows if r[0])
     return sorted(categories)
 
 
-def _fetch_items_from_category(category: str, limit: int = 10) -> list:
-    """Fetch items from any category across products and faq."""
+def _fetch_items_from_category(category: str, limit: int = 10, tenant_id: Optional[Any] = None) -> list:
+    """Fetch items from any category across products and faq scoped to tenant."""
     from ..database import get_db_context
     items = []
     with get_db_context() as conn:
+        tid_int, tid_str = _resolve_tenant_ids(conn, tenant_id) if tenant_id else (None, None)
+        
         # Check products
-        rows = conn.execute(
-            "SELECT id, name, short_description, price, mrp, moq, media_url "
-            "FROM products WHERE category = ? AND is_active = 1 ORDER BY sort_order ASC LIMIT ?",
-            (category, limit),
-        ).fetchall()
+        if tenant_id and (tid_int is not None or tid_str is not None):
+            rows = conn.execute(
+                "SELECT id, name, short_description, price, mrp, moq, media_url "
+                "FROM products WHERE category = ? AND is_active = 1 AND (tenant_id = ? OR tenant_id = ?) "
+                "ORDER BY sort_order ASC LIMIT ?",
+                (category, tid_int, tid_str, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, short_description, price, mrp, moq, media_url "
+                "FROM products WHERE category = ? AND is_active = 1 ORDER BY sort_order ASC LIMIT ?",
+                (category, limit),
+            ).fetchall()
+            
         for r in rows:
             items.append({
                 "id": f"prod_{r[0]}",
@@ -1482,10 +1531,19 @@ def _fetch_items_from_category(category: str, limit: int = 10) -> list:
             })
 
         # Check FAQ
-        rows = conn.execute(
-            "SELECT id, content, source_file FROM faq_dataset WHERE source_file = ? ORDER BY id LIMIT ?",
-            (category, limit),
-        ).fetchall()
+        if tenant_id and (tid_int is not None or tid_str is not None):
+            rows = conn.execute(
+                "SELECT id, content, source_file FROM faq_dataset "
+                "WHERE (source_file = ? OR category = ?) AND (tenant_id = ? OR tenant_id = ?) "
+                "ORDER BY id LIMIT ?",
+                (category, category, tid_int, tid_str, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, content, source_file FROM faq_dataset WHERE (source_file = ? OR category = ?) ORDER BY id LIMIT ?",
+                (category, category, limit),
+            ).fetchall()
+            
         for r in rows:
             items.append({
                 "id": f"faq_{r[0]}",
@@ -1497,16 +1555,24 @@ def _fetch_items_from_category(category: str, limit: int = 10) -> list:
     return items
 
 
-def _fetch_faq_by_keyword(keyword: str, limit: int = 5) -> list:
-    """Search FAQ dataset for keyword matches."""
+def _fetch_faq_by_keyword(keyword: str, limit: int = 5, tenant_id: Optional[Any] = None) -> list:
+    """Search FAQ dataset for keyword matches scoped to tenant."""
     from ..database import get_db_context
     results = []
     with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, content, source_file FROM faq_dataset "
-            "WHERE content LIKE ? LIMIT ?",
-            (f"%{keyword}%", limit),
-        ).fetchall()
+        tid_int, tid_str = _resolve_tenant_ids(conn, tenant_id) if tenant_id else (None, None)
+        if tenant_id and (tid_int is not None or tid_str is not None):
+            rows = conn.execute(
+                "SELECT id, content, source_file FROM faq_dataset "
+                "WHERE content LIKE ? AND (tenant_id = ? OR tenant_id = ?) LIMIT ?",
+                (f"%{keyword}%", tid_int, tid_str, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, content, source_file FROM faq_dataset "
+                "WHERE content LIKE ? LIMIT ?",
+                (f"%{keyword}%", limit),
+            ).fetchall()
         for r in rows:
             results.append({
                 "id": f"faq_{r[0]}",
@@ -1518,15 +1584,25 @@ def _fetch_faq_by_keyword(keyword: str, limit: int = 5) -> list:
     return results
 
 
-def _fetch_banner_images() -> list:
-    """Get banner images from products with category='banner'."""
+def _fetch_banner_images(tenant_id: Optional[Any] = None) -> list:
+    """Get banner images from products with category='banner' scoped to tenant."""
     from ..database import get_db_context
     with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, name, media_url, media_type FROM products "
-            "WHERE category = 'banner' AND is_active = 1 AND media_url IS NOT NULL "
-            "ORDER BY sort_order ASC LIMIT 3"
-        ).fetchall()
+        tid_int, tid_str = _resolve_tenant_ids(conn, tenant_id) if tenant_id else (None, None)
+        if tenant_id and (tid_int is not None or tid_str is not None):
+            rows = conn.execute(
+                "SELECT id, name, media_url, media_type FROM products "
+                "WHERE category = 'banner' AND is_active = 1 AND media_url IS NOT NULL "
+                "AND (tenant_id = ? OR tenant_id = ?) "
+                "ORDER BY sort_order ASC LIMIT 3",
+                (tid_int, tid_str),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, media_url, media_type FROM products "
+                "WHERE category = 'banner' AND is_active = 1 AND media_url IS NOT NULL "
+                "ORDER BY sort_order ASC LIMIT 3"
+            ).fetchall()
     return [{"id": r[0], "name": r[1], "url": r[2], "media_type": r[3]} for r in rows]
 
 
@@ -1633,22 +1709,82 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     return False
 
 
-def send_menu(to: str) -> bool:
+def send_menu(to: str, tenant_id: Optional[Any] = None) -> bool:
     from ..database import list_products as _list_products, get_db_context
+    from shared.tenancy.resolver import resolve_tenant_for_user
+    from shared.tenancy.loader import get_tenant_profile
 
-    banner_imgs = _fetch_banner_images()
+    tid = str(tenant_id or resolve_tenant_for_user(to) or "")
+    
+    # 1. Profile-driven dynamic menu
+    if tid:
+        try:
+            profile = get_tenant_profile(tid)
+            if profile and getattr(profile, "menu", None) and getattr(profile.menu, "buttons", None):
+                visible = list(profile.menu.visible_buttons(profile.features))
+                if visible:
+                    header = profile.menu.header or (profile.brand.name if profile.brand else "Welcome")
+                    body = profile.menu.body or f"Welcome to {header}! How may we assist you today?"
+                    footer = profile.menu.footer or "Select an option below"
+                    btn_text = profile.menu.button_text or "Select Option"
+
+                    # If <= 3 buttons, render WhatsApp Quick Reply buttons
+                    if len(visible) <= 3:
+                        buttons = [
+                            {"type": "reply", "reply": {"id": b.id, "title": b.title[:20]}}
+                            for b in visible
+                        ]
+                        return send_interactive_buttons(
+                            to=to,
+                            header_text=header[:60],
+                            body_text=body[:1024],
+                            buttons=buttons,
+                            footer_text=footer[:60],
+                        )
+                    else:
+                        # > 3 buttons, render WhatsApp Interactive List drawer
+                        sections_dict = {}
+                        for b in visible[:10]:
+                            sec = b.section or "Options"
+                            sections_dict.setdefault(sec, []).append({
+                                "id": b.id,
+                                "title": b.title[:24],
+                                "description": (b.description or "")[:72],
+                            })
+                        sections = [{"title": s_title[:24], "rows": rows} for s_title, rows in sections_dict.items()]
+                        return send_interactive_list(
+                            to=to,
+                            header_text=header[:60],
+                            body_text=body[:1024],
+                            button_text=btn_text[:20],
+                            sections=sections,
+                            footer_text=footer[:60],
+                        )
+        except Exception as e:
+            logger.warning("Profile menu rendering failed for tenant %s: %s", tid, e)
+
+    # 2. Scoped fallback if no profile exists
+    banner_imgs = _fetch_banner_images(tenant_id=tid)
     if banner_imgs and banner_imgs[0].get("url"):
         send_image(to, banner_imgs[0]["url"])
 
     buttons = []
-    categories = _fetch_all_categories()
+    categories = _fetch_all_categories(tenant_id=tid)
 
     with get_db_context() as conn:
-        has_catalogue = conn.execute(
-            "SELECT id FROM products WHERE category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 LIMIT 1"
-        ).fetchone()
+        tid_int, tid_str = _resolve_tenant_ids(conn, tid) if tid else (None, None)
+        if tid and (tid_int is not None or tid_str is not None):
+            has_catalogue = conn.execute(
+                "SELECT id FROM products WHERE category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 "
+                "AND (tenant_id = ? OR tenant_id = ?) LIMIT 1",
+                (tid_int, tid_str)
+            ).fetchone()
+        else:
+            has_catalogue = conn.execute(
+                "SELECT id FROM products WHERE category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 LIMIT 1"
+            ).fetchone()
 
-    has_products = bool(_list_products(limit=1))
+    has_products = bool(_list_products(limit=1, tenant_id=tid_int if tid_int is not None else None))
 
     if has_catalogue:
         buttons.append({"type": "reply", "reply": {"id": "menu_catalogue", "title": "Brochure"}})

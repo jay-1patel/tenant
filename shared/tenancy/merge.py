@@ -30,7 +30,6 @@ from typing import Any, Dict, List, Mapping
 KEYED_PATHS: Dict[tuple, str] = {
     ("flows",): "name",
     ("intents",): "name",
-    ("menu", "buttons"): "id",
 }
 
 REMOVE_KEY = "__remove__"
@@ -48,6 +47,8 @@ def deep_merge(base: Any, override: Any, path: tuple = ()) -> Any:
                 out[key] = _copy(val, child_path)
         return out
     if isinstance(base, list) and isinstance(override, list):
+        if path == ("menu", "buttons"):
+            return _merge_menu_buttons(base, override, path)
         key_field = KEYED_PATHS.get(path)
         if key_field and _is_named(base, key_field) and _is_named(override, key_field):
             return _merge_named(base, override, key_field, path)
@@ -56,6 +57,34 @@ def deep_merge(base: Any, override: Any, path: tuple = ()) -> Any:
     if override is None:
         return _copy(base, path)
     return _copy(override, path)
+
+
+def _merge_menu_buttons(base: List[Any], override: List[Any], path: tuple) -> List[Any]:
+    """Menu buttons merge: override defines the exact buttons to show.
+    
+    If an override button matches a base button by ID, it inherits default
+    properties (title, icon, etc.) from base if not provided. Unreferenced
+    base buttons from vertical defaults are NOT included.
+    """
+    base_by_id = {}
+    for item in base:
+        if isinstance(item, Mapping) and item.get("id"):
+            base_by_id[str(item.get("id"))] = item
+
+    out = []
+    for item in override:
+        if not isinstance(item, Mapping):
+            out.append(item)
+            continue
+        if item.get(REMOVE_KEY):
+            continue
+        btn_id = str(item.get("id", ""))
+        if btn_id and btn_id in base_by_id:
+            merged_btn = deep_merge(base_by_id[btn_id], item, path)
+            out.append(_strip_remove(merged_btn))
+        else:
+            out.append(_strip_remove(item))
+    return out
 
 
 def _is_named(items: List[Any], key_field: str) -> bool:
@@ -130,6 +159,8 @@ def merge_drafts(base: Any, override: Any, path: tuple = ()) -> Any:
                 out[key] = _copy(val, child_path)
         return out
     if isinstance(base, list) and isinstance(override, list):
+        if path == ("menu", "buttons"):
+            return _merge_menu_buttons_drafts(base, override, path)
         key_field = KEYED_PATHS.get(path)
         if key_field and _is_named(base, key_field) and _is_named(override, key_field):
             return _merge_named_drafts(base, override, key_field, path)
@@ -138,6 +169,27 @@ def merge_drafts(base: Any, override: Any, path: tuple = ()) -> Any:
     if override is None:
         return _copy(base)
     return _copy(override)
+
+
+def _merge_menu_buttons_drafts(base: List[Any], override: List[Any], path: tuple) -> List[Any]:
+    """Menu buttons draft merge: preserve the exact override list, inheriting base fields."""
+    base_by_id = {}
+    for item in base:
+        if isinstance(item, Mapping) and item.get("id"):
+            base_by_id[str(item.get("id"))] = item
+
+    out = []
+    for item in override:
+        if not isinstance(item, Mapping):
+            out.append(item)
+            continue
+        btn_id = str(item.get("id", ""))
+        if btn_id and btn_id in base_by_id:
+            merged_btn = merge_drafts(base_by_id[btn_id], item, path)
+            out.append(merged_btn)
+        else:
+            out.append(dict(item))
+    return out
 
 
 def _merge_named_drafts(base: List[Any], override: List[Any], key_field: str, path: tuple) -> List[Any]:
@@ -185,9 +237,14 @@ def prune_nulls(payload: Mapping[str, Any]) -> Dict[str, Any]:
 
 def _copy(value: Any, path: tuple = ()) -> Any:
     if isinstance(value, Mapping):
-        return {k: _copy(v, path + (k,)) for k, v in value.items()}
+        return {k: _copy(v, path + (k,)) for k, v in value.items() if k != REMOVE_KEY}
     if isinstance(value, list):
-        return [_copy(v, path) for v in value]
+        items = []
+        for v in value:
+            if isinstance(v, Mapping) and v.get(REMOVE_KEY):
+                continue
+            items.append(_copy(v, path))
+        return items
     return value
 
 

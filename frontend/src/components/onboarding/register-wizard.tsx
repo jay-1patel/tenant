@@ -106,16 +106,18 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
     vertical: string
   } | null>(null)
 
-  const handleAutoExtract = async () => {
-    if (!crawlUrl.trim()) {
+  const handleAutoExtract = async (targetUrl?: string) => {
+    const url = (targetUrl || crawlUrl || draft.website || '').trim()
+    if (!url) {
       toast.push('Please enter a website URL (e.g. https://example.com)', 'error')
       return
     }
     setCrawling(true)
     setCrawlSummary(null)
+    setCrawlUrl(url)
     try {
-      toast.push(`Crawling website ${crawlUrl}...`)
-      const res = await tenantsApi.autoOnboardPreview(crawlUrl.trim(), draft.tenantId || undefined)
+      toast.push(`Crawling website ${url}...`)
+      const res = await tenantsApi.autoOnboardPreview(url, draft.tenantId || undefined)
       if (res && res.extracted) {
         const ext = res.extracted
         const b = ext.brand || {}
@@ -211,6 +213,8 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
           vertical: draft.vertical,
           display_name: draft.displayName || draft.companyName,
           status: 'active',
+          website: draft.website?.trim() || '',
+          auto_scrape: true,
         }),
       )
       if (!created) return
@@ -219,7 +223,13 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
       const saved = await action.run(() => tenantsApi.saveDraft(id, draftToSnapshot(draft)))
       if (!saved) return
 
-      toast.push(`${draft.companyName} registered. An admin can now complete it from WhatsApp onwards.`)
+      if (draft.website?.trim() && draft.website.trim().startsWith('http')) {
+        tenantsApi.scrapeWebsite(id, draft.website.trim(), true).catch((e) => {
+          console.warn('Background website crawl error:', e)
+        })
+      }
+
+      toast.push(`${draft.companyName} registered. Auto-crawl and catalog ingestion initiated.`)
       reload()
       navigate(`/tenants/${encodeURIComponent(id)}/overview`)
       return
@@ -238,6 +248,13 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
       toast.push('Draft has validation warnings — review them before submitting.', 'error')
       return
     }
+
+    if (draft.website?.trim() && draft.website.trim().startsWith('http')) {
+      tenantsApi.scrapeWebsite(id, draft.website.trim(), true).catch((e) => {
+        console.warn('Background website crawl error:', e)
+      })
+    }
+
     const submitted = await action.run(() => tenantApprovalsApi.submitPublish(id))
     if (!submitted) return
     toast.push(`${draft.companyName} submitted — a super admin must approve it before it goes live.`)
@@ -291,7 +308,7 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
                   variant="secondary"
                   size="sm"
                   loading={crawling}
-                  onClick={handleAutoExtract}
+                  onClick={() => handleAutoExtract()}
                   icon={<Sparkles className="h-3.5 w-3.5 text-accent-400" />}
                 >
                   Auto-Fill Form
@@ -353,7 +370,14 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
 
       <Card>
         {stepId === 'tenant' && <TenantStep draft={draft} tenants={tenants} onPick={pickTenant} />}
-        {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
+        {stepId === 'company' && (
+          <CompanyStep
+            draft={draft}
+            patch={patch}
+            onAutoCrawl={handleAutoExtract}
+            crawling={crawling}
+          />
+        )}
         {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
         {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
         {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
@@ -567,7 +591,7 @@ function LogoField({ logoUrl, onChange }: { logoUrl: string; onChange: (url: str
   )
 }
 
-function CompanyStep({ draft, patch }: StepProps) {
+function CompanyStep({ draft, patch, onAutoCrawl, crawling }: StepProps) {
   return (
     <StepShell
       title="Who is this tenant?"
@@ -595,12 +619,27 @@ function CompanyStep({ draft, patch }: StepProps) {
           onChange={(e) => patch({ displayName: e.target.value })}
           placeholder={draft.companyName || 'Shown in menus'}
         />
-        <Input
-          label="Website"
-          value={draft.website}
-          onChange={(e) => patch({ website: e.target.value })}
-          placeholder="https://example.com"
-        />
+        <div className="space-y-1.5">
+          <Input
+            label="Website"
+            value={draft.website}
+            onChange={(e) => patch({ website: e.target.value })}
+            placeholder="https://example.com"
+          />
+          {draft.website && draft.website.trim().startsWith('http') && onAutoCrawl && (
+            <div className="pt-0.5">
+              <button
+                type="button"
+                disabled={crawling}
+                onClick={() => onAutoCrawl(draft.website)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent-400 hover:text-accent-300 transition-colors disabled:opacity-50"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>{crawling ? 'Crawling website...' : '⚡ Auto-extract company details, offerings & FAQs from this URL'}</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div>
@@ -1117,6 +1156,8 @@ function ReviewStep({
 interface StepProps {
   draft: WizardDraft
   patch: (values: Partial<WizardDraft>) => void
+  onAutoCrawl?: (url: string) => Promise<void>
+  crawling?: boolean
 }
 
 function answerValue(draft: WizardDraft, key: string): string {
