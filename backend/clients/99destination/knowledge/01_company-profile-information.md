@@ -1,0 +1,58 @@
+# 99Destination\n\nQ1. What is the total cost per person, and what does it cover?
+A. ₹18,500 per person on twin sharing. It covers hotel, breakfast and dinner, AC transport, sightseeing, and a guide. Flights or train tickets are not included.
+
+Q2. Are there any hidden charges?
+A. No hidden fees. GST at 5% is added to the final invoice. Entry tickets for water sports and the cruise are extra, about ₹1,500 to ₹2,000.
+
+Q3. Is there a discount for groups, children, or senior citizens?
+A. Children under 5 travel free without a bed, and ages 5 to 11 get 15% off. Groups of 8 or more get 10% off.
+
+Q4. What is the payment schedule, and which payment methods do you accept?
+A. 30% at booking, 50% 15 days before departure, and the balance 3 days before. We accept UPI, bank transfer, and credit or debit cards.
+
+Itinerary and logistics
+
+Q5. Can I see the day-by-day itinerary in writing?
+A. Yes. A day-by-day PDF goes out on WhatsApp and email within 2 hours of your inquiry.
+
+Q6. How much free time is there, and can the plan be customized?
+A. Days 3 and 5 are mostly free. We can swap sightseeing stops for a small fee.
+
+Q7. What kind of transport is used?
+A. A private AC Ertiga or Innova for families, or a 12-seater Tempo Traveller for larger groups. Daily driving is under 3 hours.
+
+Q8. How large is the group, and will I travel with other customers?
+A. Private departures only. You travel with your own group, not strangers.
+
+Accommodation and food
+
+Q9. Which hotels will I stay in?
+A. Hotel Palm Breeze, a 3-star property 10 minutes from Calangute Beach. You can upgrade to a 4-star resort for ₹3,500 more per person.
+
+Q10. Is the room single, double, or shared?
+A. Double or twin rooms. A single supplement is ₹6,000 for the whole trip.
+
+Q11. Which meals are included, and can you handle dietary needs?
+A. Breakfast and dinner are included. We can arrange vegetarian, Jain, and allergy-friendly meals if you tell us at least 7 days ahead.
+
+Cancellations and changes
+
+Q12. What is the cancellation and refund policy?
+A. 100% refund minus ₹1,000 if you cancel 30 or more days before departure. 50% refund for 15 to 29 days before. No refund within 14 days.
+
+Q13. What happens if the trip is disrupted by weather, strikes, or delays?
+A. If we cancel due to weather or strikes, you get a full refund or free rescheduling within 6 months.
+
+Q14. Can I change dates or names after booking?
+A. Date changes are free up to 20 days before departure. Name changes cost ₹500 per person.
+
+Trust and safety
+
+Q15. Are you a registered agency, and how long have you operated?
+A. Yes. We’re a registered company with a GST number and an IATA-accredited partner, operating since 2014.
+
+Q16. Can I read reviews or speak to past customers?
+A. Our Google rating is 4.6 from about 1,200 reviews. We can connect you with two recent customers on request.
+
+Q17. Who do I contact if something goes wrong, and is there 24/7 support?
+A. A 24/7 helpline is printed on your voucher. Your trip coordinator, Rahul, is reachable on WhatsApp duri
