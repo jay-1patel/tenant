@@ -205,70 +205,163 @@ Analyze, classify, and bifurcate all content on this page into the 5 categories 
     return system_prompt, user_prompt
 
 
-async def call_bifurcation_llm(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-    import httpx
+def _load_llm_config():
     try:
         from routing import config
-        api_url = getattr(config, "GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-        api_key = getattr(config, "GROQ_API_KEY", "")
-        model = getattr(config, "GROQ_MODEL", "openai/gpt-oss-20b")
+        return config
     except Exception:
-        api_url = os.environ.get("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-        api_key = os.environ.get("GROQ_API_KEY", "")
-        model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+        return None
 
-    if not api_key:
-        logger.warning("No LLM API key available for bifurcation.")
-        return {}
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 4096,
-        "response_format": {"type": "json_object"},
-    }
+def _provider_specs(system_prompt: str, user_prompt: str) -> List[Dict[str, Any]]:
+    """Ordered LLM providers: local Ollama first, then hosted fallbacks."""
+    cfg = _load_llm_config()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    specs: List[Dict[str, Any]] = []
 
-    raw_text = ""
+    # 1. Local Ollama (no API key, no hardcoded classification rules)
+    ollama_url = (
+        os.environ.get("OLLAMA_API_URL")
+        or getattr(cfg, "OLLAMA_API_URL", None)
+    )
+    if not ollama_url:
+        ollama_base = (
+            os.environ.get("OLLAMA_BASE_URL")
+            or getattr(cfg, "OLLAMA_BASE_URL", None)
+            or "http://localhost:11434"
+        ).rstrip("/")
+        ollama_url = f"{ollama_base}/api/chat"
+    ollama_model = (
+        os.environ.get("OLLAMA_MODEL")
+        or getattr(cfg, "OLLAMA_MODEL", None)
+        or "qwen3:8b"
+    )
+    specs.append({
+        "name": "ollama",
+        "url": ollama_url,
+        "headers": {},
+        "timeout": float(os.environ.get("OLLAMA_TIMEOUT", 180)),
+        "payload": {
+            "model": ollama_model,
+            "messages": messages,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1, "num_ctx": 8192},
+        },
+    })
+
+    # 2. Groq (optional)
+    groq_key = os.environ.get("GROQ_API_KEY") or getattr(cfg, "GROQ_API_KEY", None)
+    if groq_key:
+        groq_url = (
+            os.environ.get("GROQ_API_URL")
+            or getattr(cfg, "GROQ_API_URL", None)
+            or "https://api.groq.com/openai/v1/chat/completions"
+        )
+        groq_model = (
+            os.environ.get("GROQ_MODEL")
+            or getattr(cfg, "GROQ_MODEL", None)
+            or "openai/gpt-oss-20b"
+        )
+        specs.append({
+            "name": "groq",
+            "url": groq_url,
+            "headers": {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            "timeout": 45.0,
+            "payload": {
+                "model": groq_model,
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 4096,
+                "response_format": {"type": "json_object"},
+            },
+        })
+
+    # 3. Mistral (optional)
+    mistral_key = os.environ.get("MISTRAL_API_KEY") or getattr(cfg, "MISTRAL_API_KEY", None)
+    if mistral_key:
+        mistral_url = (
+            os.environ.get("MISTRAL_API_URL")
+            or getattr(cfg, "MISTRAL_API_URL", None)
+            or "https://api.mistral.ai/v1/chat/completions"
+        )
+        mistral_model = (
+            os.environ.get("MISTRAL_MODEL")
+            or getattr(cfg, "MISTRAL_MODEL", None)
+            or "open-mistral-7b"
+        )
+        specs.append({
+            "name": "mistral",
+            "url": mistral_url,
+            "headers": {"Authorization": f"Bearer {mistral_key}", "Content-Type": "application/json"},
+            "timeout": 45.0,
+            "payload": {
+                "model": mistral_model,
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 4096,
+            },
+        })
+
+    return specs
+
+
+def _extract_content(data: Dict[str, Any]) -> str:
+    """Normalize Ollama (/api/chat) and OpenAI-compatible response bodies."""
+    message = data.get("message")
+    if isinstance(message, dict):
+        return message.get("content") or ""
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(api_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            raw_text = data["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.warning(f"Bifurcation JSON mode failed: {e}. Retrying standard...")
-        try:
-            payload.pop("response_format", None)
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                resp = await client.post(api_url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                raw_text = data["choices"][0]["message"]["content"]
-        except Exception as retry_err:
-            logger.error(f"Bifurcation LLM failed: {retry_err}")
-            return {}
+        return data["choices"][0]["message"]["content"] or ""
+    except Exception:
+        return ""
 
+
+def _parse_json_payload(raw_text: str) -> Optional[Dict[str, Any]]:
     if not raw_text:
-        return {}
-
+        return None
     cleaned = re.sub(r"^```(?:json)?\s*", "", raw_text.strip(), flags=re.MULTILINE)
     cleaned = re.sub(r"\s*```$", "", cleaned, flags=re.MULTILINE).strip()
-
     try:
         parsed = json.loads(cleaned)
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception as parse_err:
-        logger.error(f"Failed to parse bifurcation JSON: {parse_err}. Raw text:\n{raw_text[:400]}")
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+                return parsed if isinstance(parsed, dict) else None
+            except Exception:
+                pass
+    logger.error("Failed to parse bifurcation JSON. Raw text:\n%s", raw_text[:400])
+    return None
 
+
+async def call_bifurcation_llm(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        for spec in _provider_specs(system_prompt, user_prompt):
+            try:
+                resp = await client.post(
+                    spec["url"],
+                    json=spec["payload"],
+                    headers=spec["headers"],
+                    timeout=spec["timeout"],
+                )
+                resp.raise_for_status()
+                parsed = _parse_json_payload(_extract_content(resp.json()))
+                if parsed:
+                    logger.info("BIFURCATION_LLM_SUCCESS | provider=%s", spec["name"])
+                    return parsed
+                logger.warning("Bifurcation LLM (%s) returned no usable JSON.", spec["name"])
+            except Exception as exc:
+                logger.warning("Bifurcation LLM (%s) failed: %s", spec["name"], exc)
+
+    logger.error("Bifurcation LLM unavailable: no provider returned valid JSON.")
     return {}
 
 
@@ -483,6 +576,24 @@ async def bifurcate_and_ingest_pdf(
                     merged_business_info[k] = str(v).strip()
 
     doc.close()
+
+    if not (
+        all_staged_products
+        or all_faqs
+        or all_kb_chunks
+        or all_menu_suggestions
+        or merged_business_info
+    ):
+        logger.error("Bifurcation produced no output for %s (LLM unreachable or no extractable text).", filename)
+        return {
+            "success": False,
+            "filename": filename,
+            "brochure_url": brochure_url,
+            "error": (
+                "Bifurcation produced no output: no LLM provider "
+                "(Ollama/Groq/Mistral) returned valid JSON, or the document had no extractable text."
+            ),
+        }
 
     # Trigger background index rebuild if new FAQs were added
     if all_faqs:
